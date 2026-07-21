@@ -1,0 +1,32 @@
+# Visual Studio / .NET
+.vs/
+**/bin/
+**/obj/
+*.user
+*.suo
+
+# Node / Vite
+web/node_modules/
+web/dist/
+web/.vite/
+web/src/**/*.js
+web/*.js
+*.tsbuildinfo
+
+# Local tooling
+.agents/
+.codex/
+
+# Secrets and local overrides
+.env
+.env.*
+!.env.example
+appsettings.Local.json
+**/appsettings.Local.json
+
+# Operating system
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log

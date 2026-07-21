@@ -1,0 +1,12 @@
+<script setup lang="ts">
+import { ref, onMounted } from 'vue'
+import { Trash2 } from 'lucide-vue-next'
+import { http } from '@/shared/api/httpClient'
+const items=ref<any[]>([]),show=ref(false),error=ref('')
+const form=ref({nombre:'',apellido:'',telefono:'',correo:'',localidad:'',provincia:'',tipo:'Particular',fechaPrimerContacto:new Date().toISOString().slice(0,10),observaciones:''})
+async function load(){items.value=(await http.get('/clientes?pageSize=100')).data.items}
+async function save(){try{await http.post('/clientes',form.value);show.value=false;await load()}catch(e:any){error.value=e.response?.data?.detail??'No se pudo guardar el cliente.'}}
+async function remove(c:any){if(!confirm(`¿Eliminar a ${c.nombreCompleto}?`))return;try{await http.delete(`/clientes/${c.id}`);await load()}catch(e:any){alert(e.response?.data?.message??'No se pudo eliminar el cliente.')}}
+onMounted(load)
+</script>
+<template><section class="page"><div class="page-title"><div><h2>Clientes</h2><p>Personas y organizaciones con las que trabajás.</p></div><button class="btn" @click="show=true">+ Nuevo cliente</button></div><div class="panel"><table><thead><tr><th>Nombre</th><th>Tipo</th><th>Contacto</th><th>Ubicación</th><th></th></tr></thead><tbody><tr v-for="c in items" :key="c.id"><td><b>{{c.nombreCompleto}}</b></td><td><span class="badge">{{c.tipo}}</span></td><td>{{c.telefono}}<br><small>{{c.correo}}</small></td><td>{{c.localidad}}, {{c.provincia}}</td><td><button class="icon-btn danger" title="Eliminar cliente" @click="remove(c)"><Trash2/></button></td></tr></tbody></table><div v-if="!items.length" class="empty">Agregá tu primer cliente para comenzar.</div></div><div v-if="show" class="modal-bg"><form class="modal" @submit.prevent="save"><h3>Nuevo cliente</h3><p v-if="error" class="error">{{error}}</p><div class="form-grid"><div v-for="key in ['nombre','apellido','telefono','correo','localidad','provincia']" :key="key" class="field"><label>{{key}}</label><input v-model="(form as any)[key]" :required="key!=='correo'"></div><div class="field"><label>Tipo</label><select v-model="form.tipo"><option v-for="t in ['Particular','Club','Empresa','Constructor','Revendedor','Otro']">{{t}}</option></select></div><div class="field"><label>Primer contacto</label><input v-model="form.fechaPrimerContacto" type="date"></div></div><div class="actions"><button type="button" class="btn secondary" @click="show=false">Cancelar</button><button class="btn">Guardar cliente</button></div></form></div></section></template>

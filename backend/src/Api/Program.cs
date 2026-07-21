@@ -1,0 +1,48 @@
+using System.Text.Json.Serialization;
+using Api.Features.Caja;
+using Api.Features.Auth;
+using Api.Features.Auditoria;
+using Api.Features.Clientes;
+using Api.Features.Cuotas;
+using Api.Features.Maestros;
+using Api.Features.Rentabilidad;
+using Api.Features.Ventas;
+using Api.Shared.Behaviors;
+using Api.Shared.Database;
+using FluentValidation;
+using MediatR;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Identity;
+
+var builder = WebApplication.CreateBuilder(args);
+builder.Services.ConfigureHttpJsonOptions(o => o.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
+builder.Services.AddDbContext<AppDbContext>(o => o.UseSqlServer(builder.Configuration.GetConnectionString("Default")));
+builder.Services.AddMediatR(c => c.RegisterServicesFromAssemblyContaining<Program>());
+builder.Services.AddTransient(typeof(IPipelineBehavior<,>), typeof(ValidationBehavior<,>));
+builder.Services.AddValidatorsFromAssemblyContaining<Program>();
+builder.Services.AddOpenApi();
+builder.Services.AddProblemDetails();
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<IPasswordHasher<Usuario>,PasswordHasher<Usuario>>();
+builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme).AddCookie(o=>{o.Cookie.Name="sportlink.session";o.Cookie.HttpOnly=true;o.Cookie.SameSite=SameSiteMode.Lax;o.Events.OnRedirectToLogin=c=>{c.Response.StatusCode=401;return Task.CompletedTask;};o.Events.OnRedirectToAccessDenied=c=>{c.Response.StatusCode=403;return Task.CompletedTask;};});
+builder.Services.AddAuthorization(o=>{o.FallbackPolicy=new Microsoft.AspNetCore.Authorization.AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build();o.AddPolicy("Administrador",p=>p.RequireRole("Administrador"));});
+builder.Services.AddCors(o => o.AddDefaultPolicy(p => p.WithOrigins(builder.Configuration.GetSection("AllowedOrigins").Get<string[]>() ?? ["http://localhost:5173"]).AllowAnyHeader().AllowAnyMethod()));
+
+var app = builder.Build();
+app.UseExceptionHandler();
+app.UseCors();
+app.UseAuthentication();app.UseAuthorization();
+if (app.Environment.IsDevelopment()) app.MapOpenApi();
+app.MapGet("/api/health", () => Results.Ok(new { status = "ok" })).AllowAnonymous();
+app.MapAuthEndpoints();
+app.MapAuditoriaEndpoints();
+app.MapClienteEndpoints();
+app.MapVentaEndpoints();
+app.MapCuotaEndpoints();
+app.MapCajaEndpoints();
+app.MapRentabilidadEndpoints();
+app.MapMaestroEndpoints();
+await SeedData.InitializeAsync(app.Services);
+app.Run();
+public partial class Program { }

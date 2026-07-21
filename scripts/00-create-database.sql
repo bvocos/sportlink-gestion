@@ -1,0 +1,11 @@
+USE [master];
+GO
+
+IF DB_ID(N'CespedVentas') IS NULL
+BEGIN
+    CREATE DATABASE [CespedVentas];
+END;
+GO
+
+ALTER DATABASE [CespedVentas] SET RECOVERY SIMPLE;
+GO
