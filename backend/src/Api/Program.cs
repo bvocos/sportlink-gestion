@@ -70,6 +70,13 @@ builder.Services.AddCors(o => o.AddDefaultPolicy(p => p.WithOrigins(builder.Conf
 
 var app = builder.Build();
 app.UseExceptionHandler();
+if (!app.Environment.IsDevelopment())
+{
+    app.UseHsts();
+    app.UseHttpsRedirection();
+}
+app.UseDefaultFiles();
+app.UseStaticFiles();
 app.UseCors();
 app.UseRateLimiter();
 app.UseAuthentication();
@@ -106,6 +113,7 @@ app.MapCajaEndpoints();
 app.MapRentabilidadEndpoints();
 app.MapMaestroEndpoints();
 app.MapGeografiaEndpoints();
+app.MapFallbackToFile("index.html").AllowAnonymous();
 await SeedData.InitializeAsync(app.Services);
 app.Run();
 public partial class Program { }

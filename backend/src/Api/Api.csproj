@@ -4,6 +4,7 @@
     <TargetFramework>net9.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <SpaRoot>..\..\..\web\</SpaRoot>
   </PropertyGroup>
 
   <ItemGroup>
@@ -17,5 +18,19 @@
   <ItemGroup>
     <InternalsVisibleTo Include="Api.Tests" />
   </ItemGroup>
+
+  <Target Name="PublishVue" BeforeTargets="ComputeFilesToPublish">
+    <Exec WorkingDirectory="$(SpaRoot)" Command="npm ci"
+          Condition="'$(CI)' == 'true' Or !Exists('$(SpaRoot)node_modules')" />
+    <Exec WorkingDirectory="$(SpaRoot)" Command="npm run build" />
+    <ItemGroup>
+      <VueDist Include="$(SpaRoot)dist\**" />
+      <ResolvedFileToPublish Include="@(VueDist->'%(FullPath)')" Exclude="@(ResolvedFileToPublish)">
+        <RelativePath>wwwroot\%(RecursiveDir)%(Filename)%(Extension)</RelativePath>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+        <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+      </ResolvedFileToPublish>
+    </ItemGroup>
+  </Target>
 
 </Project>
