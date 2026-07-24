@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, watch } from "vue";
+import { ref, onMounted, watch, computed } from "vue";
 import { Pencil, Trash2 } from "lucide-vue-next";
 import { http } from "@/shared/api/httpClient";
 import ClienteAutocomplete from "@/shared/components/ClienteAutocomplete.vue";
@@ -10,13 +10,15 @@ const items = ref<any[]>([]),
   maestros = ref<any>({ tiposCesped: [], alicuotasIva: [] }),
   show = ref(false),
   error = ref(""),
-  editingId = ref<string | null>(null);
+  editingId = ref<string | null>(null),
+  totalEdited = ref(false);
 const blank = () => ({
   clienteId: "",
   fechaVenta: new Date().toISOString().slice(0, 10),
   tipoCespedId: "",
   cantidadM2: 1,
   precioUnitario: 0,
+  precioTotal: 0,
   montoEntrega: 0,
   formaPago: "Contado",
   cantidadCuotas: null as number | null,
@@ -29,6 +31,23 @@ const blank = () => ({
   alicuotaIvaId: "",
 });
 const form = ref(blank());
+const calculatedTotal = computed(() =>
+  Math.round(
+    (Number(form.value.cantidadM2) || 0) *
+      (Number(form.value.precioUnitario) || 0) *
+      100,
+  ) / 100
+);
+function useCalculatedTotal() {
+  form.value.precioTotal = calculatedTotal.value;
+  totalEdited.value = false;
+}
+watch(
+  () => [form.value.cantidadM2, form.value.precioUnitario],
+  () => {
+    if (!totalEdited.value) form.value.precioTotal = calculatedTotal.value;
+  },
+);
 async function load() {
   const [v, c, m] = await Promise.all([
     http.get("/ventas?pageSize=100"),
@@ -44,6 +63,7 @@ watch(()=>form.value.tipoCespedId,(id)=>{if(editingId.value)return;const t=maest
 function openNew() {
   editingId.value = null;
   form.value = blank();
+  totalEdited.value = false;
   error.value = "";
   show.value = true;
 }
@@ -55,6 +75,7 @@ function edit(v: any) {
     tipoCespedId: v.tipoCespedId,
     cantidadM2: v.cantidadM2,
     precioUnitario: v.precioUnitario,
+    precioTotal: v.precioTotal,
     montoEntrega: v.montoEntrega ?? 0,
     formaPago: v.formaPago,
     cantidadCuotas: v.cantidadCuotas,
@@ -66,6 +87,7 @@ function edit(v: any) {
     otrosCostos: v.otrosCostos,
     alicuotaIvaId: v.alicuotaIvaId,
   };
+  totalEdited.value = true;
   error.value = "";
   show.value = true;
 }
@@ -211,12 +233,33 @@ onMounted(load);
             />
           </div>
           <div class="field highlight-field">
+            <label>Importe final de la venta</label
+            ><input
+              v-model.number="form.precioTotal"
+              type="number"
+              min="0.01"
+              step="0.01"
+              required
+              @input="totalEdited = true"
+            /><small>
+              Cálculo por m²: {{ money(calculatedTotal) }}
+              <button
+                v-if="form.precioTotal !== calculatedTotal"
+                type="button"
+                class="link-button"
+                @click="useCalculatedTotal"
+              >
+                Usar cálculo
+              </button>
+            </small>
+          </div>
+          <div class="field highlight-field">
             <label>Monto de entrega inicial</label
             ><input
               v-model.number="form.montoEntrega"
               type="number"
               min="0.01"
-              :max="form.precioUnitario * form.cantidadM2"
+              :max="form.precioTotal"
               step="0.01"
               required
             /><small>Se registra automáticamente como ingreso en Caja.</small>
