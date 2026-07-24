@@ -6,8 +6,12 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Api.Features.Clientes;
 
-public record CrearClienteCommand(string Nombre, string Apellido, string Telefono, string? Correo, string Localidad, string Provincia, TipoCliente Tipo, DateOnly FechaPrimerContacto, string? Observaciones) : IRequest<ClienteDto>;
-public record ClienteDto(Guid Id, string Nombre, string Apellido, string NombreCompleto, string Telefono, string? Correo, string Localidad, string Provincia, TipoCliente Tipo, DateOnly FechaPrimerContacto, string? Observaciones);
+public record CrearClienteCommand(string Nombre, string Apellido, string Telefono, string? Correo,
+    string Localidad, string Provincia, string? LocalidadId, string? ProvinciaId, TipoCliente Tipo,
+    DateOnly FechaPrimerContacto, string? Observaciones) : IRequest<ClienteDto>;
+public record ClienteDto(Guid Id, string Nombre, string Apellido, string NombreCompleto, string Telefono,
+    string? Correo, string Localidad, string Provincia, string? LocalidadId, string? ProvinciaId,
+    TipoCliente Tipo, DateOnly FechaPrimerContacto, string? Observaciones);
 public sealed class CrearClienteValidator : AbstractValidator<CrearClienteCommand>
 {
     public CrearClienteValidator()
@@ -18,6 +22,10 @@ public sealed class CrearClienteValidator : AbstractValidator<CrearClienteComman
         RuleFor(x=>x.Correo).MaximumLength(200).EmailAddress().When(x=>!string.IsNullOrWhiteSpace(x.Correo));
         RuleFor(x=>x.Localidad).NotEmpty().MaximumLength(100);
         RuleFor(x=>x.Provincia).NotEmpty().MaximumLength(100);
+        RuleFor(x=>x.ProvinciaId).NotEmpty().When(x=>!string.IsNullOrWhiteSpace(x.LocalidadId))
+            .WithMessage("La provincia oficial es obligatoria cuando se selecciona una localidad oficial.");
+        RuleFor(x=>x.LocalidadId).NotEmpty().When(x=>!string.IsNullOrWhiteSpace(x.ProvinciaId))
+            .WithMessage("La localidad oficial es obligatoria cuando se selecciona una provincia oficial.");
         RuleFor(x=>x.Observaciones).MaximumLength(1000);
     }
 }
@@ -27,8 +35,8 @@ public sealed class CrearClienteHandler(AppDbContext db) : IRequestHandler<Crear
     {
         var c=new Cliente(); Apply(c,r); db.Add(c); await db.SaveChangesAsync(ct); return ToDto(c);
     }
-    internal static void Apply(Cliente c,CrearClienteCommand r){c.Nombre=r.Nombre.Trim();c.Apellido=r.Apellido.Trim();c.Telefono=r.Telefono.Trim();c.Correo=string.IsNullOrWhiteSpace(r.Correo)?null:r.Correo.Trim();c.Localidad=r.Localidad.Trim();c.Provincia=r.Provincia.Trim();c.Tipo=r.Tipo;c.FechaPrimerContacto=r.FechaPrimerContacto;c.Observaciones=r.Observaciones?.Trim();}
-    internal static ClienteDto ToDto(Cliente c)=>new(c.Id,c.Nombre,c.Apellido,$"{c.Nombre} {c.Apellido}",c.Telefono,c.Correo,c.Localidad,c.Provincia,c.Tipo,c.FechaPrimerContacto,c.Observaciones);
+    internal static void Apply(Cliente c,CrearClienteCommand r){c.Nombre=r.Nombre.Trim();c.Apellido=r.Apellido.Trim();c.Telefono=r.Telefono.Trim();c.Correo=string.IsNullOrWhiteSpace(r.Correo)?null:r.Correo.Trim();c.Localidad=r.Localidad.Trim();c.Provincia=r.Provincia.Trim();c.LocalidadId=string.IsNullOrWhiteSpace(r.LocalidadId)?null:r.LocalidadId.Trim();c.ProvinciaId=string.IsNullOrWhiteSpace(r.ProvinciaId)?null:r.ProvinciaId.Trim();c.Tipo=r.Tipo;c.FechaPrimerContacto=r.FechaPrimerContacto;c.Observaciones=r.Observaciones?.Trim();}
+    internal static ClienteDto ToDto(Cliente c)=>new(c.Id,c.Nombre,c.Apellido,$"{c.Nombre} {c.Apellido}",c.Telefono,c.Correo,c.Localidad,c.Provincia,c.LocalidadId,c.ProvinciaId,c.Tipo,c.FechaPrimerContacto,c.Observaciones);
 }
 public static class ClienteEndpoints
 {

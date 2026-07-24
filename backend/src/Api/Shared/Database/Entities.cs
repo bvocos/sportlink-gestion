@@ -26,6 +26,7 @@ public sealed class Cliente : AuditableEntity
     public string Nombre { get; set; } = ""; public string Apellido { get; set; } = "";
     public string Telefono { get; set; } = ""; public string? Correo { get; set; }
     public string Localidad { get; set; } = ""; public string Provincia { get; set; } = "";
+    public string? LocalidadId { get; set; } public string? ProvinciaId { get; set; }
     public TipoCliente Tipo { get; set; } public DateOnly FechaPrimerContacto { get; set; } public string? Observaciones { get; set; }
 }
 public sealed class TipoCesped : AuditableEntity { public string Nombre { get; set; } = ""; public string? Descripcion { get; set; } public decimal PrecioVentaM2 { get; set; } public decimal CostoM2 { get; set; } public bool Activo { get; set; } = true; }

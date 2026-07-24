@@ -40,6 +40,11 @@ dotnet run --project backend/src/Api
 
 El archivo `backend/src/Api/appsettings.Production.example.json` documenta la estructura esperada y no contiene credenciales utilizables.
 
+## Decisiones pendientes
+
+- La auditoría registra cambios de datos, no consultas. Si aparecen requisitos de compliance sobre acceso a información financiera, se deberá registrar la lectura de Dashboard y Rentabilidad con una política de retención específica.
+- Los teléfonos conservan un formato flexible compatible con los datos actuales. Antes de integrar WhatsApp o llamadas, se deberá migrar a E.164 definiendo cómo tratar números argentinos sin código de país o de área.
+
 Si la base ya existía antes de la corrección de precisión del margen, ejecutar una vez:
 
 ```powershell
@@ -49,6 +54,7 @@ sqlcmd -S DESKTOP-6GHJU6G -E -i scripts/06-add-precios-tipo-cesped.sql
 sqlcmd -S DESKTOP-6GHJU6G -E -i scripts/07-add-usuarios.sql
 sqlcmd -S DESKTOP-6GHJU6G -E -i scripts/08-add-auditoria.sql
 sqlcmd -S DESKTOP-6GHJU6G -E -i scripts/09-add-seguridad-usuarios.sql
+sqlcmd -S DESKTOP-6GHJU6G -E -i scripts/10-add-geografia-clientes.sql
 
 Primer acceso: usuario `admin`, contraseña `Admin123!`. El sistema exige reemplazarla por una contraseña personal antes de permitir el acceso al panel.
 ```

@@ -9,6 +9,7 @@ using Api.Features.Dashboard;
 using Api.Features.Maestros;
 using Api.Features.Rentabilidad;
 using Api.Features.Ventas;
+using Api.Features.Geografia;
 using Api.Shared.Behaviors;
 using Api.Shared.Database;
 using FluentValidation;
@@ -27,6 +28,7 @@ builder.Services.AddTransient(typeof(IPipelineBehavior<,>), typeof(ValidationBeh
 builder.Services.AddValidatorsFromAssemblyContaining<Program>();
 builder.Services.AddOpenApi();
 builder.Services.AddProblemDetails();
+builder.Services.AddMemoryCache();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddHttpClient("DolarApi", client =>
 {
@@ -35,6 +37,13 @@ builder.Services.AddHttpClient("DolarApi", client =>
     client.DefaultRequestHeaders.UserAgent.ParseAdd("Sportlink/1.0");
 });
 builder.Services.AddSingleton<DolarBlueService>();
+builder.Services.AddHttpClient("Georef", client =>
+{
+    client.BaseAddress = new Uri("https://apis.datos.gob.ar/georef/api/v2.1/");
+    client.Timeout = TimeSpan.FromSeconds(12);
+    client.DefaultRequestHeaders.UserAgent.ParseAdd("Sportlink/1.0");
+});
+builder.Services.AddSingleton<GeografiaService>();
 builder.Services.AddScoped<IPasswordHasher<Usuario>,PasswordHasher<Usuario>>();
 builder.Services.AddRateLimiter(options =>
 {
@@ -96,6 +105,7 @@ app.MapCotizacionEndpoints();
 app.MapCajaEndpoints();
 app.MapRentabilidadEndpoints();
 app.MapMaestroEndpoints();
+app.MapGeografiaEndpoints();
 await SeedData.InitializeAsync(app.Services);
 app.Run();
 public partial class Program { }

@@ -17,6 +17,8 @@ CREATE TABLE dbo.Clientes
     Correo NVARCHAR(254) NULL,
     Localidad NVARCHAR(100) NOT NULL,
     Provincia NVARCHAR(100) NOT NULL,
+    LocalidadId NVARCHAR(20) NULL,
+    ProvinciaId NVARCHAR(20) NULL,
     Tipo NVARCHAR(30) NOT NULL,
     FechaPrimerContacto DATE NOT NULL,
     Observaciones NVARCHAR(2000) NULL,

@@ -8,7 +8,7 @@ public static class RentabilidadEndpoints
     public static void MapRentabilidadEndpoints(this IEndpointRouteBuilder app) =>
         app.MapGet("/api/rentabilidad", GetReport).WithTags("Rentabilidad").RequireAuthorization("rentabilidad");
 
-    private static async Task<IResult> GetReport(DateOnly? desde, DateOnly? hasta, int page, int pageSize,
+    private static async Task<IResult> GetReport(DateOnly? desde, DateOnly? hasta, string? buscar, int page, int pageSize,
         AppDbContext db, CancellationToken ct)
     {
         page = Math.Max(page, 1);
@@ -23,8 +23,35 @@ public static class RentabilidadEndpoints
             .Where(x => x.Estado != EstadoVenta.Cancelada);
         if (desde.HasValue) query = query.Where(x => x.FechaVenta >= desde.Value);
         if (hasta.HasValue) query = query.Where(x => x.FechaVenta <= hasta.Value);
+        buscar = buscar?.Trim();
+        if (!string.IsNullOrWhiteSpace(buscar))
+        {
+            if (Guid.TryParse(buscar, out var ventaId))
+                query = query.Where(x => x.Id == ventaId ||
+                    (x.Cliente.Nombre + " " + x.Cliente.Apellido).Contains(buscar));
+            else
+                query = query.Where(x =>
+                    (x.Cliente.Nombre + " " + x.Cliente.Apellido).Contains(buscar));
+        }
 
         var total = await query.CountAsync(ct);
+        var aggregate = await query.GroupBy(_ => 1).Select(g => new
+        {
+            FacturacionTotal = g.Sum(x => x.PrecioTotal),
+            CostoTotal = g.Sum(x => x.CostoCompraTotal + x.CostoEnvio + x.OtrosCostos + x.Iva),
+            GananciaNetaTotal = g.Sum(x =>
+                x.PrecioTotal - x.CostoCompraTotal - x.CostoEnvio - x.OtrosCostos - x.Iva)
+        }).SingleOrDefaultAsync(ct);
+        var facturacionTotal = aggregate?.FacturacionTotal ?? 0;
+        var gananciaNetaTotal = aggregate?.GananciaNetaTotal ?? 0;
+        var totales = new
+        {
+            cantidadVentas = total,
+            facturacionTotal,
+            costoTotal = aggregate?.CostoTotal ?? 0,
+            gananciaNetaTotal,
+            margenPromedioPonderado = facturacionTotal == 0 ? 0 : gananciaNetaTotal / facturacionTotal
+        };
         var rows = await query.OrderByDescending(x => x.FechaVenta).ThenByDescending(x => x.CreatedAt)
             .Skip((page - 1) * pageSize).Take(pageSize).ToListAsync(ct);
         var ventaIds = rows.Select(x => x.Id).ToArray();
@@ -54,6 +81,10 @@ public static class RentabilidadEndpoints
             };
         }).ToList();
 
-        return Results.Ok(new { items, page, pageSize, total, totalPages = (int)Math.Ceiling(total / (double)pageSize) });
+        return Results.Ok(new
+        {
+            totales, items, page, pageSize, total,
+            totalPages = (int)Math.Ceiling(total / (double)pageSize)
+        });
     }
 }
