@@ -85,7 +85,7 @@ async function save() {
   }
 }
 async function remove(v: any) {
-  if (!await confirmAction({title:"Eliminar venta",message:`¿Querés eliminar la venta de ${v.cliente} por ${money(v.precioTotal)}?`,confirmText:"Eliminar",danger:true})) return;
+  if (!await confirmAction({title:"Eliminar venta",message:`¿Querés eliminar la venta de ${v.cliente} por ${money(v.precioTotal)}? También se eliminarán sus cuotas cobradas y los movimientos de caja relacionados.`,confirmText:"Eliminar",danger:true})) return;
   try {
     await http.delete(`/ventas/${v.id}`);
     await load();

@@ -232,8 +232,6 @@ public static class VentaEndpoints
     private static async Task<IResult> Delete(Guid id, AppDbContext db, CancellationToken ct)
     {
         if (!await db.Ventas.AnyAsync(x => x.Id == id, ct)) return Results.NotFound();
-        if (await db.Cuotas.AnyAsync(x => x.VentaId == id && x.ImportePagado > 0, ct))
-            return Results.Conflict(new { message = "No se puede eliminar una venta que ya tiene cuotas cobradas." });
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
         await db.MovimientosCaja.Where(x => x.VentaId == id).ExecuteDeleteAsync(ct);
         await db.Cuotas.Where(x => x.VentaId == id).ExecuteDeleteAsync(ct);
