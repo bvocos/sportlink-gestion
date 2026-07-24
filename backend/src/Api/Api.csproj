@@ -19,7 +19,8 @@
     <InternalsVisibleTo Include="Api.Tests" />
   </ItemGroup>
 
-  <Target Name="PublishVue" BeforeTargets="ComputeFilesToPublish">
+  <Target Name="PublishVue" BeforeTargets="ComputeFilesToPublish"
+          Condition="'$(SkipSpaBuild)' != 'true'">
     <Exec WorkingDirectory="$(SpaRoot)" Command="npm ci"
           Condition="'$(CI)' == 'true' Or !Exists('$(SpaRoot)node_modules')" />
     <Exec WorkingDirectory="$(SpaRoot)" Command="npm run build" />
