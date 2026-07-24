@@ -3,6 +3,7 @@ using Api.Shared.Database;
 using FluentValidation;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using System.Globalization;
 
 namespace Api.Features.Clientes;
 
@@ -35,7 +36,18 @@ public sealed class CrearClienteHandler(AppDbContext db) : IRequestHandler<Crear
     {
         var c=new Cliente(); Apply(c,r); db.Add(c); await db.SaveChangesAsync(ct); return ToDto(c);
     }
-    internal static void Apply(Cliente c,CrearClienteCommand r){c.Nombre=r.Nombre.Trim();c.Apellido=r.Apellido.Trim();c.Telefono=r.Telefono.Trim();c.Correo=string.IsNullOrWhiteSpace(r.Correo)?null:r.Correo.Trim();c.Localidad=r.Localidad.Trim();c.Provincia=r.Provincia.Trim();c.LocalidadId=string.IsNullOrWhiteSpace(r.LocalidadId)?null:r.LocalidadId.Trim();c.ProvinciaId=string.IsNullOrWhiteSpace(r.ProvinciaId)?null:r.ProvinciaId.Trim();c.Tipo=r.Tipo;c.FechaPrimerContacto=r.FechaPrimerContacto;c.Observaciones=r.Observaciones?.Trim();}
+    internal static string FormatPersonName(string value)
+    {
+        var culture = CultureInfo.GetCultureInfo("es-AR");
+        var words = culture.TextInfo.ToTitleCase(value.Trim().ToLower(culture))
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var particles = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            { "de", "del", "la", "las", "los", "y" };
+        for (var i = 1; i < words.Length; i++)
+            if (particles.Contains(words[i])) words[i] = words[i].ToLower(culture);
+        return string.Join(' ', words);
+    }
+    internal static void Apply(Cliente c,CrearClienteCommand r){c.Nombre=FormatPersonName(r.Nombre);c.Apellido=FormatPersonName(r.Apellido);c.Telefono=r.Telefono.Trim();c.Correo=string.IsNullOrWhiteSpace(r.Correo)?null:r.Correo.Trim();c.Localidad=r.Localidad.Trim();c.Provincia=r.Provincia.Trim();c.LocalidadId=string.IsNullOrWhiteSpace(r.LocalidadId)?null:r.LocalidadId.Trim();c.ProvinciaId=string.IsNullOrWhiteSpace(r.ProvinciaId)?null:r.ProvinciaId.Trim();c.Tipo=r.Tipo;c.FechaPrimerContacto=r.FechaPrimerContacto;c.Observaciones=r.Observaciones?.Trim();}
     internal static ClienteDto ToDto(Cliente c)=>new(c.Id,c.Nombre,c.Apellido,$"{c.Nombre} {c.Apellido}",c.Telefono,c.Correo,c.Localidad,c.Provincia,c.LocalidadId,c.ProvinciaId,c.Tipo,c.FechaPrimerContacto,c.Observaciones);
 }
 public static class ClienteEndpoints

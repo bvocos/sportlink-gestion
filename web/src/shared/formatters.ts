@@ -8,3 +8,7 @@ const arsFormatter = new Intl.NumberFormat('es-AR', {
 export function formatCurrency(value: number | null | undefined) {
   return arsFormatter.format(Number(value ?? 0))
 }
+
+export function pluralize(count: number, singular: string, plural: string) {
+  return `${count} ${count === 1 ? singular : plural}`
+}

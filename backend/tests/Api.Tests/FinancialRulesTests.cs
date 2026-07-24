@@ -1,12 +1,20 @@
 using Api.Features.Caja;
 using Api.Features.Cuotas;
 using Api.Features.Ventas;
+using Api.Features.Clientes;
 using Api.Shared.Database;
 
 namespace Api.Tests;
 
 public sealed class FinancialRulesTests
 {
+    [Theory]
+    [InlineData("bruno", "Bruno")]
+    [InlineData("MARÍA DE LA FUENTE", "María de la Fuente")]
+    [InlineData("  juan   del   río  ", "Juan del Río")]
+    public void ClientNameFormatting_UsesSpanishTitleCase(string input, string expected) =>
+        Assert.Equal(expected, CrearClienteHandler.FormatPersonName(input));
+
     private static RegistrarVentaCommand Sale(
         FormaPago formaPago = FormaPago.Contado, int? cuotas = null, decimal entrega = 100m) =>
         new(Guid.NewGuid(), new DateOnly(2026, 7, 24), Guid.NewGuid(), 10m, 100m, entrega,
