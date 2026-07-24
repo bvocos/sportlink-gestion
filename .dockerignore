@@ -1,0 +1,12 @@
+.git
+.github
+.vs
+.agents
+.codex
+.tmp
+**/bin
+**/obj
+web/node_modules
+web/dist
+*.user
+*.log
