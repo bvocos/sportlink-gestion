@@ -5,6 +5,7 @@ using Api.Features.Auditoria;
 using Api.Features.Clientes;
 using Api.Features.Cuotas;
 using Api.Features.Cotizaciones;
+using Api.Features.Dashboard;
 using Api.Features.Maestros;
 using Api.Features.Rentabilidad;
 using Api.Features.Ventas;
@@ -15,6 +16,8 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.RateLimiting;
+using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.ConfigureHttpJsonOptions(o => o.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
@@ -33,18 +36,59 @@ builder.Services.AddHttpClient("DolarApi", client =>
 });
 builder.Services.AddSingleton<DolarBlueService>();
 builder.Services.AddScoped<IPasswordHasher<Usuario>,PasswordHasher<Usuario>>();
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddPolicy("login", context => RateLimitPartition.GetFixedWindowLimiter(
+        context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 10,
+            Window = TimeSpan.FromMinutes(5),
+            QueueLimit = 0,
+            AutoReplenishment = true
+        }));
+});
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme).AddCookie(o=>{o.Cookie.Name="sportlink.session";o.Cookie.HttpOnly=true;o.Cookie.SameSite=SameSiteMode.Lax;o.Events.OnRedirectToLogin=c=>{c.Response.StatusCode=401;return Task.CompletedTask;};o.Events.OnRedirectToAccessDenied=c=>{c.Response.StatusCode=403;return Task.CompletedTask;};});
-builder.Services.AddAuthorization(o=>{o.FallbackPolicy=new Microsoft.AspNetCore.Authorization.AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build();o.AddPolicy("Administrador",p=>p.RequireRole("Administrador"));});
+builder.Services.AddAuthorization(o=>
+{
+    o.FallbackPolicy=new Microsoft.AspNetCore.Authorization.AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build();
+    o.AddPolicy("Administrador",p=>p.RequireRole("Administrador"));
+    foreach(var permiso in Permissions.All)
+        o.AddPolicy(permiso,p=>p.RequireAssertion(context=>context.User.IsInRole("Administrador")||context.User.HasClaim("permiso",permiso)));
+});
 builder.Services.AddCors(o => o.AddDefaultPolicy(p => p.WithOrigins(builder.Configuration.GetSection("AllowedOrigins").Get<string[]>() ?? ["http://localhost:5173"]).AllowAnyHeader().AllowAnyMethod()));
 
 var app = builder.Build();
 app.UseExceptionHandler();
 app.UseCors();
-app.UseAuthentication();app.UseAuthorization();
+app.UseRateLimiter();
+app.UseAuthentication();
+app.Use(async (context, next) =>
+{
+    var requiereCambio = context.User.Identity?.IsAuthenticated == true &&
+                         context.User.HasClaim("cambiar_password", "true");
+    var rutaPermitida = context.Request.Path.StartsWithSegments("/api/auth/cambiar-password") ||
+                        context.Request.Path.StartsWithSegments("/api/auth/logout") ||
+                        context.Request.Path.StartsWithSegments("/api/auth/me");
+    if (requiereCambio && !rutaPermitida)
+    {
+        context.Response.StatusCode = StatusCodes.Status403Forbidden;
+        await context.Response.WriteAsJsonAsync(new
+        {
+            title = "Cambio de contraseña requerido",
+            detail = "Debés cambiar tu contraseña antes de continuar."
+        });
+        return;
+    }
+    await next();
+});
+app.UseAuthorization();
 if (app.Environment.IsDevelopment()) app.MapOpenApi();
 app.MapGet("/api/health", () => Results.Ok(new { status = "ok" })).AllowAnonymous();
 app.MapAuthEndpoints();
 app.MapAuditoriaEndpoints();
+app.MapDashboardEndpoints();
 app.MapClienteEndpoints();
 app.MapVentaEndpoints();
 app.MapCuotaEndpoints();

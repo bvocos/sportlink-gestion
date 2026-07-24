@@ -23,6 +23,8 @@ web/*.js
 !.env.example
 appsettings.Local.json
 **/appsettings.Local.json
+**/appsettings.Production.json
+!**/appsettings.Production.example.json
 
 # Operating system
 .DS_Store

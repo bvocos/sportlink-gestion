@@ -122,7 +122,7 @@ public static class VentaEndpoints
 {
     public static void MapVentaEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/ventas").WithTags("Ventas");
+        var group = app.MapGroup("/api/ventas").WithTags("Ventas").RequireAuthorization("ventas");
         group.MapPost("/", async (RegistrarVentaCommand command, ISender sender, CancellationToken ct) =>
             Results.Created("/api/ventas", await sender.Send(command, ct)));
         group.MapGet("/", List);
@@ -131,7 +131,7 @@ public static class VentaEndpoints
         group.MapPost("/{id:guid}/entregar", (Guid id, AppDbContext db, CancellationToken ct) => ChangeStatus(id, EstadoVenta.Entregada, db, ct));
         group.MapPost("/{id:guid}/confirmar", ResetDelivery);
         group.MapPost("/{id:guid}/cancelar", (Guid id, AppDbContext db, CancellationToken ct) => ChangeStatus(id, EstadoVenta.Cancelada, db, ct));
-        group.MapGet("/proximas-entregas", UpcomingDeliveries);
+        app.MapGet("/api/ventas/proximas-entregas", UpcomingDeliveries).WithTags("Ventas").RequireAuthorization("entregas");
     }
 
     private static async Task<PaginatedResponse<VentaDto>> List(AppDbContext db, int page = 1, int pageSize = 20,
@@ -146,8 +146,9 @@ public static class VentaEndpoints
     }
 
     private static async Task<IResult> Update(Guid id, RegistrarVentaCommand request, AppDbContext db,
-        IValidator<RegistrarVentaCommand> validator, CancellationToken ct)
+        IValidator<RegistrarVentaCommand> validator, ILoggerFactory loggerFactory, CancellationToken ct)
     {
+        var logger = loggerFactory.CreateLogger("Api.Features.Ventas.Update");
         var validation = await validator.ValidateAsync(request, ct);
         if (!validation.IsValid) return Results.ValidationProblem(validation.Errors.GroupBy(x => x.PropertyName)
             .ToDictionary(x => x.Key, x => x.Select(e => e.ErrorMessage).ToArray()));
@@ -214,20 +215,25 @@ public static class VentaEndpoints
         }
         catch (DbUpdateException exception)
         {
-            var detail = exception.InnerException?.Message ?? exception.Message;
-            return Results.Problem(title: "No se pudo modificar la venta", detail: detail,
+            logger.LogError(exception, "Error de base de datos al modificar la venta {VentaId}", id);
+            return Results.Problem(title: "No se pudo modificar la venta",
+                detail: "No fue posible guardar los cambios. Intentá nuevamente.",
                 statusCode: StatusCodes.Status409Conflict);
         }
         catch (Exception exception)
         {
-            return Results.Problem(title: "No se pudo modificar la venta", detail: exception.Message,
-                statusCode: StatusCodes.Status409Conflict);
+            logger.LogError(exception, "Error inesperado al modificar la venta {VentaId}", id);
+            return Results.Problem(title: "No se pudo modificar la venta",
+                detail: "Ocurrió un error inesperado al guardar la venta.",
+                statusCode: StatusCodes.Status500InternalServerError);
         }
     }
 
     private static async Task<IResult> Delete(Guid id, AppDbContext db, CancellationToken ct)
     {
         if (!await db.Ventas.AnyAsync(x => x.Id == id, ct)) return Results.NotFound();
+        if (await db.Cuotas.AnyAsync(x => x.VentaId == id && x.ImportePagado > 0, ct))
+            return Results.Conflict(new { message = "No se puede eliminar una venta que ya tiene cuotas cobradas." });
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
         await db.MovimientosCaja.Where(x => x.VentaId == id).ExecuteDeleteAsync(ct);
         await db.Cuotas.Where(x => x.VentaId == id).ExecuteDeleteAsync(ct);

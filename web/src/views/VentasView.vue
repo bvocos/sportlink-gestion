@@ -3,14 +3,14 @@ import { ref, onMounted, watch } from "vue";
 import { Pencil, Trash2 } from "lucide-vue-next";
 import { http } from "@/shared/api/httpClient";
 import ClienteAutocomplete from "@/shared/components/ClienteAutocomplete.vue";
+import { formatCurrency as money } from "@/shared/formatters";
+import { confirmAction, notify } from "@/shared/uiFeedback";
 const items = ref<any[]>([]),
   clientes = ref<any[]>([]),
   maestros = ref<any>({ tiposCesped: [], alicuotasIva: [] }),
   show = ref(false),
   error = ref(""),
   editingId = ref<string | null>(null);
-const money = (v: number) =>
-  v.toLocaleString("es-AR", { style: "currency", currency: "ARS" });
 const blank = () => ({
   clienteId: "",
   fechaVenta: new Date().toISOString().slice(0, 10),
@@ -40,43 +40,6 @@ async function load() {
   maestros.value = m.data;
 }
 /* El precio maestro se completa al cambiar producto, pero sigue siendo editable. */
-function enhanceForm() {
-  const selects = document.querySelectorAll<HTMLSelectElement>(
-    ".modal .form-grid select",
-  );
-  const client = selects[0],
-    grass = selects[1];
-  if (client && !document.querySelector(".client-search")) {
-    const input = document.createElement("input");
-    input.className = "client-search";
-    input.type = "search";
-    input.placeholder = "Buscar por nombre, teléfono o localidad";
-    input.addEventListener("input", () => {
-      const q = input.value.toLocaleLowerCase();
-      Array.from(client.options).forEach((o, i) => {
-        if (i > 0) {
-          const c = clientes.value.find((x: any) => x.id === o.value);
-          const text =
-            `${c?.nombreCompleto} ${c?.telefono} ${c?.localidad}`.toLocaleLowerCase();
-          o.hidden = !text.includes(q);
-        }
-      });
-    });
-    client.before(input);
-  }
-  if (grass && !grass.dataset.pricing) {
-    grass.dataset.pricing = "true";
-    grass.addEventListener("change", () => {
-      const t = maestros.value.tiposCesped.find(
-        (x: any) => x.id === grass.value,
-      );
-      if (t) {
-        form.value.precioUnitario = t.precioVentaM2;
-        form.value.costoCompraUnitario = t.costoM2;
-      }
-    });
-  }
-}
 watch(()=>form.value.tipoCespedId,(id)=>{if(editingId.value)return;const t=maestros.value.tiposCesped.find((x:any)=>x.id===id);if(t){form.value.precioUnitario=t.precioVentaM2;form.value.costoCompraUnitario=t.costoM2}})
 function openNew() {
   editingId.value = null;
@@ -122,15 +85,12 @@ async function save() {
   }
 }
 async function remove(v: any) {
-  if (
-    !confirm(`¿Eliminar la venta de ${v.cliente} por ${money(v.precioTotal)}?`)
-  )
-    return;
+  if (!await confirmAction({title:"Eliminar venta",message:`¿Querés eliminar la venta de ${v.cliente} por ${money(v.precioTotal)}?`,confirmText:"Eliminar",danger:true})) return;
   try {
     await http.delete(`/ventas/${v.id}`);
     await load();
   } catch (e: any) {
-    alert(e.response?.data?.message ?? "No se pudo eliminar la venta.");
+    notify(e.response?.data?.message ?? "No se pudo eliminar la venta.");
   }
 }
 async function deliver(id: string) {
@@ -138,7 +98,7 @@ async function deliver(id: string) {
     await http.post(`/ventas/${id}/entregar`);
     await load();
   } catch (e: any) {
-    alert(e.response?.data?.message ?? "No se pudo actualizar.");
+    notify(e.response?.data?.message ?? "No se pudo actualizar.");
   }
 }
 onMounted(load);

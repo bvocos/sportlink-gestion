@@ -7,7 +7,7 @@ public enum FormaPago { Cuotas, Contado, Transferencia, Cheque, Otros }
 public enum EstadoVenta { Confirmada, Futura, Entregada, Cancelada }
 public enum EstadoCuota { Pendiente, Pagada, PagadaParcial, Vencida }
 public enum TipoMovimiento { Ingreso, Retiro }
-public sealed class Usuario : AuditableEntity { public string Nombre { get; set; }=""; public string NombreUsuario { get; set; }=""; public string PasswordHash { get; set; }=""; public string Rol { get; set; }="Usuario"; public string PermisosJson { get; set; }="[]"; public bool Activo { get; set; }=true; }
+public sealed class Usuario : AuditableEntity { public string Nombre { get; set; }=""; public string NombreUsuario { get; set; }=""; public string PasswordHash { get; set; }=""; public string Rol { get; set; }="Usuario"; public string PermisosJson { get; set; }="[]"; public bool Activo { get; set; }=true; public bool DebeCambiarPassword { get; set; }=true; public int IntentosFallidos { get; set; } public DateTimeOffset? BloqueadoHasta { get; set; } }
 public sealed class RegistroAuditoria
 {
     public long Id { get; set; }

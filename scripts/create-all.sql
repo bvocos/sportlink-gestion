@@ -8,6 +8,7 @@
 :r .\06-add-precios-tipo-cesped.sql
 :r .\07-add-usuarios.sql
 :r .\08-add-auditoria.sql
+:r .\09-add-seguridad-usuarios.sql
 
 PRINT N'Base CespedVentas creada correctamente.';
 GO

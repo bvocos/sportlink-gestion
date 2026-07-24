@@ -2,6 +2,8 @@
 import { ref, onMounted } from "vue";
 import { Pencil, Trash2, Power } from "lucide-vue-next";
 import { http } from "@/shared/api/httpClient";
+import { formatCurrency as money } from "@/shared/formatters";
+import { confirmAction, notify } from "@/shared/uiFeedback";
 const items = ref<any[]>([]),
   show = ref(false),
   error = ref(""),
@@ -13,8 +15,6 @@ const items = ref<any[]>([]),
     costoM2: 0,
     activo: true,
   });
-const money = (v: number) =>
-  v.toLocaleString("es-AR", { style: "currency", currency: "ARS" });
 async function load() {
   items.value = (await http.get("/maestros/tipos-cesped")).data;
 }
@@ -67,12 +67,12 @@ async function toggle(x: any) {
   await load();
 }
 async function remove(x: any) {
-  if (confirm(`¿Eliminar ${x.nombre}?`))
+  if (await confirmAction({title:"Eliminar tipo de césped",message:`¿Querés eliminar ${x.nombre}?`,confirmText:"Eliminar",danger:true}))
     try {
       await http.delete(`/maestros/tipos-cesped/${x.id}`);
       await load();
     } catch (e: any) {
-      alert(e.response?.data?.message ?? "No se pudo eliminar.");
+      notify(e.response?.data?.message ?? "No se pudo eliminar.");
     }
 }
 onMounted(load);

@@ -9,8 +9,8 @@ public static class MaestroEndpoints
 {
     public static void MapMaestroEndpoints(this IEndpointRouteBuilder app)
     {
-        app.MapGet("/api/maestros", GetAll).WithTags("Maestros");
-        var types = app.MapGroup("/api/maestros/tipos-cesped").WithTags("Maestros - Tipos de césped");
+        app.MapGet("/api/maestros", GetAll).WithTags("Maestros").RequireAuthorization("ventas");
+        var types = app.MapGroup("/api/maestros/tipos-cesped").WithTags("Maestros - Tipos de césped").RequireAuthorization("administracion");
         types.MapGet("/", async (AppDbContext db, CancellationToken ct) =>
             await db.TiposCesped.AsNoTracking().OrderBy(x => x.Nombre).ToListAsync(ct));
         types.MapPost("/", CreateType);

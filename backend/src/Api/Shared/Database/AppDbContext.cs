@@ -70,10 +70,27 @@ public static class SeedData
     {
         using var scope = services.CreateScope(); var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         await db.Database.EnsureCreatedAsync();
+        await db.Database.ExecuteSqlRawAsync("""
+            IF COL_LENGTH('dbo.Usuarios','DebeCambiarPassword') IS NULL
+            BEGIN
+                ALTER TABLE dbo.Usuarios ADD DebeCambiarPassword BIT NOT NULL
+                    CONSTRAINT DF_Usuarios_DebeCambiarPassword DEFAULT 0;
+                EXEC(N'UPDATE dbo.Usuarios SET DebeCambiarPassword=1 WHERE NombreUsuario=N''admin''');
+            END;
+            """);
+        await db.Database.ExecuteSqlRawAsync("""
+            IF COL_LENGTH('dbo.Usuarios','IntentosFallidos') IS NULL
+                ALTER TABLE dbo.Usuarios ADD IntentosFallidos INT NOT NULL
+                    CONSTRAINT DF_Usuarios_IntentosFallidos DEFAULT 0;
+            """);
+        await db.Database.ExecuteSqlRawAsync("""
+            IF COL_LENGTH('dbo.Usuarios','BloqueadoHasta') IS NULL
+                ALTER TABLE dbo.Usuarios ADD BloqueadoHasta DATETIMEOFFSET(7) NULL;
+            """);
         if (!await db.AlicuotasIva.AnyAsync()) db.AlicuotasIva.AddRange(new AlicuotaIva { Nombre="IVA 21%", Porcentaje=21 }, new AlicuotaIva { Nombre="IVA 10,5%", Porcentaje=10.5m }, new AlicuotaIva { Nombre="Exento", Porcentaje=0 });
         if (!await db.TiposCesped.AnyAsync()) db.TiposCesped.AddRange(new TipoCesped { Nombre="Decorativo 20 mm" }, new TipoCesped { Nombre="Premium 35 mm" }, new TipoCesped { Nombre="Deportivo 50 mm" });
         if (!await db.Configuraciones.AnyAsync()) db.Configuraciones.Add(new Configuracion { Clave="UmbralMuyRentable", ValorDecimal=.30m });
-        if (!await db.Usuarios.AnyAsync()) { var admin=new Usuario{Nombre="Administrador",NombreUsuario="admin",Rol="Administrador",PermisosJson="[]"}; var hasher=scope.ServiceProvider.GetRequiredService<Microsoft.AspNetCore.Identity.IPasswordHasher<Usuario>>(); admin.PasswordHash=hasher.HashPassword(admin,"Admin123!"); db.Usuarios.Add(admin); }
+        if (!await db.Usuarios.AnyAsync()) { var admin=new Usuario{Nombre="Administrador",NombreUsuario="admin",Rol="Administrador",PermisosJson="[]",DebeCambiarPassword=true}; var hasher=scope.ServiceProvider.GetRequiredService<Microsoft.AspNetCore.Identity.IPasswordHasher<Usuario>>(); admin.PasswordHash=hasher.HashPassword(admin,"Admin123!"); db.Usuarios.Add(admin); }
         await db.SaveChangesAsync();
     }
 }

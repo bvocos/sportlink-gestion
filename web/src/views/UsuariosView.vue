@@ -2,12 +2,12 @@
 import { onMounted, ref } from 'vue'
 import { Pencil, Trash2 } from 'lucide-vue-next'
 import { http } from '@/shared/api/httpClient'
+import { confirmAction, notify } from '@/shared/uiFeedback'
 
 const permissions = [
   ['dashboard', 'Resumen'], ['ventas', 'Ventas'], ['entregas', 'Próximas entregas'],
   ['clientes', 'Clientes'], ['cuotas', 'Cuotas'], ['caja', 'Caja'],
-  ['rentabilidad', 'Rentabilidad'], ['administracion', 'Administración de productos'],
-  ['usuarios', 'Administración de usuarios']
+  ['rentabilidad', 'Rentabilidad'], ['administracion', 'Administración de productos']
 ]
 const items = ref<any[]>([])
 const show = ref(false)
@@ -35,9 +35,9 @@ async function save() {
   }
 }
 async function remove(x: any) {
-  if (!confirm(`¿Eliminar usuario ${x.nombreUsuario}?`)) return
+  if (!await confirmAction({title:'Eliminar usuario',message:`¿Querés eliminar el usuario ${x.nombreUsuario}?`,confirmText:'Eliminar',danger:true})) return
   try { await http.delete(`/usuarios/${x.id}`); await load() }
-  catch (e: any) { alert(e.response?.data?.message ?? 'No se pudo eliminar.') }
+  catch (e: any) { notify(e.response?.data?.message ?? 'No se pudo eliminar.') }
 }
 onMounted(load)
 </script>
