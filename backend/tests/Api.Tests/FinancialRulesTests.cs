@@ -16,8 +16,9 @@ public sealed class FinancialRulesTests
         Assert.Equal(expected, CrearClienteHandler.FormatPersonName(input));
 
     private static RegistrarVentaCommand Sale(
-        FormaPago formaPago = FormaPago.Contado, int? cuotas = null, decimal entrega = 100m) =>
-        new(Guid.NewGuid(), new DateOnly(2026, 7, 24), Guid.NewGuid(), 10m, 100m, entrega,
+        FormaPago formaPago = FormaPago.Contado, int? cuotas = null, decimal entrega = 100m,
+        decimal precioTotal = 1000m) =>
+        new(Guid.NewGuid(), new DateOnly(2026, 7, 24), Guid.NewGuid(), 10m, 100m, precioTotal, entrega,
             formaPago, cuotas, EstadoVenta.Confirmada, null, "Prueba", 40m, 50m, 25m, Guid.NewGuid());
 
     [Fact]
@@ -30,6 +31,16 @@ public sealed class FinancialRulesTests
         Assert.Equal(525m, venta.GananciaBruta);
         Assert.Equal(315m, venta.GananciaNeta);
         Assert.Equal(0.315m, venta.Margen);
+    }
+
+    [Fact]
+    public void Apply_UsesEditableFinalAmountForFinancialCalculations()
+    {
+        var venta = new Venta();
+        VentaService.Apply(venta, Sale(precioTotal: 990m), 21m);
+        Assert.Equal(990m, venta.PrecioTotal);
+        Assert.Equal(207.9m, venta.Iva);
+        Assert.Equal(307.1m, venta.GananciaNeta);
     }
 
     [Fact]

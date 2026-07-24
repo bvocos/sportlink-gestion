@@ -7,7 +7,7 @@ using Microsoft.EntityFrameworkCore;
 namespace Api.Features.Ventas;
 
 public record RegistrarVentaCommand(Guid ClienteId, DateOnly FechaVenta, Guid TipoCespedId, decimal CantidadM2,
-    decimal PrecioUnitario, decimal MontoEntrega, FormaPago FormaPago, int? CantidadCuotas, EstadoVenta Estado,
+    decimal PrecioUnitario, decimal PrecioTotal, decimal MontoEntrega, FormaPago FormaPago, int? CantidadCuotas, EstadoVenta Estado,
     DateOnly? FechaEntregaEstimada, string? Observaciones, decimal CostoCompraUnitario,
     decimal CostoEnvio, decimal OtrosCostos, Guid AlicuotaIvaId) : IRequest<VentaDto>;
 
@@ -26,10 +26,12 @@ public sealed class RegistrarVentaValidator : AbstractValidator<RegistrarVentaCo
         RuleFor(x => x.AlicuotaIvaId).NotEmpty();
         RuleFor(x => x.CantidadM2).GreaterThan(0);
         RuleFor(x => x.PrecioUnitario).GreaterThan(0);
+        RuleFor(x => x.PrecioTotal).GreaterThan(0)
+            .WithMessage("El importe final de la venta debe ser mayor que cero.");
         RuleFor(x => x.MontoEntrega).GreaterThan(0)
-            .LessThanOrEqualTo(x => x.PrecioUnitario * x.CantidadM2)
+            .LessThanOrEqualTo(x => x.PrecioTotal)
             .WithMessage("La entrega debe ser mayor que cero y no puede superar el total de la venta.");
-        RuleFor(x => x.MontoEntrega).LessThan(x => x.PrecioUnitario * x.CantidadM2)
+        RuleFor(x => x.MontoEntrega).LessThan(x => x.PrecioTotal)
             .When(x => x.FormaPago == FormaPago.Cuotas)
             .WithMessage("En una venta en cuotas la entrega debe ser menor al total para que exista saldo a financiar.");
         RuleFor(x => x.CostoCompraUnitario).GreaterThanOrEqualTo(0);
@@ -77,7 +79,7 @@ internal static class VentaService
 
     public static void Apply(Venta venta, RegistrarVentaCommand r, decimal porcentajeIva)
     {
-        var total = r.PrecioUnitario * r.CantidadM2;
+        var total = r.PrecioTotal;
         var costoCompra = r.CostoCompraUnitario * r.CantidadM2;
         var iva = total * porcentajeIva / 100;
         var gananciaBruta = total - costoCompra - r.CostoEnvio - r.OtrosCostos;
