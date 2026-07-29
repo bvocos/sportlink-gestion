@@ -40,6 +40,18 @@ dotnet run --project backend/src/Api
 
 El archivo `backend/src/Api/appsettings.Production.example.json` documenta la estructura esperada y no contiene credenciales utilizables.
 
+## Ambientes publicados
+
+- `develop` publica automáticamente el ambiente de pruebas en
+  `https://sportlink-develop.thankfulcoast-ac0d968a.brazilsouth.azurecontainerapps.io`.
+  Utiliza la base aislada `CespedVentasDev`; los datos cargados allí no afectan producción.
+- `main` publica producción en
+  `https://sportlink-c29195.thankfulcoast-ac0d968a.brazilsouth.azurecontainerapps.io`.
+
+El flujo recomendado es crear una rama de funcionalidad desde `develop`, abrir un pull
+request hacia `develop`, probar el resultado publicado y, una vez aprobado, abrir un
+pull request de `develop` hacia `main`. Nunca usar datos reales en el ambiente de pruebas.
+
 ## Decisiones pendientes
 
 - La auditoría registra cambios de datos, no consultas. Si aparecen requisitos de compliance sobre acceso a información financiera, se deberá registrar la lectura de Dashboard y Rentabilidad con una política de retención específica.
