@@ -11,18 +11,27 @@ export interface Session {
 }
 
 const state = reactive<{ user: Session | null; checked: boolean }>({ user: null, checked: false })
+let checkPromise: Promise<Session | null> | null = null
 
 export const auth = {
   state,
   async check() {
-    try { state.user = (await http.get('/auth/me')).data }
-    catch { state.user = null }
-    state.checked = true
-    return state.user
+    if (checkPromise) return checkPromise
+    checkPromise = (async () => {
+      try { state.user = (await http.get('/auth/me', { headers: { 'Cache-Control': 'no-cache' } })).data }
+      catch { state.user = null }
+      state.checked = true
+      return state.user
+    })()
+    try { return await checkPromise }
+    finally { checkPromise = null }
   },
   async login(usuario: string, password: string) {
-    state.user = (await http.post('/auth/login', { usuario, password })).data
+    if (checkPromise) await checkPromise
+    await http.post('/auth/login', { usuario, password })
+    state.user = (await http.get('/auth/me', { headers: { 'Cache-Control': 'no-cache' } })).data
     state.checked = true
+    return state.user
   },
   async changePassword(passwordActual: string, passwordNueva: string, confirmacion: string) {
     state.user = (await http.post('/auth/cambiar-password',

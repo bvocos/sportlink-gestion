@@ -1,14 +1,17 @@
 <script setup lang="ts">
-import{ref}from'vue'
+import{nextTick,ref}from'vue'
 import{useRoute,useRouter}from'vue-router'
 import{auth}from'@/auth'
 const router=useRouter(),route=useRoute(),usuario=ref(''),password=ref(''),error=ref(route.query.expired?'Tu sesión venció. Volvé a iniciar sesión.':''),loading=ref(false)
 async function submit(){
+  if(loading.value)return
   loading.value=true
   error.value=''
   try{
-    await auth.login(usuario.value,password.value)
-    router.replace(auth.state.user?.debeCambiarPassword?'/cambiar-password':'/')
+    const user=await auth.login(usuario.value,password.value)
+    const destination=user?.debeCambiarPassword?'/cambiar-password':'/'
+    await nextTick()
+    await router.replace(destination)
   }catch(e:any){
     if(!e?.response)error.value='No se pudo conectar con el backend. Verificá que la API esté iniciada.'
     else if(e.response.status===429)error.value='Demasiados intentos. Esperá unos minutos antes de volver a intentar.'
