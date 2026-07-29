@@ -44,8 +44,8 @@ describe("auth.login", () => {
     expect(mocks.get).toHaveBeenCalledWith("/auth/me", {
       headers: { "Cache-Control": "no-cache" },
     });
-    expect(mocks.post.mock.invocationCallOrder[0]).toBeLessThan(
-      mocks.get.mock.invocationCallOrder[0],
+    expect(mocks.post.mock.invocationCallOrder[0]!).toBeLessThan(
+      mocks.get.mock.invocationCallOrder[0]!,
     );
     expect(result).toEqual(session);
     expect(auth.state.user).toEqual(session);
