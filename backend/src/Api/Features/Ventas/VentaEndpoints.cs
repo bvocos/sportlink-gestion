@@ -128,6 +128,7 @@ public static class VentaEndpoints
         group.MapPost("/", async (RegistrarVentaCommand command, ISender sender, CancellationToken ct) =>
             Results.Created("/api/ventas", await sender.Send(command, ct)));
         group.MapGet("/", List);
+        group.MapGet("/filtros", Filters);
         group.MapPut("/{id:guid}", Update);
         group.MapDelete("/{id:guid}", Delete);
         group.MapPost("/{id:guid}/entregar", (Guid id, AppDbContext db, CancellationToken ct) => ChangeStatus(id, EstadoVenta.Entregada, db, ct));
@@ -137,15 +138,35 @@ public static class VentaEndpoints
     }
 
     private static async Task<PaginatedResponse<VentaDto>> List(AppDbContext db, int page = 1, int pageSize = 20,
-        string? estado = null, CancellationToken ct = default)
+        string? estado = null, DateOnly? desde = null, DateOnly? hasta = null,
+        Guid? clienteId = null, Guid? tipoCespedId = null, CancellationToken ct = default)
     {
         var query = db.Ventas.AsNoTracking().Include(x => x.Cliente).Include(x => x.TipoCesped).AsQueryable();
         if (Enum.TryParse<EstadoVenta>(estado, true, out var parsed)) query = query.Where(x => x.Estado == parsed);
+        if (desde.HasValue) query = query.Where(x => x.FechaVenta >= desde.Value);
+        if (hasta.HasValue) query = query.Where(x => x.FechaVenta <= hasta.Value);
+        if (clienteId.HasValue) query = query.Where(x => x.ClienteId == clienteId.Value);
+        if (tipoCespedId.HasValue) query = query.Where(x => x.TipoCespedId == tipoCespedId.Value);
         var total = await query.CountAsync(ct);
         var rows = await query.OrderByDescending(x => x.FechaVenta).Skip((page - 1) * pageSize).Take(pageSize).ToListAsync(ct);
         return new(rows.Select(v => VentaService.ToDto(v, v.Cliente, v.TipoCesped)).ToList(), page, pageSize, total,
             (int)Math.Ceiling(total / (double)pageSize));
     }
+
+    private static async Task<object> Filters(AppDbContext db, CancellationToken ct) => new
+    {
+        clientes = await db.Clientes.AsNoTracking().OrderBy(x => x.Apellido).ThenBy(x => x.Nombre)
+            .Select(x => new
+            {
+                x.Id,
+                nombre = x.Nombre + " " + x.Apellido,
+                nombreCompleto = x.Nombre + " " + x.Apellido,
+                x.Telefono,
+                x.Localidad
+            }).ToListAsync(ct),
+        tiposCesped = await db.TiposCesped.AsNoTracking().OrderBy(x => x.Nombre)
+            .Select(x => new { x.Id, x.Nombre, x.Activo }).ToListAsync(ct)
+    };
 
     private static async Task<IResult> Update(Guid id, RegistrarVentaCommand request, AppDbContext db,
         IValidator<RegistrarVentaCommand> validator, ILoggerFactory loggerFactory, CancellationToken ct)

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, watch, computed } from "vue";
+import { ref, onMounted, watch, computed, reactive } from "vue";
 import { Pencil, Trash2 } from "lucide-vue-next";
 import { http } from "@/shared/api/httpClient";
 import ClienteAutocomplete from "@/shared/components/ClienteAutocomplete.vue";
@@ -11,7 +11,12 @@ const items = ref<any[]>([]),
   show = ref(false),
   error = ref(""),
   editingId = ref<string | null>(null),
-  totalEdited = ref(false);
+  totalEdited = ref(false),
+  total = ref(0),
+  loading = ref(false),
+  loadError = ref("");
+const dateKey = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+const filters = reactive({ periodo: "all", desde: "", hasta: "", clienteId: "", tipoCespedId: "" });
 const blank = () => ({
   clienteId: "",
   fechaVenta: new Date().toISOString().slice(0, 10),
@@ -48,15 +53,38 @@ watch(
     if (!totalEdited.value) form.value.precioTotal = calculatedTotal.value;
   },
 );
+function applyPeriod() {
+  if (filters.periodo === "all" || filters.periodo === "custom") {
+    if (filters.periodo === "all") { filters.desde = ""; filters.hasta = ""; }
+    return;
+  }
+  const end = new Date();
+  const start = new Date(end);
+  if (filters.periodo === "week") start.setDate(start.getDate() - 6);
+  if (filters.periodo === "month") start.setDate(start.getDate() - 29);
+  if (filters.periodo === "sixMonths") start.setMonth(start.getMonth() - 6);
+  filters.desde = dateKey(start);
+  filters.hasta = dateKey(end);
+}
+function customDates() { filters.periodo = "custom"; }
+function resetFilters() {
+  filters.periodo = "all"; filters.desde = ""; filters.hasta = ""; filters.clienteId = ""; filters.tipoCespedId = "";
+  loadSales();
+}
+async function loadSales() {
+  loading.value = true; loadError.value = "";
+  try {
+    const response = await http.get("/ventas", { params: { pageSize: 100, desde: filters.desde || undefined, hasta: filters.hasta || undefined, clienteId: filters.clienteId || undefined, tipoCespedId: filters.tipoCespedId || undefined } });
+    items.value = response.data.items;
+    total.value = response.data.total;
+  } catch { loadError.value = "No se pudieron cargar las ventas."; }
+  finally { loading.value = false; }
+}
 async function load() {
-  const [v, c, m] = await Promise.all([
-    http.get("/ventas?pageSize=100"),
-    http.get("/clientes?pageSize=100"),
-    http.get("/maestros"),
-  ]);
-  items.value = v.data.items;
-  clientes.value = c.data.items;
-  maestros.value = m.data;
+  const [filterData, masterData] = await Promise.all([http.get("/ventas/filtros"), http.get("/maestros")]);
+  clientes.value = filterData.data.clientes;
+  maestros.value = { ...masterData.data, tiposCespedFiltro: filterData.data.tiposCesped };
+  await loadSales();
 }
 /* El precio maestro se completa al cambiar producto, pero sigue siendo editable. */
 watch(()=>form.value.tipoCespedId,(id)=>{if(editingId.value)return;const t=maestros.value.tiposCesped.find((x:any)=>x.id===id);if(t){form.value.precioUnitario=t.precioVentaM2;form.value.costoCompraUnitario=t.costoM2}})
@@ -97,7 +125,7 @@ async function save() {
       ? await http.put(`/ventas/${editingId.value}`, form.value)
       : await http.post("/ventas", form.value);
     show.value = false;
-    await load();
+    await loadSales();
   } catch (e: any) {
     error.value =
       e.response?.data?.message ??
@@ -110,7 +138,7 @@ async function remove(v: any) {
   if (!await confirmAction({title:"Eliminar venta",message:`¿Querés eliminar la venta de ${v.cliente} por ${money(v.precioTotal)}? También se eliminarán sus cuotas cobradas y los movimientos de caja relacionados.`,confirmText:"Eliminar",danger:true})) return;
   try {
     await http.delete(`/ventas/${v.id}`);
-    await load();
+    await loadSales();
   } catch (e: any) {
     notify(e.response?.data?.message ?? "No se pudo eliminar la venta.");
   }
@@ -118,7 +146,7 @@ async function remove(v: any) {
 async function deliver(id: string) {
   try {
     await http.post(`/ventas/${id}/entregar`);
-    await load();
+    await loadSales();
   } catch (e: any) {
     notify(e.response?.data?.message ?? "No se pudo actualizar.");
   }
@@ -134,7 +162,18 @@ onMounted(load);
       </div>
       <button class="btn" @click="openNew">+ Registrar venta</button>
     </div>
+    <form class="panel sales-filters" @submit.prevent="loadSales">
+      <div class="field"><label>Período</label><select v-model="filters.periodo" @change="applyPeriod"><option value="all">Todo el historial</option><option value="week">Última semana</option><option value="month">Último mes</option><option value="sixMonths">Últimos 6 meses</option><option value="custom">Personalizado</option></select></div>
+      <div class="field"><label>Desde</label><input v-model="filters.desde" type="date" @change="customDates"></div>
+      <div class="field"><label>Hasta</label><input v-model="filters.hasta" type="date" @change="customDates"></div>
+      <div class="field"><label>Cliente</label><select v-model="filters.clienteId"><option value="">Todos los clientes</option><option v-for="client in clientes" :key="client.id" :value="client.id">{{ client.nombreCompleto || client.nombre }}</option></select></div>
+      <div class="field"><label>Tipo de césped</label><select v-model="filters.tipoCespedId"><option value="">Todos los tipos</option><option v-for="type in maestros.tiposCespedFiltro || []" :key="type.id" :value="type.id">{{ type.nombre }}{{ type.activo === false ? " (inactivo)" : "" }}</option></select></div>
+      <div class="filter-actions"><button class="btn" :disabled="loading">{{ loading ? "Buscando…" : "Aplicar filtros" }}</button><button type="button" class="btn secondary" @click="resetFilters">Restablecer</button></div>
+    </form>
+    <div v-if="loadError" class="error load-state">{{ loadError }} <button class="btn secondary compact" @click="loadSales">Reintentar</button></div>
     <div class="panel">
+      <div class="panel-head"><h3>{{ total }} {{ total === 1 ? "venta encontrada" : "ventas encontradas" }}</h3></div>
+      <div v-if="loading" class="loading">Cargando ventas…</div>
       <table>
         <thead>
           <tr>
@@ -147,7 +186,7 @@ onMounted(load);
           </tr>
         </thead>
         <tbody>
-          <tr v-for="v in items" :key="v.id">
+          <tr v-for="v in items" v-show="!loading" :key="v.id">
             <td>
               <b>{{ v.cliente }}</b
               ><br /><small>{{ v.tipoCesped }} · {{ v.cantidadM2 }} m²</small>
@@ -175,7 +214,7 @@ onMounted(load);
           </tr>
         </tbody>
       </table>
-      <div v-if="!items.length" class="empty">Registrá la primera venta.</div>
+      <div v-if="!loading && !items.length" class="empty">No hay ventas para los filtros seleccionados.</div>
     </div>
     <div v-if="show" class="modal-bg">
       <form class="modal" @submit.prevent="save">

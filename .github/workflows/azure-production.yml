@@ -4,9 +4,11 @@ on:
   push:
     branches:
       - main
+      - develop
   pull_request:
     branches:
       - main
+      - develop
   workflow_dispatch:
 
 permissions:
@@ -93,6 +95,47 @@ jobs:
         uses: azure/container-apps-deploy-action@v2
         with:
           containerAppName: ${{ vars.AZURE_CONTAINER_APP_NAME }}
+          resourceGroup: ${{ vars.AZURE_RESOURCE_GROUP }}
+          imageToDeploy: ${{ env.IMAGE_NAME }}:${{ github.sha }}
+          registryUrl: ghcr.io
+          registryUsername: ${{ github.repository_owner }}
+          registryPassword: ${{ secrets.GHCR_PULL_TOKEN }}
+
+  deploy-develop:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar código
+        uses: actions/checkout@v4
+
+      - name: Iniciar sesión en GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Construir y publicar imagen de pruebas
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAME }}:${{ github.sha }}
+            ${{ env.IMAGE_NAME }}:develop-latest
+
+      - name: Iniciar sesión en Azure
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Desplegar en Azure Container Apps
+        uses: azure/container-apps-deploy-action@v2
+        with:
+          containerAppName: ${{ vars.AZURE_DEVELOP_CONTAINER_APP_NAME }}
           resourceGroup: ${{ vars.AZURE_RESOURCE_GROUP }}
           imageToDeploy: ${{ env.IMAGE_NAME }}:${{ github.sha }}
           registryUrl: ghcr.io

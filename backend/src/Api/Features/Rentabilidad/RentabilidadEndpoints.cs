@@ -10,7 +10,15 @@ public static class RentabilidadEndpoints
     private sealed record ReportRow(Guid Id, DateOnly FechaVenta, string Cliente, decimal PrecioTotal,
         decimal CostoOperativo, decimal Iva, decimal CostoTotal, decimal GananciaBruta,
         decimal GananciaNeta, decimal Margen, decimal MontoEntrega, decimal TotalCobrado,
-        decimal TotalPendiente, string EstadoFinanciero);
+        decimal TotalPendiente, decimal SaldoPendienteCuotas, FormaPago FormaPago,
+        string EstadoFinanciero);
+
+    internal static (decimal TotalCobrado, decimal TotalPendiente) CalculateCollectionBalance(
+        decimal precioTotal, decimal montoEntrega, decimal cuotasPagadas)
+    {
+        var cobrado = montoEntrega + cuotasPagadas;
+        return (cobrado, Math.Max(precioTotal - cobrado, 0));
+    }
 
     public static void MapRentabilidadEndpoints(this IEndpointRouteBuilder app)
     {
@@ -36,25 +44,32 @@ public static class RentabilidadEndpoints
         AppDbContext db, CancellationToken ct)
     {
         var ventaIds = ventas.Select(x => x.Id).ToArray();
-        var cobros = await db.MovimientosCaja.AsNoTracking()
-            .Where(x => x.VentaId != null && ventaIds.Contains(x.VentaId.Value))
-            .GroupBy(x => x.VentaId!.Value)
+        var cuotas = await db.Cuotas.AsNoTracking()
+            .Where(x => ventaIds.Contains(x.VentaId))
+            .GroupBy(x => x.VentaId)
             .ToDictionaryAsync(x => x.Key,
-                x => x.Sum(m => m.Tipo == TipoMovimiento.Ingreso ? m.Monto : -m.Monto), ct);
+                x => new
+                {
+                    Pagado = x.Sum(c => c.ImportePagado),
+                    Pendiente = x.Sum(c => c.ImportePactado - c.ImportePagado)
+                }, ct);
         return ventas.Select(v =>
         {
-            var cobrado = cobros.GetValueOrDefault(v.Id);
-            var pendiente = v.PrecioTotal - cobrado;
+            var resumenCuotas = cuotas.GetValueOrDefault(v.Id);
+            var saldo = CalculateCollectionBalance(v.PrecioTotal, v.MontoEntrega,
+                resumenCuotas?.Pagado ?? 0);
+            var pendienteCuotas = Math.Max(resumenCuotas?.Pendiente ?? 0, 0);
             var costoOperativo = v.CostoCompraTotal + v.CostoEnvio + v.OtrosCostos;
             var costoTotal = costoOperativo + v.Iva;
             var gananciaBruta = v.PrecioTotal - costoOperativo;
             var gananciaNeta = v.PrecioTotal - costoTotal;
             var margen = v.PrecioTotal == 0 ? 0 : gananciaNeta / v.PrecioTotal;
-            var estado = pendiente > 0 ? "Pendiente de cobro" : margen < 0 ? "En pérdida" :
+            var estado = saldo.TotalPendiente > 0 ? "Pendiente de cobro" : margen < 0 ? "En pérdida" :
                 margen >= umbral ? "Muy rentable" : "Rentable";
             return new ReportRow(v.Id, v.FechaVenta, v.Cliente.Nombre + " " + v.Cliente.Apellido,
                 v.PrecioTotal, costoOperativo, v.Iva, costoTotal, gananciaBruta, gananciaNeta,
-                margen, v.MontoEntrega, cobrado, pendiente, estado);
+                margen, v.MontoEntrega, saldo.TotalCobrado, saldo.TotalPendiente,
+                pendienteCuotas, v.FormaPago, estado);
         }).ToList();
     }
 
@@ -107,7 +122,7 @@ public static class RentabilidadEndpoints
         var rows = await BuildRows(ventas, umbral, db, ct);
         var culture = CultureInfo.GetCultureInfo("es-AR");
         var csv = new StringBuilder();
-        csv.AppendLine("ID venta;Fecha;Cliente;Venta;Costo operativo;IVA;Costo total;Ganancia bruta;Ganancia neta;Margen %;Cobrado;Pendiente;Estado");
+        csv.AppendLine("ID venta;Fecha;Cliente;Venta;Costo operativo;IVA;Costo total;Ganancia bruta;Ganancia neta;Margen %;Cobrado;Pendiente total;Pendiente en cuotas;Estado");
         foreach (var row in rows)
             csv.AppendLine(string.Join(';', new[]
             {
@@ -116,7 +131,8 @@ public static class RentabilidadEndpoints
                 CsvCell(row.Iva.ToString("0.00", culture)), CsvCell(row.CostoTotal.ToString("0.00", culture)),
                 CsvCell(row.GananciaBruta.ToString("0.00", culture)), CsvCell(row.GananciaNeta.ToString("0.00", culture)),
                 CsvCell((row.Margen * 100).ToString("0.00", culture)), CsvCell(row.TotalCobrado.ToString("0.00", culture)),
-                CsvCell(row.TotalPendiente.ToString("0.00", culture)), CsvCell(row.EstadoFinanciero)
+                CsvCell(row.TotalPendiente.ToString("0.00", culture)),
+                CsvCell(row.SaldoPendienteCuotas.ToString("0.00", culture)), CsvCell(row.EstadoFinanciero)
             }));
         var bytes = Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(csv.ToString())).ToArray();
         return Results.File(bytes, "text/csv; charset=utf-8",

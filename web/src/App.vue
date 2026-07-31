@@ -8,7 +8,7 @@ import DolarBlueWidget from'./shared/components/DolarBlueWidget.vue'
 import UiFeedback from'./shared/components/UiFeedback.vue'
 
 const open=ref(false),route=useRoute(),router=useRouter(),systemOnline=ref(navigator.onLine)
-const allLinks=[['/','Resumen',LayoutDashboard,'dashboard'],['/ventas','Ventas',ShoppingCart,'ventas'],['/entregas','Próximas entregas',Truck,'entregas'],['/clientes','Clientes',Users,'clientes'],['/cuotas','Cuotas',CalendarClock,'cuotas'],['/caja','Caja',WalletCards,'caja'],['/rentabilidad','Rentabilidad',ChartNoAxesCombined,'rentabilidad'],['/admin','Productos',Settings,'administracion']] as const
+const allLinks=[['/','Inicio',LayoutDashboard,'dashboard'],['/ventas','Ventas',ShoppingCart,'ventas'],['/entregas','Próximas entregas',Truck,'entregas'],['/clientes','Clientes',Users,'clientes'],['/cuotas','Cuotas',CalendarClock,'cuotas'],['/caja','Caja',WalletCards,'caja'],['/rentabilidad','Rentabilidad',ChartNoAxesCombined,'rentabilidad'],['/admin','Productos',Settings,'administracion']] as const
 const links=computed(()=>allLinks.filter(x=>auth.can(x[3])))
 let connectivityTimer:number|undefined
 async function checkSystem(){if(!navigator.onLine){systemOnline.value=false;return}try{await http.get('/health',{timeout:3000});systemOnline.value=true}catch{systemOnline.value=false}}

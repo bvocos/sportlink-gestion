@@ -17,10 +17,14 @@ AS
         v.GananciaBruta,
         v.GananciaNeta,
         v.Margen,
-        CASE WHEN v.FormaPago = N'Cuotas' THEN COALESCE(p.TotalCobrado, 0) ELSE v.PrecioTotal END AS TotalCobrado,
-        v.PrecioTotal - CASE WHEN v.FormaPago = N'Cuotas' THEN COALESCE(p.TotalCobrado, 0) ELSE v.PrecioTotal END AS TotalPendiente
+        v.MontoEntrega + COALESCE(p.TotalCobradoCuotas, 0) AS TotalCobrado,
+        CASE WHEN v.PrecioTotal > v.MontoEntrega + COALESCE(p.TotalCobradoCuotas, 0)
+            THEN v.PrecioTotal - v.MontoEntrega - COALESCE(p.TotalCobradoCuotas, 0) ELSE 0 END AS TotalPendiente,
+        COALESCE(p.SaldoPendienteCuotas, 0) AS SaldoPendienteCuotas
     FROM dbo.Ventas v
     INNER JOIN dbo.Clientes c ON c.Id = v.ClienteId
-    OUTER APPLY (SELECT SUM(cu.ImportePagado) AS TotalCobrado FROM dbo.Cuotas cu WHERE cu.VentaId = v.Id) p
+    OUTER APPLY (SELECT SUM(cu.ImportePagado) AS TotalCobradoCuotas,
+        SUM(cu.ImportePactado - cu.ImportePagado) AS SaldoPendienteCuotas
+        FROM dbo.Cuotas cu WHERE cu.VentaId = v.Id) p
     WHERE v.Estado <> N'Cancelada';
 GO

@@ -112,10 +112,10 @@ onMounted(load);
               }}</span>
             </td>
             <td>
-              <div class="row-actions">
-                <button class="icon-btn" @click="edit(x)"><Pencil /></button
-                ><button class="icon-btn" @click="toggle(x)"><Power /></button
-                ><button class="icon-btn danger" @click="remove(x)">
+              <div class="row-actions product-actions">
+                <button class="icon-btn tooltip" type="button" title="Editar producto" aria-label="Editar producto" data-tooltip="Editar producto" @click="edit(x)"><Pencil /></button
+                ><button class="icon-btn tooltip" type="button" :title="x.activo ? 'Desactivar producto' : 'Activar producto'" :aria-label="x.activo ? 'Desactivar producto' : 'Activar producto'" :data-tooltip="x.activo ? 'Desactivar producto' : 'Activar producto'" @click="toggle(x)"><Power /></button
+                ><button class="icon-btn danger tooltip" type="button" title="Eliminar producto" aria-label="Eliminar producto" data-tooltip="Eliminar producto" @click="remove(x)">
                   <Trash2 />
                 </button>
               </div>
