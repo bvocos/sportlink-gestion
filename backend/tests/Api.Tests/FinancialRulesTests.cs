@@ -84,6 +84,16 @@ public sealed class FinancialRulesTests
     public void PaymentValidation_AcceptsExactRemainingBalance() =>
         Assert.Null(CuotaEndpoints.ValidatePayment(100m, 100m));
 
+    [Theory]
+    [InlineData(0, 100)]
+    [InlineData(50, 100)]
+    public void CancellationValidation_RejectsUnpaidOrPartialInstallments(decimal paid, decimal agreed) =>
+        Assert.NotNull(CuotaEndpoints.ValidateCancellation(paid, agreed));
+
+    [Fact]
+    public void CancellationValidation_AcceptsFullyPaidInstallment() =>
+        Assert.Null(CuotaEndpoints.ValidateCancellation(100m, 100m));
+
     [Fact]
     public void WithdrawalValidation_RejectsNegativeResult() =>
         Assert.NotNull(CajaEndpoints.ValidateWithdrawal(TipoMovimiento.Retiro, 101m, 100m));
