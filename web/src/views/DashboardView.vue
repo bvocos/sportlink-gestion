@@ -76,10 +76,10 @@ onMounted(load)
 
     <form class="panel dashboard-filters" @submit.prevent="load">
       <div class="field"><label>Período</label><select v-model="filters.periodo" @change="applyPeriod"><option value="7">Últimos 7 días</option><option value="30">Últimos 30 días</option><option value="month">Este mes</option><option value="previous">Mes anterior</option><option value="custom">Personalizado</option></select></div>
-      <div class="field"><label>Cliente</label><select v-model="filters.clienteId"><option value="">Todos los clientes</option><option v-for="item in data.filtros.clientes" :key="item.id" :value="item.id">{{ item.nombre }}</option></select></div>
-      <div class="field"><label>Tipo de producto</label><select v-model="filters.tipoCespedId"><option value="">Todos los productos</option><option v-for="item in data.filtros.productos" :key="item.id" :value="item.id">{{ item.nombre }}{{ item.activo === false ? ' (inactivo)' : '' }}</option></select></div>
       <div class="field"><label>Desde</label><input v-model="filters.desde" type="date" required @change="customDates"></div>
       <div class="field"><label>Hasta</label><input v-model="filters.hasta" type="date" required @change="customDates"></div>
+      <div class="field"><label>Cliente</label><select v-model="filters.clienteId"><option value="">Todos los clientes</option><option v-for="item in data.filtros.clientes" :key="item.id" :value="item.id">{{ item.nombre }}</option></select></div>
+      <div class="field"><label>Tipo de producto</label><select v-model="filters.tipoCespedId"><option value="">Todos los productos</option><option v-for="item in data.filtros.productos" :key="item.id" :value="item.id">{{ item.nombre }}{{ item.activo === false ? ' (inactivo)' : '' }}</option></select></div>
       <div class="filter-actions"><button class="btn" :disabled="loading">{{ loading ? 'Actualizando…' : 'Aplicar filtros' }}</button><button type="button" class="btn secondary" @click="resetFilters">Restablecer</button></div>
     </form>
 
