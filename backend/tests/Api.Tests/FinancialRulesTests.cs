@@ -2,6 +2,7 @@ using Api.Features.Caja;
 using Api.Features.Cuotas;
 using Api.Features.Ventas;
 using Api.Features.Clientes;
+using Api.Features.Rentabilidad;
 using Api.Shared.Database;
 
 namespace Api.Tests;
@@ -93,6 +94,18 @@ public sealed class FinancialRulesTests
     [Fact]
     public void CancellationValidation_AcceptsFullyPaidInstallment() =>
         Assert.Null(CuotaEndpoints.ValidateCancellation(100m, 100m));
+
+    [Theory]
+    [InlineData(1000, 100, 0, 100, 900)]
+    [InlineData(1000, 100, 300, 400, 600)]
+    [InlineData(1000, 100, 900, 1000, 0)]
+    public void RentabilityBalance_UsesDeliveryAndInstallmentPayments(
+        decimal total,decimal delivery,decimal installmentPayments,decimal expectedCollected,decimal expectedPending)
+    {
+        var result=RentabilidadEndpoints.CalculateCollectionBalance(total,delivery,installmentPayments);
+        Assert.Equal(expectedCollected,result.TotalCobrado);
+        Assert.Equal(expectedPending,result.TotalPendiente);
+    }
 
     [Fact]
     public void WithdrawalValidation_RejectsNegativeResult() =>
