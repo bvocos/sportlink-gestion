@@ -3,19 +3,20 @@ using Api.Shared.Database;
 using FluentValidation;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using System.Text.Json;
 
 namespace Api.Features.Ventas;
 
 public record RegistrarVentaCommand(Guid ClienteId, DateOnly FechaVenta, Guid TipoCespedId, decimal CantidadM2,
     decimal PrecioUnitario, decimal PrecioTotal, decimal MontoEntrega, FormaPago FormaPago, int? CantidadCuotas, EstadoVenta Estado,
     DateOnly? FechaEntregaEstimada, string? Observaciones, decimal CostoCompraUnitario,
-    decimal CostoEnvio, decimal OtrosCostos, Guid AlicuotaIvaId) : IRequest<VentaDto>;
+    decimal CostoEnvio, decimal OtrosCostos, Guid AlicuotaIvaId, string? Color = null) : IRequest<VentaDto>;
 
 public record VentaDto(Guid Id, Guid ClienteId, string Cliente, Guid TipoCespedId, string TipoCesped,
     Guid AlicuotaIvaId, DateOnly FechaVenta, decimal CantidadM2, decimal PrecioUnitario, decimal PrecioTotal, decimal MontoEntrega,
     decimal CostoCompraUnitario, decimal CostoEnvio, decimal OtrosCostos, FormaPago FormaPago,
     int? CantidadCuotas, EstadoVenta Estado, decimal GananciaNeta, decimal Margen,
-    DateOnly? FechaEntregaEstimada, string? Observaciones);
+    DateOnly? FechaEntregaEstimada, string? Observaciones, string? Color);
 
 public sealed class RegistrarVentaValidator : AbstractValidator<RegistrarVentaCommand>
 {
@@ -48,6 +49,7 @@ public sealed class RegistrarVentaHandler(AppDbContext db) : IRequestHandler<Reg
     {
         var (cliente, tipo, alicuota) = await VentaService.GetReferences(db, request, ct);
         request = VentaService.UseMasterCostWhenMissing(request, tipo);
+        request = VentaService.NormalizeColor(request, tipo);
         var venta = new Venta();
         VentaService.Apply(venta, request, alicuota.Porcentaje);
 
@@ -74,6 +76,15 @@ internal static class VentaService
             ? request
             : request with { CostoCompraUnitario = tipo.CostoM2 };
 
+    public static RegistrarVentaCommand NormalizeColor(RegistrarVentaCommand request, TipoCesped tipo)
+    {
+        var colors = JsonSerializer.Deserialize<string[]>(tipo.ColoresJson) ?? [];
+        if (colors.Length == 0) return request with { Color = null };
+        var selected = colors.FirstOrDefault(x => string.Equals(x, request.Color?.Trim(), StringComparison.OrdinalIgnoreCase));
+        if (selected is null) throw new KeyNotFoundException("Seleccioná un color disponible para el producto.");
+        return request with { Color = selected };
+    }
+
     public static async Task<(Cliente Cliente, TipoCesped Tipo, AlicuotaIva Alicuota)> GetReferences(
         AppDbContext db, RegistrarVentaCommand request, CancellationToken ct)
     {
@@ -90,7 +101,7 @@ internal static class VentaService
         var costoOperativo = costoCompra + r.CostoEnvio + r.OtrosCostos;
         var iva = FinancialCalculator.CalculateIva(costoOperativo, porcentajeIva);
         var gananciaBruta = total - costoOperativo;
-        venta.ClienteId = r.ClienteId; venta.TipoCespedId = r.TipoCespedId; venta.AlicuotaIvaId = r.AlicuotaIvaId;
+        venta.ClienteId = r.ClienteId; venta.TipoCespedId = r.TipoCespedId; venta.AlicuotaIvaId = r.AlicuotaIvaId; venta.Color = r.Color;
         venta.FechaVenta = r.FechaVenta; venta.CantidadM2 = r.CantidadM2; venta.PrecioUnitario = r.PrecioUnitario;
         venta.PrecioTotal = total; venta.MontoEntrega = r.MontoEntrega; venta.CostoCompraUnitario = r.CostoCompraUnitario; venta.CostoCompraTotal = costoCompra;
         venta.CostoEnvio = r.CostoEnvio; venta.OtrosCostos = r.OtrosCostos; venta.Iva = iva;
@@ -124,7 +135,7 @@ internal static class VentaService
         $"{c.Nombre} {c.Apellido}", v.TipoCespedId, t.Nombre, v.AlicuotaIvaId, v.FechaVenta,
         v.CantidadM2, v.PrecioUnitario, v.PrecioTotal, v.MontoEntrega, v.CostoCompraUnitario, v.CostoEnvio,
         v.OtrosCostos, v.FormaPago, v.CantidadCuotas, v.Estado, v.GananciaNeta, v.Margen,
-        v.FechaEntregaEstimada, v.Observaciones);
+        v.FechaEntregaEstimada, v.Observaciones, v.Color);
 }
 
 public static class VentaEndpoints
@@ -190,6 +201,7 @@ public static class VentaEndpoints
 
         var (cliente, tipo, alicuota) = await VentaService.GetReferences(db, request, ct);
         request = VentaService.UseMasterCostWhenMissing(request, tipo);
+        request = VentaService.NormalizeColor(request, tipo);
         try
         {
             await using var transaction = await db.Database.BeginTransactionAsync(ct);
@@ -206,6 +218,7 @@ public static class VentaEndpoints
                 .SetProperty(x => x.ClienteId, updated.ClienteId)
                 .SetProperty(x => x.TipoCespedId, updated.TipoCespedId)
                 .SetProperty(x => x.AlicuotaIvaId, updated.AlicuotaIvaId)
+                .SetProperty(x => x.Color, updated.Color)
                 .SetProperty(x => x.FechaVenta, updated.FechaVenta)
                 .SetProperty(x => x.FechaEntregaEstimada, updated.FechaEntregaEstimada)
                 .SetProperty(x => x.CantidadM2, updated.CantidadM2)

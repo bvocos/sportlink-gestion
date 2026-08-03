@@ -21,6 +21,7 @@ const blank = () => ({
   clienteId: "",
   fechaVenta: new Date().toISOString().slice(0, 10),
   tipoCespedId: "",
+  color: "",
   cantidadM2: 1,
   precioUnitario: 0,
   precioTotal: 0,
@@ -36,6 +37,8 @@ const blank = () => ({
   alicuotaIvaId: "",
 });
 const form = ref(blank());
+const selectedProduct = computed(() => maestros.value.tiposCesped.find((x:any) => x.id === form.value.tipoCespedId));
+const availableColors = computed<string[]>(() => selectedProduct.value?.colores ?? []);
 const calculatedTotal = computed(() =>
   Math.round(
     (Number(form.value.cantidadM2) || 0) *
@@ -87,7 +90,7 @@ async function load() {
   await loadSales();
 }
 /* El precio maestro se completa al cambiar producto, pero sigue siendo editable. */
-watch(()=>form.value.tipoCespedId,(id)=>{if(editingId.value)return;const t=maestros.value.tiposCesped.find((x:any)=>x.id===id);if(t){form.value.precioUnitario=t.precioVentaM2;form.value.costoCompraUnitario=t.costoM2}})
+watch(()=>form.value.tipoCespedId,(id)=>{const t=maestros.value.tiposCesped.find((x:any)=>x.id===id);if(!t)return;if(!editingId.value){form.value.precioUnitario=t.precioVentaM2;form.value.costoCompraUnitario=t.costoM2}if(!t.colores?.includes(form.value.color))form.value.color=t.colores?.length===1?t.colores[0]:""})
 function openNew() {
   editingId.value = null;
   form.value = blank();
@@ -101,6 +104,7 @@ function edit(v: any) {
     clienteId: v.clienteId,
     fechaVenta: v.fechaVenta,
     tipoCespedId: v.tipoCespedId,
+    color: v.color ?? "",
     cantidadM2: v.cantidadM2,
     precioUnitario: v.precioUnitario,
     precioTotal: v.precioTotal,
@@ -189,7 +193,7 @@ onMounted(load);
           <tr v-for="v in items" v-show="!loading" :key="v.id">
             <td>
               <b>{{ v.cliente }}</b
-              ><br /><small>{{ v.tipoCesped }} · {{ v.cantidadM2 }} m²</small>
+              ><br /><small>{{ v.tipoCesped }}<template v-if="v.color"> · {{ v.color }}</template> · {{ v.cantidadM2 }} m²</small>
             </td>
             <td>{{ v.fechaVenta }}</td>
             <td>{{ money(v.precioTotal) }}</td>
@@ -231,6 +235,12 @@ onMounted(load);
               <option v-for="t in maestros.tiposCesped" :value="t.id">
                 {{ t.nombre }}
               </option>
+            </select>
+          </div>
+          <div v-if="availableColors.length" class="field">
+            <label>Color</label><select v-model="form.color" required>
+              <option value="" disabled>Seleccionar color</option>
+              <option v-for="color in availableColors" :key="color" :value="color">{{ color }}</option>
             </select>
           </div>
           <div class="field">

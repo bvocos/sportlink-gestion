@@ -5,6 +5,7 @@ using Api.Features.Clientes;
 using Api.Features.Rentabilidad;
 using Api.Shared.Common;
 using Api.Shared.Database;
+using System.Text.Json;
 
 namespace Api.Tests;
 
@@ -24,6 +25,15 @@ public sealed class FinancialRulesTests
         var command = Sale() with { CostoCompraUnitario = 0 };
         var normalized = VentaService.UseMasterCostWhenMissing(command, new TipoCesped { CostoM2 = 42.50m });
         Assert.Equal(42.50m, normalized.CostoCompraUnitario);
+    }
+
+    [Fact]
+    public void NormalizeColor_PreservesConfiguredVariantCasing()
+    {
+        var command = Sale() with { Color = "verde oliva" };
+        var product = new TipoCesped { ColoresJson = JsonSerializer.Serialize(new[] { "Verde oliva", "Azul" }) };
+        var normalized = VentaService.NormalizeColor(command, product);
+        Assert.Equal("Verde oliva", normalized.Color);
     }
 
     [Theory]

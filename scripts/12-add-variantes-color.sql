@@ -1,0 +1,11 @@
+SET XACT_ABORT ON;
+BEGIN TRANSACTION;
+
+IF COL_LENGTH(N'dbo.TiposCesped', N'ColoresJson') IS NULL
+    ALTER TABLE dbo.TiposCesped ADD ColoresJson NVARCHAR(MAX) NOT NULL
+        CONSTRAINT DF_TiposCesped_ColoresJson DEFAULT N'[]' WITH VALUES;
+
+IF COL_LENGTH(N'dbo.Ventas', N'Color') IS NULL
+    ALTER TABLE dbo.Ventas ADD Color NVARCHAR(100) NULL;
+
+COMMIT TRANSACTION;
