@@ -82,7 +82,7 @@ internal static class VentaService
         var total = r.PrecioTotal;
         var costoCompra = r.CostoCompraUnitario * r.CantidadM2;
         var costoOperativo = costoCompra + r.CostoEnvio + r.OtrosCostos;
-        var iva = costoOperativo * porcentajeIva / 100;
+        var iva = FinancialCalculator.CalculateIva(costoOperativo, porcentajeIva);
         var gananciaBruta = total - costoOperativo;
         venta.ClienteId = r.ClienteId; venta.TipoCespedId = r.TipoCespedId; venta.AlicuotaIvaId = r.AlicuotaIvaId;
         venta.FechaVenta = r.FechaVenta; venta.CantidadM2 = r.CantidadM2; venta.PrecioUnitario = r.PrecioUnitario;

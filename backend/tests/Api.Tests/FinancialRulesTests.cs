@@ -3,12 +3,21 @@ using Api.Features.Cuotas;
 using Api.Features.Ventas;
 using Api.Features.Clientes;
 using Api.Features.Rentabilidad;
+using Api.Shared.Common;
 using Api.Shared.Database;
 
 namespace Api.Tests;
 
 public sealed class FinancialRulesTests
 {
+    [Theory]
+    [InlineData(475, 21, 99.75)]
+    [InlineData(475, 10.5, 49.88)]
+    [InlineData(475, 0, 0)]
+    public void CalculateIva_UsesOperationalCostAsTaxBase(
+        decimal costoOperativo, decimal porcentaje, decimal expected) =>
+        Assert.Equal(expected, FinancialCalculator.CalculateIva(costoOperativo, porcentaje));
+
     [Theory]
     [InlineData("bruno", "Bruno")]
     [InlineData("MARÍA DE LA FUENTE", "María de la Fuente")]

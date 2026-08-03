@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using Api.Shared.Common;
 using Api.Shared.Database;
 using Microsoft.EntityFrameworkCore;
 
@@ -60,7 +61,7 @@ public static class RentabilidadEndpoints
                 resumenCuotas?.Pagado ?? 0);
             var pendienteCuotas = Math.Max(resumenCuotas?.Pendiente ?? 0, 0);
             var costoOperativo = v.CostoCompraTotal + v.CostoEnvio + v.OtrosCostos;
-            var iva = costoOperativo * v.AlicuotaIva.Porcentaje / 100;
+            var iva = FinancialCalculator.CalculateIva(costoOperativo, v.AlicuotaIva.Porcentaje);
             var costoTotal = costoOperativo + iva;
             var gananciaBruta = v.PrecioTotal - costoOperativo;
             var gananciaNeta = v.PrecioTotal - costoTotal;
@@ -87,12 +88,13 @@ public static class RentabilidadEndpoints
         {
             FacturacionTotal = g.Sum(x => x.PrecioTotal),
             CostoTotal = g.Sum(x =>
-                (x.CostoCompraTotal + x.CostoEnvio + x.OtrosCostos) *
-                (1 + x.AlicuotaIva.Porcentaje / 100)),
+                x.CostoCompraTotal + x.CostoEnvio + x.OtrosCostos +
+                Math.Round((x.CostoCompraTotal + x.CostoEnvio + x.OtrosCostos) *
+                    x.AlicuotaIva.Porcentaje / 100, 2)),
             GananciaNetaTotal = g.Sum(x =>
-                x.PrecioTotal -
-                (x.CostoCompraTotal + x.CostoEnvio + x.OtrosCostos) *
-                (1 + x.AlicuotaIva.Porcentaje / 100))
+                x.PrecioTotal - x.CostoCompraTotal - x.CostoEnvio - x.OtrosCostos -
+                Math.Round((x.CostoCompraTotal + x.CostoEnvio + x.OtrosCostos) *
+                    x.AlicuotaIva.Porcentaje / 100, 2))
         }).SingleOrDefaultAsync(ct);
         var facturacion = aggregate?.FacturacionTotal ?? 0;
         var ganancia = aggregate?.GananciaNetaTotal ?? 0;
