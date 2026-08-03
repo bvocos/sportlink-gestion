@@ -18,6 +18,14 @@ public sealed class FinancialRulesTests
         decimal costoOperativo, decimal porcentaje, decimal expected) =>
         Assert.Equal(expected, FinancialCalculator.CalculateIva(costoOperativo, porcentaje));
 
+    [Fact]
+    public void UseMasterCostWhenMissing_FillsZeroCostFromSelectedProduct()
+    {
+        var command = Sale() with { CostoCompraUnitario = 0 };
+        var normalized = VentaService.UseMasterCostWhenMissing(command, new TipoCesped { CostoM2 = 42.50m });
+        Assert.Equal(42.50m, normalized.CostoCompraUnitario);
+    }
+
     [Theory]
     [InlineData("bruno", "Bruno")]
     [InlineData("MARÍA DE LA FUENTE", "María de la Fuente")]

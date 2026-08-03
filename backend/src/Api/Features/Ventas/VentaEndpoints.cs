@@ -47,6 +47,7 @@ public sealed class RegistrarVentaHandler(AppDbContext db) : IRequestHandler<Reg
     public async Task<VentaDto> Handle(RegistrarVentaCommand request, CancellationToken ct)
     {
         var (cliente, tipo, alicuota) = await VentaService.GetReferences(db, request, ct);
+        request = VentaService.UseMasterCostWhenMissing(request, tipo);
         var venta = new Venta();
         VentaService.Apply(venta, request, alicuota.Porcentaje);
 
@@ -68,6 +69,11 @@ public sealed class RegistrarVentaHandler(AppDbContext db) : IRequestHandler<Reg
 
 internal static class VentaService
 {
+    public static RegistrarVentaCommand UseMasterCostWhenMissing(RegistrarVentaCommand request, TipoCesped tipo) =>
+        request.CostoCompraUnitario > 0 || tipo.CostoM2 <= 0
+            ? request
+            : request with { CostoCompraUnitario = tipo.CostoM2 };
+
     public static async Task<(Cliente Cliente, TipoCesped Tipo, AlicuotaIva Alicuota)> GetReferences(
         AppDbContext db, RegistrarVentaCommand request, CancellationToken ct)
     {
@@ -183,6 +189,7 @@ public static class VentaEndpoints
             return Results.Conflict(new { message = "No se puede modificar una venta que ya tiene cuotas cobradas." });
 
         var (cliente, tipo, alicuota) = await VentaService.GetReferences(db, request, ct);
+        request = VentaService.UseMasterCostWhenMissing(request, tipo);
         try
         {
             await using var transaction = await db.Database.BeginTransactionAsync(ct);
