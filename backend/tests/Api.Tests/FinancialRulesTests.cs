@@ -30,8 +30,9 @@ public sealed class FinancialRulesTests
         Assert.Equal(1000m, venta.PrecioTotal);
         Assert.Equal(400m, venta.CostoCompraTotal);
         Assert.Equal(525m, venta.GananciaBruta);
-        Assert.Equal(315m, venta.GananciaNeta);
-        Assert.Equal(0.315m, venta.Margen);
+        Assert.Equal(99.75m, venta.Iva);
+        Assert.Equal(425.25m, venta.GananciaNeta);
+        Assert.Equal(0.42525m, venta.Margen);
     }
 
     [Fact]
@@ -40,8 +41,8 @@ public sealed class FinancialRulesTests
         var venta = new Venta();
         VentaService.Apply(venta, Sale(precioTotal: 990m), 21m);
         Assert.Equal(990m, venta.PrecioTotal);
-        Assert.Equal(207.9m, venta.Iva);
-        Assert.Equal(307.1m, venta.GananciaNeta);
+        Assert.Equal(99.75m, venta.Iva);
+        Assert.Equal(415.25m, venta.GananciaNeta);
     }
 
     [Fact]

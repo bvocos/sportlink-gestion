@@ -81,8 +81,9 @@ internal static class VentaService
     {
         var total = r.PrecioTotal;
         var costoCompra = r.CostoCompraUnitario * r.CantidadM2;
-        var iva = total * porcentajeIva / 100;
-        var gananciaBruta = total - costoCompra - r.CostoEnvio - r.OtrosCostos;
+        var costoOperativo = costoCompra + r.CostoEnvio + r.OtrosCostos;
+        var iva = costoOperativo * porcentajeIva / 100;
+        var gananciaBruta = total - costoOperativo;
         venta.ClienteId = r.ClienteId; venta.TipoCespedId = r.TipoCespedId; venta.AlicuotaIvaId = r.AlicuotaIvaId;
         venta.FechaVenta = r.FechaVenta; venta.CantidadM2 = r.CantidadM2; venta.PrecioUnitario = r.PrecioUnitario;
         venta.PrecioTotal = total; venta.MontoEntrega = r.MontoEntrega; venta.CostoCompraUnitario = r.CostoCompraUnitario; venta.CostoCompraTotal = costoCompra;

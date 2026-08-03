@@ -30,7 +30,7 @@ public static class RentabilidadEndpoints
 
     private static IQueryable<Venta> FilteredQuery(AppDbContext db, string? buscar)
     {
-        var query = db.Ventas.AsNoTracking().Include(x => x.Cliente)
+        var query = db.Ventas.AsNoTracking().Include(x => x.Cliente).Include(x => x.AlicuotaIva)
             .Where(x => x.Estado != EstadoVenta.Cancelada);
         buscar = buscar?.Trim();
         if (string.IsNullOrWhiteSpace(buscar)) return query;
@@ -60,14 +60,15 @@ public static class RentabilidadEndpoints
                 resumenCuotas?.Pagado ?? 0);
             var pendienteCuotas = Math.Max(resumenCuotas?.Pendiente ?? 0, 0);
             var costoOperativo = v.CostoCompraTotal + v.CostoEnvio + v.OtrosCostos;
-            var costoTotal = costoOperativo + v.Iva;
+            var iva = costoOperativo * v.AlicuotaIva.Porcentaje / 100;
+            var costoTotal = costoOperativo + iva;
             var gananciaBruta = v.PrecioTotal - costoOperativo;
             var gananciaNeta = v.PrecioTotal - costoTotal;
             var margen = v.PrecioTotal == 0 ? 0 : gananciaNeta / v.PrecioTotal;
             var estado = saldo.TotalPendiente > 0 ? "Pendiente de cobro" : margen < 0 ? "En pérdida" :
                 margen >= umbral ? "Muy rentable" : "Rentable";
             return new ReportRow(v.Id, v.FechaVenta, v.Cliente.Nombre + " " + v.Cliente.Apellido,
-                v.PrecioTotal, costoOperativo, v.Iva, costoTotal, gananciaBruta, gananciaNeta,
+                v.PrecioTotal, costoOperativo, iva, costoTotal, gananciaBruta, gananciaNeta,
                 margen, v.MontoEntrega, saldo.TotalCobrado, saldo.TotalPendiente,
                 pendienteCuotas, v.FormaPago, estado);
         }).ToList();
@@ -85,9 +86,13 @@ public static class RentabilidadEndpoints
         var aggregate = await query.GroupBy(_ => 1).Select(g => new
         {
             FacturacionTotal = g.Sum(x => x.PrecioTotal),
-            CostoTotal = g.Sum(x => x.CostoCompraTotal + x.CostoEnvio + x.OtrosCostos + x.Iva),
+            CostoTotal = g.Sum(x =>
+                (x.CostoCompraTotal + x.CostoEnvio + x.OtrosCostos) *
+                (1 + x.AlicuotaIva.Porcentaje / 100)),
             GananciaNetaTotal = g.Sum(x =>
-                x.PrecioTotal - x.CostoCompraTotal - x.CostoEnvio - x.OtrosCostos - x.Iva)
+                x.PrecioTotal -
+                (x.CostoCompraTotal + x.CostoEnvio + x.OtrosCostos) *
+                (1 + x.AlicuotaIva.Porcentaje / 100))
         }).SingleOrDefaultAsync(ct);
         var facturacion = aggregate?.FacturacionTotal ?? 0;
         var ganancia = aggregate?.GananciaNetaTotal ?? 0;
