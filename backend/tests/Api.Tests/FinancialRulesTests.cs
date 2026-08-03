@@ -20,20 +20,19 @@ public sealed class FinancialRulesTests
         Assert.Equal(expected, FinancialCalculator.CalculateIva(costoOperativo, porcentaje));
 
     [Fact]
-    public void UseMasterCostWhenMissing_FillsZeroCostFromSelectedProduct()
-    {
-        var command = Sale() with { CostoCompraUnitario = 0 };
-        var normalized = VentaService.UseMasterCostWhenMissing(command, new TipoCesped { CostoM2 = 42.50m });
-        Assert.Equal(42.50m, normalized.CostoCompraUnitario);
-    }
-
-    [Fact]
     public void NormalizeColor_PreservesConfiguredVariantCasing()
     {
         var command = Sale() with { Color = "verde oliva" };
         var product = new TipoCesped { ColoresJson = JsonSerializer.Serialize(new[] { "Verde oliva", "Azul" }) };
         var normalized = VentaService.NormalizeColor(command, product);
         Assert.Equal("Verde oliva", normalized.Color);
+    }
+
+    [Fact]
+    public void SaleValidation_RejectsMissingOperationalCost()
+    {
+        var result = new RegistrarVentaValidator().Validate(Sale() with { CostoCompraUnitario = 0 });
+        Assert.Contains(result.Errors, x => x.PropertyName == nameof(RegistrarVentaCommand.CostoCompraUnitario));
     }
 
     [Theory]

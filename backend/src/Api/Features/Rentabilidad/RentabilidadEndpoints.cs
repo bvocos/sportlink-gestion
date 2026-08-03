@@ -32,7 +32,6 @@ public static class RentabilidadEndpoints
     private static IQueryable<Venta> FilteredQuery(AppDbContext db, string? buscar)
     {
         var query = db.Ventas.AsNoTracking().Include(x => x.Cliente).Include(x => x.AlicuotaIva)
-            .Include(x => x.TipoCesped)
             .Where(x => x.Estado != EstadoVenta.Cancelada);
         buscar = buscar?.Trim();
         if (string.IsNullOrWhiteSpace(buscar)) return query;
@@ -61,10 +60,7 @@ public static class RentabilidadEndpoints
             var saldo = CalculateCollectionBalance(v.PrecioTotal, v.MontoEntrega,
                 resumenCuotas?.Pagado ?? 0);
             var pendienteCuotas = Math.Max(resumenCuotas?.Pendiente ?? 0, 0);
-            var costoCompra = v.CostoCompraTotal > 0
-                ? v.CostoCompraTotal
-                : v.TipoCesped.CostoM2 * v.CantidadM2;
-            var costoOperativo = costoCompra + v.CostoEnvio + v.OtrosCostos;
+            var costoOperativo = v.CostoCompraTotal + v.CostoEnvio + v.OtrosCostos;
             var iva = FinancialCalculator.CalculateIva(costoOperativo, v.AlicuotaIva.Porcentaje);
             var costoTotal = costoOperativo + iva;
             var gananciaBruta = v.PrecioTotal - costoOperativo;
@@ -92,17 +88,12 @@ public static class RentabilidadEndpoints
         {
             FacturacionTotal = g.Sum(x => x.PrecioTotal),
             CostoTotal = g.Sum(x =>
-                (x.CostoCompraTotal > 0 ? x.CostoCompraTotal : x.TipoCesped.CostoM2 * x.CantidadM2) +
-                x.CostoEnvio + x.OtrosCostos +
-                Math.Round(((x.CostoCompraTotal > 0 ? x.CostoCompraTotal : x.TipoCesped.CostoM2 * x.CantidadM2) +
-                    x.CostoEnvio + x.OtrosCostos) *
+                x.CostoCompraTotal + x.CostoEnvio + x.OtrosCostos +
+                Math.Round((x.CostoCompraTotal + x.CostoEnvio + x.OtrosCostos) *
                     x.AlicuotaIva.Porcentaje / 100, 2)),
             GananciaNetaTotal = g.Sum(x =>
-                x.PrecioTotal -
-                (x.CostoCompraTotal > 0 ? x.CostoCompraTotal : x.TipoCesped.CostoM2 * x.CantidadM2) -
-                x.CostoEnvio - x.OtrosCostos -
-                Math.Round(((x.CostoCompraTotal > 0 ? x.CostoCompraTotal : x.TipoCesped.CostoM2 * x.CantidadM2) +
-                    x.CostoEnvio + x.OtrosCostos) *
+                x.PrecioTotal - x.CostoCompraTotal - x.CostoEnvio - x.OtrosCostos -
+                Math.Round((x.CostoCompraTotal + x.CostoEnvio + x.OtrosCostos) *
                     x.AlicuotaIva.Porcentaje / 100, 2))
         }).SingleOrDefaultAsync(ct);
         var facturacion = aggregate?.FacturacionTotal ?? 0;

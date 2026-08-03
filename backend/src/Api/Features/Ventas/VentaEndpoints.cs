@@ -35,7 +35,8 @@ public sealed class RegistrarVentaValidator : AbstractValidator<RegistrarVentaCo
         RuleFor(x => x.MontoEntrega).LessThan(x => x.PrecioTotal)
             .When(x => x.FormaPago == FormaPago.Cuotas)
             .WithMessage("En una venta en cuotas la entrega debe ser menor al total para que exista saldo a financiar.");
-        RuleFor(x => x.CostoCompraUnitario).GreaterThanOrEqualTo(0);
+        RuleFor(x => x.CostoCompraUnitario).GreaterThan(0)
+            .WithMessage("Ingresá el costo de compra por m² correspondiente a la venta.");
         RuleFor(x => x.CostoEnvio).GreaterThanOrEqualTo(0);
         RuleFor(x => x.OtrosCostos).GreaterThanOrEqualTo(0);
         RuleFor(x => x.CantidadCuotas).NotNull().InclusiveBetween(1, 60).When(x => x.FormaPago == FormaPago.Cuotas);
@@ -48,7 +49,6 @@ public sealed class RegistrarVentaHandler(AppDbContext db) : IRequestHandler<Reg
     public async Task<VentaDto> Handle(RegistrarVentaCommand request, CancellationToken ct)
     {
         var (cliente, tipo, alicuota) = await VentaService.GetReferences(db, request, ct);
-        request = VentaService.UseMasterCostWhenMissing(request, tipo);
         request = VentaService.NormalizeColor(request, tipo);
         var venta = new Venta();
         VentaService.Apply(venta, request, alicuota.Porcentaje);
@@ -71,11 +71,6 @@ public sealed class RegistrarVentaHandler(AppDbContext db) : IRequestHandler<Reg
 
 internal static class VentaService
 {
-    public static RegistrarVentaCommand UseMasterCostWhenMissing(RegistrarVentaCommand request, TipoCesped tipo) =>
-        request.CostoCompraUnitario > 0 || tipo.CostoM2 <= 0
-            ? request
-            : request with { CostoCompraUnitario = tipo.CostoM2 };
-
     public static RegistrarVentaCommand NormalizeColor(RegistrarVentaCommand request, TipoCesped tipo)
     {
         var colors = JsonSerializer.Deserialize<string[]>(tipo.ColoresJson) ?? [];
@@ -200,7 +195,6 @@ public static class VentaEndpoints
             return Results.Conflict(new { message = "No se puede modificar una venta que ya tiene cuotas cobradas." });
 
         var (cliente, tipo, alicuota) = await VentaService.GetReferences(db, request, ct);
-        request = VentaService.UseMasterCostWhenMissing(request, tipo);
         request = VentaService.NormalizeColor(request, tipo);
         try
         {

@@ -318,8 +318,9 @@ onMounted(load);
             ><input
               v-model.number="form.costoCompraUnitario"
               type="number"
-              min="0"
+              min="0.01"
               step="0.01"
+              required
             />
           </div>
           <div class="field">
