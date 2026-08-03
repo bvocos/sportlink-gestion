@@ -8,11 +8,13 @@ const items = ref<any[]>([]),
   show = ref(false),
   error = ref(""),
   editingId = ref<string | null>(null),
+  colorInput = ref(""),
   form = ref({
     nombre: "",
     descripcion: "",
     precioVentaM2: 0,
     costoM2: 0,
+    colores: [] as string[],
     activo: true,
   });
 async function load() {
@@ -20,11 +22,13 @@ async function load() {
 }
 function create() {
   editingId.value = null;
+  colorInput.value = "";
   form.value = {
     nombre: "",
     descripcion: "",
     precioVentaM2: 0,
     costoM2: 0,
+    colores: [],
     activo: true,
   };
   error.value = "";
@@ -32,16 +36,25 @@ function create() {
 }
 function edit(x: any) {
   editingId.value = x.id;
+  colorInput.value = "";
   form.value = {
     nombre: x.nombre,
     descripcion: x.descripcion ?? "",
     precioVentaM2: x.precioVentaM2,
     costoM2: x.costoM2,
+    colores: [...(x.colores ?? [])],
     activo: x.activo,
   };
   error.value = "";
   show.value = true;
 }
+function addColor() {
+  const color = colorInput.value.trim();
+  if (!color || form.value.colores.some(x => x.toLocaleLowerCase() === color.toLocaleLowerCase())) return;
+  form.value.colores.push(color);
+  colorInput.value = "";
+}
+function removeColor(index: number) { form.value.colores.splice(index, 1); }
 async function save() {
   try {
     editingId.value
@@ -62,6 +75,7 @@ async function toggle(x: any) {
     descripcion: x.descripcion,
     precioVentaM2: x.precioVentaM2,
     costoM2: x.costoM2,
+    colores: x.colores ?? [],
     activo: !x.activo,
   });
   await load();
@@ -94,6 +108,7 @@ onMounted(load);
             <th>Descripción</th>
             <th>Venta / m²</th>
             <th>Costo / m²</th>
+            <th>Colores</th>
             <th>Estado</th>
             <th></th>
           </tr>
@@ -106,6 +121,7 @@ onMounted(load);
             <td>{{ x.descripcion || "—" }}</td>
             <td>{{ money(x.precioVentaM2) }}</td>
             <td>{{ money(x.costoM2) }}</td>
+            <td><div class="color-list"><span v-for="color in x.colores" :key="color" class="badge color-badge">{{ color }}</span><span v-if="!x.colores?.length">—</span></div></td>
             <td>
               <span class="badge" :class="{ warn: !x.activo }">{{
                 x.activo ? "Activo" : "Inactivo"
@@ -130,6 +146,12 @@ onMounted(load);
         <p v-if="error" class="error">{{ error }}</p>
         <div class="field">
           <label>Nombre</label><input v-model="form.nombre" required />
+        </div>
+        <div class="field color-editor">
+          <label>Variantes de color</label>
+          <div class="color-entry"><input v-model="colorInput" maxlength="100" placeholder="Ej. Verde oliva" @keydown.enter.prevent="addColor"><button type="button" class="btn secondary" @click="addColor">Agregar</button></div>
+          <div class="color-list"><button v-for="(color,index) in form.colores" :key="color" type="button" class="badge color-chip" :title="`Quitar ${color}`" @click="removeColor(index)">{{ color }} ×</button><small v-if="!form.colores.length">Todavía no agregaste colores.</small></div>
+          <small>Todos los colores usan el mismo precio y costo del producto.</small>
         </div>
         <div class="field">
           <label>Descripción</label

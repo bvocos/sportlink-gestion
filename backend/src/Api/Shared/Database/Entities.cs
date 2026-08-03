@@ -29,7 +29,7 @@ public sealed class Cliente : AuditableEntity
     public string? LocalidadId { get; set; } public string? ProvinciaId { get; set; }
     public TipoCliente Tipo { get; set; } public DateOnly FechaPrimerContacto { get; set; } public string? Observaciones { get; set; }
 }
-public sealed class TipoCesped : AuditableEntity { public string Nombre { get; set; } = ""; public string? Descripcion { get; set; } public decimal PrecioVentaM2 { get; set; } public decimal CostoM2 { get; set; } public bool Activo { get; set; } = true; }
+public sealed class TipoCesped : AuditableEntity { public string Nombre { get; set; } = ""; public string? Descripcion { get; set; } public decimal PrecioVentaM2 { get; set; } public decimal CostoM2 { get; set; } public string ColoresJson { get; set; } = "[]"; public bool Activo { get; set; } = true; }
 public sealed class AlicuotaIva : AuditableEntity { public string Nombre { get; set; } = ""; public decimal Porcentaje { get; set; } }
 public sealed class Configuracion : AuditableEntity { public string Clave { get; set; } = ""; public decimal ValorDecimal { get; set; } }
 public sealed class Venta : AuditableEntity
@@ -37,6 +37,7 @@ public sealed class Venta : AuditableEntity
     public Guid ClienteId { get; set; } public Cliente Cliente { get; set; } = null!;
     public Guid TipoCespedId { get; set; } public TipoCesped TipoCesped { get; set; } = null!;
     public Guid AlicuotaIvaId { get; set; } public AlicuotaIva AlicuotaIva { get; set; } = null!;
+    public string? Color { get; set; }
     public DateOnly FechaVenta { get; set; } public DateOnly? FechaEntregaEstimada { get; set; }
     public decimal CantidadM2 { get; set; } public decimal PrecioUnitario { get; set; } public decimal PrecioTotal { get; set; }
     public decimal MontoEntrega { get; set; }

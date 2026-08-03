@@ -95,6 +95,13 @@ public static class SeedData
             IF COL_LENGTH('dbo.Clientes','LocalidadId') IS NULL
                 ALTER TABLE dbo.Clientes ADD LocalidadId NVARCHAR(20) NULL;
             """);
+        await db.Database.ExecuteSqlRawAsync("""
+            IF COL_LENGTH('dbo.TiposCesped','ColoresJson') IS NULL
+                ALTER TABLE dbo.TiposCesped ADD ColoresJson NVARCHAR(MAX) NOT NULL
+                    CONSTRAINT DF_TiposCesped_ColoresJson DEFAULT N'[]' WITH VALUES;
+            IF COL_LENGTH('dbo.Ventas','Color') IS NULL
+                ALTER TABLE dbo.Ventas ADD Color NVARCHAR(100) NULL;
+            """);
         if (!await db.AlicuotasIva.AnyAsync()) db.AlicuotasIva.AddRange(new AlicuotaIva { Nombre="IVA 21%", Porcentaje=21 }, new AlicuotaIva { Nombre="IVA 10,5%", Porcentaje=10.5m }, new AlicuotaIva { Nombre="Exento", Porcentaje=0 });
         if (!await db.TiposCesped.AnyAsync()) db.TiposCesped.AddRange(new TipoCesped { Nombre="Decorativo 20 mm" }, new TipoCesped { Nombre="Premium 35 mm" }, new TipoCesped { Nombre="Deportivo 50 mm" });
         if (!await db.Configuraciones.AnyAsync()) db.Configuraciones.Add(new Configuracion { Clave="UmbralMuyRentable", ValorDecimal=.30m });

@@ -3,19 +3,20 @@ using Api.Shared.Database;
 using FluentValidation;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using System.Text.Json;
 
 namespace Api.Features.Ventas;
 
 public record RegistrarVentaCommand(Guid ClienteId, DateOnly FechaVenta, Guid TipoCespedId, decimal CantidadM2,
     decimal PrecioUnitario, decimal PrecioTotal, decimal MontoEntrega, FormaPago FormaPago, int? CantidadCuotas, EstadoVenta Estado,
     DateOnly? FechaEntregaEstimada, string? Observaciones, decimal CostoCompraUnitario,
-    decimal CostoEnvio, decimal OtrosCostos, Guid AlicuotaIvaId) : IRequest<VentaDto>;
+    decimal CostoEnvio, decimal OtrosCostos, Guid AlicuotaIvaId, string? Color = null) : IRequest<VentaDto>;
 
 public record VentaDto(Guid Id, Guid ClienteId, string Cliente, Guid TipoCespedId, string TipoCesped,
     Guid AlicuotaIvaId, DateOnly FechaVenta, decimal CantidadM2, decimal PrecioUnitario, decimal PrecioTotal, decimal MontoEntrega,
     decimal CostoCompraUnitario, decimal CostoEnvio, decimal OtrosCostos, FormaPago FormaPago,
     int? CantidadCuotas, EstadoVenta Estado, decimal GananciaNeta, decimal Margen,
-    DateOnly? FechaEntregaEstimada, string? Observaciones);
+    DateOnly? FechaEntregaEstimada, string? Observaciones, string? Color);
 
 public sealed class RegistrarVentaValidator : AbstractValidator<RegistrarVentaCommand>
 {
@@ -34,7 +35,8 @@ public sealed class RegistrarVentaValidator : AbstractValidator<RegistrarVentaCo
         RuleFor(x => x.MontoEntrega).LessThan(x => x.PrecioTotal)
             .When(x => x.FormaPago == FormaPago.Cuotas)
             .WithMessage("En una venta en cuotas la entrega debe ser menor al total para que exista saldo a financiar.");
-        RuleFor(x => x.CostoCompraUnitario).GreaterThanOrEqualTo(0);
+        RuleFor(x => x.CostoCompraUnitario).GreaterThan(0)
+            .WithMessage("Ingresá el costo de compra por m² correspondiente a la venta.");
         RuleFor(x => x.CostoEnvio).GreaterThanOrEqualTo(0);
         RuleFor(x => x.OtrosCostos).GreaterThanOrEqualTo(0);
         RuleFor(x => x.CantidadCuotas).NotNull().InclusiveBetween(1, 60).When(x => x.FormaPago == FormaPago.Cuotas);
@@ -47,6 +49,7 @@ public sealed class RegistrarVentaHandler(AppDbContext db) : IRequestHandler<Reg
     public async Task<VentaDto> Handle(RegistrarVentaCommand request, CancellationToken ct)
     {
         var (cliente, tipo, alicuota) = await VentaService.GetReferences(db, request, ct);
+        request = VentaService.NormalizeColor(request, tipo);
         var venta = new Venta();
         VentaService.Apply(venta, request, alicuota.Porcentaje);
 
@@ -68,6 +71,15 @@ public sealed class RegistrarVentaHandler(AppDbContext db) : IRequestHandler<Reg
 
 internal static class VentaService
 {
+    public static RegistrarVentaCommand NormalizeColor(RegistrarVentaCommand request, TipoCesped tipo)
+    {
+        var colors = JsonSerializer.Deserialize<string[]>(tipo.ColoresJson) ?? [];
+        if (colors.Length == 0) return request with { Color = null };
+        var selected = colors.FirstOrDefault(x => string.Equals(x, request.Color?.Trim(), StringComparison.OrdinalIgnoreCase));
+        if (selected is null) throw new KeyNotFoundException("Seleccioná un color disponible para el producto.");
+        return request with { Color = selected };
+    }
+
     public static async Task<(Cliente Cliente, TipoCesped Tipo, AlicuotaIva Alicuota)> GetReferences(
         AppDbContext db, RegistrarVentaCommand request, CancellationToken ct)
     {
@@ -81,9 +93,10 @@ internal static class VentaService
     {
         var total = r.PrecioTotal;
         var costoCompra = r.CostoCompraUnitario * r.CantidadM2;
-        var iva = total * porcentajeIva / 100;
-        var gananciaBruta = total - costoCompra - r.CostoEnvio - r.OtrosCostos;
-        venta.ClienteId = r.ClienteId; venta.TipoCespedId = r.TipoCespedId; venta.AlicuotaIvaId = r.AlicuotaIvaId;
+        var costoOperativo = costoCompra + r.CostoEnvio + r.OtrosCostos;
+        var iva = FinancialCalculator.CalculateIva(costoOperativo, porcentajeIva);
+        var gananciaBruta = total - costoOperativo;
+        venta.ClienteId = r.ClienteId; venta.TipoCespedId = r.TipoCespedId; venta.AlicuotaIvaId = r.AlicuotaIvaId; venta.Color = r.Color;
         venta.FechaVenta = r.FechaVenta; venta.CantidadM2 = r.CantidadM2; venta.PrecioUnitario = r.PrecioUnitario;
         venta.PrecioTotal = total; venta.MontoEntrega = r.MontoEntrega; venta.CostoCompraUnitario = r.CostoCompraUnitario; venta.CostoCompraTotal = costoCompra;
         venta.CostoEnvio = r.CostoEnvio; venta.OtrosCostos = r.OtrosCostos; venta.Iva = iva;
@@ -117,7 +130,7 @@ internal static class VentaService
         $"{c.Nombre} {c.Apellido}", v.TipoCespedId, t.Nombre, v.AlicuotaIvaId, v.FechaVenta,
         v.CantidadM2, v.PrecioUnitario, v.PrecioTotal, v.MontoEntrega, v.CostoCompraUnitario, v.CostoEnvio,
         v.OtrosCostos, v.FormaPago, v.CantidadCuotas, v.Estado, v.GananciaNeta, v.Margen,
-        v.FechaEntregaEstimada, v.Observaciones);
+        v.FechaEntregaEstimada, v.Observaciones, v.Color);
 }
 
 public static class VentaEndpoints
@@ -182,6 +195,7 @@ public static class VentaEndpoints
             return Results.Conflict(new { message = "No se puede modificar una venta que ya tiene cuotas cobradas." });
 
         var (cliente, tipo, alicuota) = await VentaService.GetReferences(db, request, ct);
+        request = VentaService.NormalizeColor(request, tipo);
         try
         {
             await using var transaction = await db.Database.BeginTransactionAsync(ct);
@@ -198,6 +212,7 @@ public static class VentaEndpoints
                 .SetProperty(x => x.ClienteId, updated.ClienteId)
                 .SetProperty(x => x.TipoCespedId, updated.TipoCespedId)
                 .SetProperty(x => x.AlicuotaIvaId, updated.AlicuotaIvaId)
+                .SetProperty(x => x.Color, updated.Color)
                 .SetProperty(x => x.FechaVenta, updated.FechaVenta)
                 .SetProperty(x => x.FechaEntregaEstimada, updated.FechaEntregaEstimada)
                 .SetProperty(x => x.CantidadM2, updated.CantidadM2)

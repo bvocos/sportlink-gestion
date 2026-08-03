@@ -3,12 +3,38 @@ using Api.Features.Cuotas;
 using Api.Features.Ventas;
 using Api.Features.Clientes;
 using Api.Features.Rentabilidad;
+using Api.Shared.Common;
 using Api.Shared.Database;
+using System.Text.Json;
 
 namespace Api.Tests;
 
 public sealed class FinancialRulesTests
 {
+    [Theory]
+    [InlineData(475, 21, 99.75)]
+    [InlineData(475, 10.5, 49.88)]
+    [InlineData(475, 0, 0)]
+    public void CalculateIva_UsesOperationalCostAsTaxBase(
+        decimal costoOperativo, decimal porcentaje, decimal expected) =>
+        Assert.Equal(expected, FinancialCalculator.CalculateIva(costoOperativo, porcentaje));
+
+    [Fact]
+    public void NormalizeColor_PreservesConfiguredVariantCasing()
+    {
+        var command = Sale() with { Color = "verde oliva" };
+        var product = new TipoCesped { ColoresJson = JsonSerializer.Serialize(new[] { "Verde oliva", "Azul" }) };
+        var normalized = VentaService.NormalizeColor(command, product);
+        Assert.Equal("Verde oliva", normalized.Color);
+    }
+
+    [Fact]
+    public void SaleValidation_RejectsMissingOperationalCost()
+    {
+        var result = new RegistrarVentaValidator().Validate(Sale() with { CostoCompraUnitario = 0 });
+        Assert.Contains(result.Errors, x => x.PropertyName == nameof(RegistrarVentaCommand.CostoCompraUnitario));
+    }
+
     [Theory]
     [InlineData("bruno", "Bruno")]
     [InlineData("MARÍA DE LA FUENTE", "María de la Fuente")]
@@ -30,8 +56,9 @@ public sealed class FinancialRulesTests
         Assert.Equal(1000m, venta.PrecioTotal);
         Assert.Equal(400m, venta.CostoCompraTotal);
         Assert.Equal(525m, venta.GananciaBruta);
-        Assert.Equal(315m, venta.GananciaNeta);
-        Assert.Equal(0.315m, venta.Margen);
+        Assert.Equal(99.75m, venta.Iva);
+        Assert.Equal(425.25m, venta.GananciaNeta);
+        Assert.Equal(0.42525m, venta.Margen);
     }
 
     [Fact]
@@ -40,8 +67,8 @@ public sealed class FinancialRulesTests
         var venta = new Venta();
         VentaService.Apply(venta, Sale(precioTotal: 990m), 21m);
         Assert.Equal(990m, venta.PrecioTotal);
-        Assert.Equal(207.9m, venta.Iva);
-        Assert.Equal(307.1m, venta.GananciaNeta);
+        Assert.Equal(99.75m, venta.Iva);
+        Assert.Equal(415.25m, venta.GananciaNeta);
     }
 
     [Fact]
