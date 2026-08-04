@@ -185,14 +185,16 @@ public static class VentaEndpoints
         IValidator<RegistrarVentaCommand> validator, ILoggerFactory loggerFactory, CancellationToken ct)
     {
         var logger = loggerFactory.CreateLogger("Api.Features.Ventas.Update");
+        var venta = await db.Ventas.SingleOrDefaultAsync(x => x.Id == id, ct);
+        if (venta is null) return Results.NotFound();
+
+        var hasPaidInstallments = await db.Cuotas.AnyAsync(x => x.VentaId == id && x.ImportePagado > 0, ct);
+        if (hasPaidInstallments)
+            return await UpdateDatesPreservingPayments(venta, request, db, ct);
+
         var validation = await validator.ValidateAsync(request, ct);
         if (!validation.IsValid) return Results.ValidationProblem(validation.Errors.GroupBy(x => x.PropertyName)
             .ToDictionary(x => x.Key, x => x.Select(e => e.ErrorMessage).ToArray()));
-
-        var venta = await db.Ventas.SingleOrDefaultAsync(x => x.Id == id, ct);
-        if (venta is null) return Results.NotFound();
-        if (await db.Cuotas.AnyAsync(x => x.VentaId == id && x.ImportePagado > 0, ct))
-            return Results.Conflict(new { message = "No se puede modificar una venta que ya tiene cuotas cobradas." });
 
         var (cliente, tipo, alicuota) = await VentaService.GetReferences(db, request, ct);
         request = VentaService.NormalizeColor(request, tipo);
@@ -265,6 +267,46 @@ public static class VentaEndpoints
                 detail: "Ocurrió un error inesperado al guardar la venta.",
                 statusCode: StatusCodes.Status500InternalServerError);
         }
+    }
+
+    internal static bool HasOnlySaleDateChanged(Venta venta, RegistrarVentaCommand request) =>
+        venta.ClienteId == request.ClienteId &&
+        venta.TipoCespedId == request.TipoCespedId &&
+        venta.AlicuotaIvaId == request.AlicuotaIvaId &&
+        string.Equals(venta.Color ?? "", request.Color?.Trim() ?? "", StringComparison.OrdinalIgnoreCase) &&
+        venta.CantidadM2 == request.CantidadM2 &&
+        venta.PrecioUnitario == request.PrecioUnitario &&
+        venta.PrecioTotal == request.PrecioTotal &&
+        venta.MontoEntrega == request.MontoEntrega &&
+        venta.CostoCompraUnitario == request.CostoCompraUnitario &&
+        venta.CostoEnvio == request.CostoEnvio &&
+        venta.OtrosCostos == request.OtrosCostos &&
+        venta.FormaPago == request.FormaPago &&
+        venta.CantidadCuotas == request.CantidadCuotas &&
+        venta.Estado == request.Estado &&
+        venta.FechaEntregaEstimada == request.FechaEntregaEstimada &&
+        string.Equals(venta.Observaciones ?? "", request.Observaciones ?? "", StringComparison.Ordinal);
+
+    private static async Task<IResult> UpdateDatesPreservingPayments(Venta venta, RegistrarVentaCommand request,
+        AppDbContext db, CancellationToken ct)
+    {
+        if (!HasOnlySaleDateChanged(venta, request))
+            return Results.Conflict(new
+            {
+                message = "Esta venta tiene cuotas cobradas. Sólo se puede modificar la fecha de venta; los importes y demás datos deben mantenerse sin cambios."
+            });
+
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        venta.FechaVenta = request.FechaVenta;
+        var installments = await db.Cuotas.Where(x => x.VentaId == venta.Id).ToListAsync(ct);
+        foreach (var installment in installments)
+            installment.FechaVencimiento = request.FechaVenta.AddMonths(installment.Numero);
+        await db.SaveChangesAsync(ct);
+        await transaction.CommitAsync(ct);
+
+        var client = await db.Clientes.AsNoTracking().SingleAsync(x => x.Id == venta.ClienteId, ct);
+        var product = await db.TiposCesped.AsNoTracking().SingleAsync(x => x.Id == venta.TipoCespedId, ct);
+        return Results.Ok(VentaService.ToDto(venta, client, product));
     }
 
     private static async Task<IResult> Delete(Guid id, AppDbContext db, CancellationToken ct)
