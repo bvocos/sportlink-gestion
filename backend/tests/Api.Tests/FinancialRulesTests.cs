@@ -35,6 +35,43 @@ public sealed class FinancialRulesTests
         Assert.Contains(result.Errors, x => x.PropertyName == nameof(RegistrarVentaCommand.CostoCompraUnitario));
     }
 
+    [Fact]
+    public void PaidSale_AllowsChangingOnlySaleDate()
+    {
+        var original = Sale(FormaPago.Cuotas, 3);
+        var sale = new Venta();
+        VentaService.Apply(sale, original, 21m);
+        var changedDate = original with { FechaVenta = original.FechaVenta.AddDays(10) };
+        Assert.True(VentaEndpoints.HasOnlySaleDateOrColorChanged(sale, changedDate));
+    }
+
+    [Fact]
+    public void PaidSale_RejectsChangingFinancialValuesTogetherWithDate()
+    {
+        var original = Sale(FormaPago.Cuotas, 3);
+        var sale = new Venta();
+        VentaService.Apply(sale, original, 21m);
+        var changed = original with { FechaVenta = original.FechaVenta.AddDays(10), PrecioTotal = original.PrecioTotal + 1 };
+        Assert.False(VentaEndpoints.HasOnlySaleDateOrColorChanged(sale, changed));
+    }
+
+    [Fact]
+    public void PaidSale_AllowsChangingOnlyProductColor()
+    {
+        var original = Sale(FormaPago.Cuotas, 3) with { Color = "Verde" };
+        var sale = new Venta();
+        VentaService.Apply(sale, original, 21m);
+        Assert.True(VentaEndpoints.HasOnlySaleDateOrColorChanged(sale, original with { Color = "Azul" }));
+    }
+
+    [Fact]
+    public void InstallmentDueDates_FollowSaleDateAndInstallmentNumber()
+    {
+        var saleDate = new DateOnly(2026, 8, 15);
+        Assert.Equal(new DateOnly(2026, 9, 15), saleDate.AddMonths(1));
+        Assert.Equal(new DateOnly(2026, 11, 15), saleDate.AddMonths(3));
+    }
+
     [Theory]
     [InlineData("bruno", "Bruno")]
     [InlineData("MARÍA DE LA FUENTE", "María de la Fuente")]
