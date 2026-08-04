@@ -190,7 +190,7 @@ public static class VentaEndpoints
 
         var hasPaidInstallments = await db.Cuotas.AnyAsync(x => x.VentaId == id && x.ImportePagado > 0, ct);
         if (hasPaidInstallments)
-            return await UpdateDatesPreservingPayments(venta, request, db, ct);
+            return await UpdateDateOrColorPreservingPayments(venta, request, db, ct);
 
         var validation = await validator.ValidateAsync(request, ct);
         if (!validation.IsValid) return Results.ValidationProblem(validation.Errors.GroupBy(x => x.PropertyName)
@@ -269,11 +269,10 @@ public static class VentaEndpoints
         }
     }
 
-    internal static bool HasOnlySaleDateChanged(Venta venta, RegistrarVentaCommand request) =>
+    internal static bool HasOnlySaleDateOrColorChanged(Venta venta, RegistrarVentaCommand request) =>
         venta.ClienteId == request.ClienteId &&
         venta.TipoCespedId == request.TipoCespedId &&
         venta.AlicuotaIvaId == request.AlicuotaIvaId &&
-        string.Equals(venta.Color ?? "", request.Color?.Trim() ?? "", StringComparison.OrdinalIgnoreCase) &&
         venta.CantidadM2 == request.CantidadM2 &&
         venta.PrecioUnitario == request.PrecioUnitario &&
         venta.PrecioTotal == request.PrecioTotal &&
@@ -287,17 +286,29 @@ public static class VentaEndpoints
         venta.FechaEntregaEstimada == request.FechaEntregaEstimada &&
         string.Equals(venta.Observaciones ?? "", request.Observaciones ?? "", StringComparison.Ordinal);
 
-    private static async Task<IResult> UpdateDatesPreservingPayments(Venta venta, RegistrarVentaCommand request,
+    private static async Task<IResult> UpdateDateOrColorPreservingPayments(Venta venta, RegistrarVentaCommand request,
         AppDbContext db, CancellationToken ct)
     {
-        if (!HasOnlySaleDateChanged(venta, request))
+        if (!HasOnlySaleDateOrColorChanged(venta, request))
             return Results.Conflict(new
             {
-                message = "Esta venta tiene cuotas cobradas. Sólo se puede modificar la fecha de venta; los importes y demás datos deben mantenerse sin cambios."
+                message = "Esta venta tiene cuotas cobradas. Sólo se pueden modificar la fecha de venta y el color; los importes y demás datos deben mantenerse sin cambios."
             });
+
+        var product = await db.TiposCesped.AsNoTracking().SingleAsync(x => x.Id == venta.TipoCespedId, ct);
+        var colorChanged = !string.Equals(venta.Color ?? "", request.Color?.Trim() ?? "", StringComparison.OrdinalIgnoreCase);
+        if (colorChanged)
+        {
+            try { request = VentaService.NormalizeColor(request, product); }
+            catch (KeyNotFoundException exception)
+            {
+                return Results.ValidationProblem(new Dictionary<string, string[]> { ["Color"] = [exception.Message] });
+            }
+        }
 
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
         venta.FechaVenta = request.FechaVenta;
+        if (colorChanged) venta.Color = request.Color;
         var installments = await db.Cuotas.Where(x => x.VentaId == venta.Id).ToListAsync(ct);
         foreach (var installment in installments)
             installment.FechaVencimiento = request.FechaVenta.AddMonths(installment.Numero);
@@ -305,7 +316,6 @@ public static class VentaEndpoints
         await transaction.CommitAsync(ct);
 
         var client = await db.Clientes.AsNoTracking().SingleAsync(x => x.Id == venta.ClienteId, ct);
-        var product = await db.TiposCesped.AsNoTracking().SingleAsync(x => x.Id == venta.TipoCespedId, ct);
         return Results.Ok(VentaService.ToDto(venta, client, product));
     }
 

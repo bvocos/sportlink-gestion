@@ -42,7 +42,7 @@ public sealed class FinancialRulesTests
         var sale = new Venta();
         VentaService.Apply(sale, original, 21m);
         var changedDate = original with { FechaVenta = original.FechaVenta.AddDays(10) };
-        Assert.True(VentaEndpoints.HasOnlySaleDateChanged(sale, changedDate));
+        Assert.True(VentaEndpoints.HasOnlySaleDateOrColorChanged(sale, changedDate));
     }
 
     [Fact]
@@ -52,7 +52,16 @@ public sealed class FinancialRulesTests
         var sale = new Venta();
         VentaService.Apply(sale, original, 21m);
         var changed = original with { FechaVenta = original.FechaVenta.AddDays(10), PrecioTotal = original.PrecioTotal + 1 };
-        Assert.False(VentaEndpoints.HasOnlySaleDateChanged(sale, changed));
+        Assert.False(VentaEndpoints.HasOnlySaleDateOrColorChanged(sale, changed));
+    }
+
+    [Fact]
+    public void PaidSale_AllowsChangingOnlyProductColor()
+    {
+        var original = Sale(FormaPago.Cuotas, 3) with { Color = "Verde" };
+        var sale = new Venta();
+        VentaService.Apply(sale, original, 21m);
+        Assert.True(VentaEndpoints.HasOnlySaleDateOrColorChanged(sale, original with { Color = "Azul" }));
     }
 
     [Fact]
