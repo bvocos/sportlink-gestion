@@ -98,6 +98,8 @@ public static class DashboardEndpoints
         if (financialStateIds is not null)
             cuotasQuery = cuotasQuery.Where(x => financialStateIds.Contains(x.VentaId));
         var cuotasPendientes = await cuotasQuery.CountAsync(ct);
+        var entregasPendientes = await db.Ventas.AsNoTracking()
+            .CountAsync(x => x.Estado == EstadoVenta.Futura, ct);
 
         var clientes = await db.Clientes.AsNoTracking().OrderBy(x => x.Apellido).ThenBy(x => x.Nombre)
             .Select(x => new { x.Id, nombre = x.Nombre + " " + x.Apellido }).ToListAsync(ct);
@@ -123,6 +125,7 @@ public static class DashboardEndpoints
             enCurso = new { cantidad = enCursoCantidad, facturacion = enCursoFacturacion },
             saldo,
             cuotasPendientes,
+            entregasPendientes,
             series,
             ventas
         });
