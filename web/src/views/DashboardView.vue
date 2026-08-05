@@ -30,7 +30,7 @@ const emptyData = (): DashboardData => ({
 })
 const data = ref<DashboardData>(emptyData())
 const loading = ref(false), loadError = ref('')
-const filters = reactive({ periodo: '7', clienteId: '', tipoCespedId: '', desde: daysAgo(6), hasta: today() })
+const filters = reactive({ periodo: '7', clienteId: '', tipoCespedId: '', estadoFinanciero: '', desde: daysAgo(6), hasta: today() })
 
 function applyPeriod() {
   const now = new Date()
@@ -51,7 +51,7 @@ function customDates() { filters.periodo = 'custom' }
 async function load() {
   loading.value = true; loadError.value = ''
   try {
-    const params = { desde: filters.desde, hasta: filters.hasta, clienteId: filters.clienteId || undefined, tipoCespedId: filters.tipoCespedId || undefined }
+    const params = { desde: filters.desde, hasta: filters.hasta, clienteId: filters.clienteId || undefined, tipoCespedId: filters.tipoCespedId || undefined, estadoFinanciero: filters.estadoFinanciero || undefined }
     const response = await http.get('/dashboard', { params })
     data.value = response.data
   } catch (error: any) {
@@ -59,7 +59,7 @@ async function load() {
   } finally { loading.value = false }
 }
 function resetFilters() {
-  filters.periodo = '7'; filters.clienteId = ''; filters.tipoCespedId = ''; applyPeriod(); load()
+  filters.periodo = '7'; filters.clienteId = ''; filters.tipoCespedId = ''; filters.estadoFinanciero = ''; applyPeriod(); load()
 }
 const series = (field: keyof Omit<SeriesPoint, 'fecha'>) => computed(() => data.value.series.map(point => Number(point[field])))
 const billingSeries = series('facturacion'), finishedSeries = series('finalizadas'), activeSeries = series('enCurso'), profitSeries = series('gananciaNeta')
@@ -80,6 +80,7 @@ onMounted(load)
       <div class="field"><label>Hasta</label><input v-model="filters.hasta" type="date" required @change="customDates"></div>
       <div class="field"><label>Cliente</label><select v-model="filters.clienteId"><option value="">Todos los clientes</option><option v-for="item in data.filtros.clientes" :key="item.id" :value="item.id">{{ item.nombre }}</option></select></div>
       <div class="field"><label>Tipo de producto</label><select v-model="filters.tipoCespedId"><option value="">Todos los productos</option><option v-for="item in data.filtros.productos" :key="item.id" :value="item.id">{{ item.nombre }}{{ item.activo === false ? ' (inactivo)' : '' }}</option></select></div>
+      <div class="field"><label>Estado financiero</label><select v-model="filters.estadoFinanciero"><option value="">Todos los estados</option><option value="Pendiente de cobro">Pendiente de cobro</option><option value="Rentable">Rentable</option><option value="Muy rentable">Muy rentable</option><option value="En pérdida">En pérdida</option></select></div>
       <div class="filter-actions"><button class="btn" :disabled="loading">{{ loading ? 'Actualizando…' : 'Aplicar filtros' }}</button><button type="button" class="btn secondary" @click="resetFilters">Restablecer</button></div>
     </form>
 

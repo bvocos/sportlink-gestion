@@ -9,6 +9,9 @@ const items = ref<any[]>([]),
   exporting = ref(false),
   loadError = ref(""),
   buscar = ref(""),
+  desde = ref(""),
+  hasta = ref(""),
+  estadoFinanciero = ref(""),
   page = ref(1),
   totalPages = ref(0),
   total = ref(0);
@@ -27,6 +30,9 @@ async function load(reset = false) {
     const { data } = await http.get("/rentabilidad", {
       params: {
         buscar: buscar.value.trim() || undefined,
+        desde: desde.value || undefined,
+        hasta: hasta.value || undefined,
+        estadoFinanciero: estadoFinanciero.value || undefined,
         page: page.value,
         pageSize: 50,
       },
@@ -46,6 +52,9 @@ async function load(reset = false) {
 }
 function clearFilters() {
   buscar.value = "";
+  desde.value = "";
+  hasta.value = "";
+  estadoFinanciero.value = "";
   load(true);
 }
 function changePage(value: number) {
@@ -93,7 +102,12 @@ async function exportAll() {
   exporting.value = true;
   try {
     const response = await http.get("/rentabilidad/exportar", {
-      params: { buscar: buscar.value.trim() || undefined },
+      params: {
+        buscar: buscar.value.trim() || undefined,
+        desde: desde.value || undefined,
+        hasta: hasta.value || undefined,
+        estadoFinanciero: estadoFinanciero.value || undefined,
+      },
       responseType: "blob",
     });
     downloadBlob(
@@ -139,6 +153,22 @@ onMounted(() => load());
           type="search"
           placeholder="Nombre, apellido o GUID"
         />
+      </div>
+      <div class="field">
+        <label>Desde</label><input v-model="desde" type="date" />
+      </div>
+      <div class="field">
+        <label>Hasta</label><input v-model="hasta" type="date" />
+      </div>
+      <div class="field">
+        <label>Estado financiero</label>
+        <select v-model="estadoFinanciero">
+          <option value="">Todos los estados</option>
+          <option value="Pendiente de cobro">Pendiente de cobro</option>
+          <option value="Rentable">Rentable</option>
+          <option value="Muy rentable">Muy rentable</option>
+          <option value="En pérdida">En pérdida</option>
+        </select>
       </div>
       <div class="filter-actions">
         <button class="btn" :disabled="loading">Buscar</button

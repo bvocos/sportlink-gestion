@@ -1,4 +1,5 @@
 using Api.Shared.Database;
+using Api.Features.Rentabilidad;
 using Microsoft.EntityFrameworkCore;
 
 namespace Api.Features.Dashboard;
@@ -14,6 +15,7 @@ public static class DashboardEndpoints
         DateOnly? hasta,
         Guid? clienteId,
         Guid? tipoCespedId,
+        string? estadoFinanciero,
         CancellationToken ct)
     {
         var today = DateOnly.FromDateTime(DateTime.Today);
@@ -26,10 +28,29 @@ public static class DashboardEndpoints
             return Results.ValidationProblem(new Dictionary<string, string[]>
                 { ["fechas"] = ["El período máximo permitido es de 367 días."] });
 
+        if (!RentabilidadEndpoints.IsValidFinancialState(estadoFinanciero))
+            return Results.ValidationProblem(new Dictionary<string, string[]>
+                { ["estadoFinanciero"] = ["El estado financiero seleccionado no es válido."] });
+
         var filtered = db.Ventas.AsNoTracking()
             .Where(x => x.Estado != EstadoVenta.Cancelada && x.FechaVenta >= start && x.FechaVenta <= end);
         if (clienteId.HasValue) filtered = filtered.Where(x => x.ClienteId == clienteId.Value);
         if (tipoCespedId.HasValue) filtered = filtered.Where(x => x.TipoCespedId == tipoCespedId.Value);
+
+        HashSet<Guid>? financialStateIds = null;
+        if (!string.IsNullOrWhiteSpace(estadoFinanciero))
+        {
+            var umbral = (await db.Configuraciones.AsNoTracking()
+                .SingleAsync(x => x.Clave == "UmbralMuyRentable", ct)).ValorDecimal;
+            var candidates = await filtered.Include(x => x.Cliente).Include(x => x.AlicuotaIva)
+                .ToListAsync(ct);
+            var rows = await RentabilidadEndpoints.BuildRows(candidates, umbral, db, ct);
+            financialStateIds = rows
+                .Where(x => x.EstadoFinanciero.Equals(estadoFinanciero.Trim(),
+                    StringComparison.OrdinalIgnoreCase))
+                .Select(x => x.Id).ToHashSet();
+            filtered = filtered.Where(x => financialStateIds.Contains(x.Id));
+        }
 
         var grouped = await filtered
             .GroupBy(x => x.Estado == EstadoVenta.Entregada)
@@ -69,12 +90,14 @@ public static class DashboardEndpoints
             }).ToListAsync(ct);
 
         var saldo = await db.MovimientosCaja.SumAsync(x => x.Tipo == TipoMovimiento.Ingreso ? x.Monto : -x.Monto, ct);
-        var cuotasPendientes = await db.Cuotas.AsNoTracking()
+        var cuotasQuery = db.Cuotas.AsNoTracking()
             .Where(x => x.ImportePagado < x.ImportePactado)
             .Where(x => x.Venta.Estado != EstadoVenta.Cancelada && x.Venta.FechaVenta >= start && x.Venta.FechaVenta <= end)
             .Where(x => !clienteId.HasValue || x.Venta.ClienteId == clienteId.Value)
-            .Where(x => !tipoCespedId.HasValue || x.Venta.TipoCespedId == tipoCespedId.Value)
-            .CountAsync(ct);
+            .Where(x => !tipoCespedId.HasValue || x.Venta.TipoCespedId == tipoCespedId.Value);
+        if (financialStateIds is not null)
+            cuotasQuery = cuotasQuery.Where(x => financialStateIds.Contains(x.VentaId));
+        var cuotasPendientes = await cuotasQuery.CountAsync(ct);
 
         var clientes = await db.Clientes.AsNoTracking().OrderBy(x => x.Apellido).ThenBy(x => x.Nombre)
             .Select(x => new { x.Id, nombre = x.Nombre + " " + x.Apellido }).ToListAsync(ct);

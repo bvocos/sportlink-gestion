@@ -8,7 +8,7 @@ namespace Api.Features.Rentabilidad;
 
 public static class RentabilidadEndpoints
 {
-    private sealed record ReportRow(Guid Id, DateOnly FechaVenta, string Cliente, decimal PrecioTotal,
+    internal sealed record ReportRow(Guid Id, DateOnly FechaVenta, string Cliente, decimal PrecioTotal,
         decimal CostoOperativo, decimal Iva, decimal CostoTotal, decimal GananciaBruta,
         decimal GananciaNeta, decimal Margen, decimal MontoEntrega, decimal TotalCobrado,
         decimal TotalPendiente, decimal SaldoPendienteCuotas, FormaPago FormaPago,
@@ -29,10 +29,11 @@ public static class RentabilidadEndpoints
         group.MapGet("/exportar", ExportAll);
     }
 
-    private static IQueryable<Venta> FilteredQuery(AppDbContext db, string? buscar)
+    internal static IQueryable<Venta> ApplyFilters(IQueryable<Venta> query, string? buscar,
+        DateOnly? desde, DateOnly? hasta)
     {
-        var query = db.Ventas.AsNoTracking().Include(x => x.Cliente).Include(x => x.AlicuotaIva)
-            .Where(x => x.Estado != EstadoVenta.Cancelada);
+        if (desde.HasValue) query = query.Where(x => x.FechaVenta >= desde.Value);
+        if (hasta.HasValue) query = query.Where(x => x.FechaVenta <= hasta.Value);
         buscar = buscar?.Trim();
         if (string.IsNullOrWhiteSpace(buscar)) return query;
         if (Guid.TryParse(buscar, out var ventaId))
@@ -41,7 +42,18 @@ public static class RentabilidadEndpoints
         return query.Where(x => (x.Cliente.Nombre + " " + x.Cliente.Apellido).Contains(buscar));
     }
 
-    private static async Task<List<ReportRow>> BuildRows(List<Venta> ventas, decimal umbral,
+    private static IQueryable<Venta> FilteredQuery(AppDbContext db, string? buscar,
+        DateOnly? desde, DateOnly? hasta) =>
+        ApplyFilters(db.Ventas.AsNoTracking().Include(x => x.Cliente).Include(x => x.AlicuotaIva)
+            .Where(x => x.Estado != EstadoVenta.Cancelada), buscar, desde, hasta);
+
+    internal static bool IsValidFinancialState(string? estado) => string.IsNullOrWhiteSpace(estado) ||
+        FinancialStates.Contains(estado.Trim(), StringComparer.OrdinalIgnoreCase);
+
+    internal static readonly string[] FinancialStates =
+        ["Pendiente de cobro", "Rentable", "Muy rentable", "En pérdida"];
+
+    internal static async Task<List<ReportRow>> BuildRows(List<Venta> ventas, decimal umbral,
         AppDbContext db, CancellationToken ct)
     {
         var ventaIds = ventas.Select(x => x.Id).ToArray();
@@ -75,38 +87,36 @@ public static class RentabilidadEndpoints
         }).ToList();
     }
 
-    private static async Task<IResult> GetReport(string? buscar, int page, int pageSize,
+    private static async Task<IResult> GetReport(string? buscar, DateOnly? desde, DateOnly? hasta,
+        string? estadoFinanciero, int page, int pageSize,
         AppDbContext db, CancellationToken ct)
     {
+        if (desde > hasta)
+            return Results.ValidationProblem(new Dictionary<string, string[]>
+                { ["fechas"] = ["La fecha desde no puede ser posterior a la fecha hasta."] });
+        if (!IsValidFinancialState(estadoFinanciero))
+            return Results.ValidationProblem(new Dictionary<string, string[]>
+                { ["estadoFinanciero"] = ["El estado financiero seleccionado no es válido."] });
         page = Math.Max(page, 1);
         pageSize = Math.Clamp(pageSize, 1, 100);
         var umbral = (await db.Configuraciones.AsNoTracking()
             .SingleAsync(x => x.Clave == "UmbralMuyRentable", ct)).ValorDecimal;
-        var query = FilteredQuery(db, buscar);
-        var total = await query.CountAsync(ct);
-        var aggregate = await query.GroupBy(_ => 1).Select(g => new
-        {
-            FacturacionTotal = g.Sum(x => x.PrecioTotal),
-            CostoTotal = g.Sum(x =>
-                x.CostoCompraTotal + x.CostoEnvio + x.OtrosCostos +
-                Math.Round((x.CostoCompraTotal + x.CostoEnvio + x.OtrosCostos) *
-                    x.AlicuotaIva.Porcentaje / 100, 2)),
-            GananciaNetaTotal = g.Sum(x =>
-                x.PrecioTotal - x.CostoCompraTotal - x.CostoEnvio - x.OtrosCostos -
-                Math.Round((x.CostoCompraTotal + x.CostoEnvio + x.OtrosCostos) *
-                    x.AlicuotaIva.Porcentaje / 100, 2))
-        }).SingleOrDefaultAsync(ct);
-        var facturacion = aggregate?.FacturacionTotal ?? 0;
-        var ganancia = aggregate?.GananciaNetaTotal ?? 0;
+        var ventas = await FilteredQuery(db, buscar, desde, hasta)
+            .OrderByDescending(x => x.FechaVenta).ThenByDescending(x => x.CreatedAt).ToListAsync(ct);
+        var rows = await BuildRows(ventas, umbral, db, ct);
+        if (!string.IsNullOrWhiteSpace(estadoFinanciero))
+            rows = rows.Where(x => x.EstadoFinanciero.Equals(estadoFinanciero.Trim(),
+                StringComparison.OrdinalIgnoreCase)).ToList();
+        var total = rows.Count;
+        var facturacion = rows.Sum(x => x.PrecioTotal);
+        var ganancia = rows.Sum(x => x.GananciaNeta);
         var totales = new
         {
             cantidadVentas = total, facturacionTotal = facturacion,
-            costoTotal = aggregate?.CostoTotal ?? 0, gananciaNetaTotal = ganancia,
+            costoTotal = rows.Sum(x => x.CostoTotal), gananciaNetaTotal = ganancia,
             margenPromedioPonderado = facturacion == 0 ? 0 : ganancia / facturacion
         };
-        var ventas = await query.OrderByDescending(x => x.FechaVenta).ThenByDescending(x => x.CreatedAt)
-            .Skip((page - 1) * pageSize).Take(pageSize).ToListAsync(ct);
-        var items = await BuildRows(ventas, umbral, db, ct);
+        var items = rows.Skip((page - 1) * pageSize).Take(pageSize).ToList();
         return Results.Ok(new
         {
             totales, items, page, pageSize, total,
@@ -120,13 +130,23 @@ public static class RentabilidadEndpoints
         return $"\"{text.Replace("\"", "\"\"")}\"";
     }
 
-    private static async Task<IResult> ExportAll(string? buscar, AppDbContext db, CancellationToken ct)
+    private static async Task<IResult> ExportAll(string? buscar, DateOnly? desde, DateOnly? hasta,
+        string? estadoFinanciero, AppDbContext db, CancellationToken ct)
     {
+        if (desde > hasta)
+            return Results.ValidationProblem(new Dictionary<string, string[]>
+                { ["fechas"] = ["La fecha desde no puede ser posterior a la fecha hasta."] });
+        if (!IsValidFinancialState(estadoFinanciero))
+            return Results.ValidationProblem(new Dictionary<string, string[]>
+                { ["estadoFinanciero"] = ["El estado financiero seleccionado no es válido."] });
         var umbral = (await db.Configuraciones.AsNoTracking()
             .SingleAsync(x => x.Clave == "UmbralMuyRentable", ct)).ValorDecimal;
-        var ventas = await FilteredQuery(db, buscar).OrderByDescending(x => x.FechaVenta)
+        var ventas = await FilteredQuery(db, buscar, desde, hasta).OrderByDescending(x => x.FechaVenta)
             .ThenByDescending(x => x.CreatedAt).ToListAsync(ct);
         var rows = await BuildRows(ventas, umbral, db, ct);
+        if (!string.IsNullOrWhiteSpace(estadoFinanciero))
+            rows = rows.Where(x => x.EstadoFinanciero.Equals(estadoFinanciero.Trim(),
+                StringComparison.OrdinalIgnoreCase)).ToList();
         var culture = CultureInfo.GetCultureInfo("es-AR");
         var csv = new StringBuilder();
         csv.AppendLine("ID venta;Fecha;Cliente;Venta;Costo operativo;IVA;Costo total;Ganancia bruta;Ganancia neta;Margen %;Cobrado;Pendiente total;Pendiente en cuotas;Estado");
