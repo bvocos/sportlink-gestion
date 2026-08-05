@@ -99,7 +99,7 @@ onMounted(load)
 
       <div class="panel">
         <div class="panel-head"><div><h3>Ventas del período</h3><small>Últimas {{ Math.min(data.ventas.length, 8) }} coincidencias</small></div><RouterLink v-if="auth.can('ventas')" to="/ventas">Ver todas</RouterLink></div>
-        <table><thead><tr><th>Cliente</th><th>Producto</th><th>Fecha</th><th>Metros</th><th>Total</th><th>Estado</th></tr></thead><tbody><tr v-for="sale in data.ventas" :key="sale.id"><td><b>{{ sale.cliente }}</b></td><td>{{ sale.tipoCesped }}</td><td>{{ new Date(sale.fechaVenta + 'T00:00:00').toLocaleDateString('es-AR') }}</td><td>{{ sale.cantidadM2 }} m²</td><td>{{ money(sale.precioTotal) }}</td><td><span class="badge" :class="{ warn: sale.estado !== 'Entregada' }">{{ sale.estado }}</span></td></tr></tbody></table>
+        <table><thead><tr><th>Cliente</th><th>Producto</th><th>Fecha</th><th>Metros</th><th>Total</th><th>Estado</th></tr></thead><tbody><tr v-for="sale in data.ventas" :key="sale.id"><td><b>{{ sale.cliente }}</b></td><td>{{ sale.tipoCesped }}</td><td>{{ new Date(sale.fechaVenta + 'T00:00:00').toLocaleDateString('es-AR') }}</td><td class="num">{{ sale.cantidadM2 }} m²</td><td class="num">{{ money(sale.precioTotal) }}</td><td><span class="badge" :class="{ warn: sale.estado !== 'Entregada' }">{{ sale.estado }}</span></td></tr></tbody></table>
         <div v-if="!data.ventas.length" class="empty">No hay ventas para los filtros seleccionados.</div>
       </div>
     </template>
