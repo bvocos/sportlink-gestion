@@ -19,7 +19,7 @@ public static class DashboardEndpoints
         CancellationToken ct)
     {
         var today = DateOnly.FromDateTime(DateTime.Today);
-        var start = desde ?? today.AddDays(-6);
+        var start = desde ?? new DateOnly(today.Year, today.Month, 1);
         var end = hasta ?? today;
         if (start > end)
             return Results.ValidationProblem(new Dictionary<string, string[]>
