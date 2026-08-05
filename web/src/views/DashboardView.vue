@@ -11,6 +11,7 @@ type DashboardData = {
   total: Summary & { metros: number; gananciaNeta: number }
   finalizadas: Summary
   enCurso: Summary
+  cuotasPendientes: number
   series: SeriesPoint[]
   periodo: { desde: string; hasta: string }
 }
@@ -18,7 +19,7 @@ type DashboardData = {
 const emptyData = (): DashboardData => ({
   total: { cantidad: 0, facturacion: 0, metros: 0, gananciaNeta: 0 },
   finalizadas: { cantidad: 0, facturacion: 0 }, enCurso: { cantidad: 0, facturacion: 0 },
-  series: [], periodo: { desde: '', hasta: '' }
+  cuotasPendientes: 0, series: [], periodo: { desde: '', hasta: '' }
 })
 const data = ref<DashboardData>(emptyData())
 const loading = ref(false), loadError = ref('')
@@ -55,6 +56,8 @@ onMounted(load)
         <article class="card metric chart-metric finished"><small>Ventas finalizadas</small><strong>{{ money(data.finalizadas.facturacion) }}</strong><em>{{ pluralize(data.finalizadas.cantidad, 'operación entregada', 'operaciones entregadas') }}</em><MiniSparkline :values="finishedSeries" color="#2f7d4b" /></article>
         <article class="card metric chart-metric active"><small>Ventas en curso</small><strong>{{ money(data.enCurso.facturacion) }}</strong><em>{{ pluralize(data.enCurso.cantidad, 'operación pendiente', 'operaciones pendientes') }}</em><MiniSparkline :values="activeSeries" color="#c27a22" /></article>
         <article class="card metric chart-metric profit"><small>Ganancia neta estimada</small><strong :class="{ negative: data.total.gananciaNeta < 0 }">{{ money(data.total.gananciaNeta) }}</strong><em>Sobre las ventas del mes</em><MiniSparkline :values="profitSeries" color="#5372c8" /></article>
+        <article class="card metric"><small>Metros vendidos</small><strong>{{ data.total.metros.toLocaleString('es-AR') }} m²</strong><em>Acumulados durante el mes</em></article>
+        <article class="card metric"><small>Cuotas pendientes</small><strong>{{ data.cuotasPendientes }}</strong><em>De las ventas del mes</em></article>
       </div>
     </template>
   </section>
