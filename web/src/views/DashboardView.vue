@@ -60,8 +60,8 @@ onMounted(load)
         <article class="card metric"><small>Metros vendidos</small><strong>{{ data.total.metros.toLocaleString('es-AR') }} m²</strong><em>Acumulados durante el mes</em></article>
         <RouterLink v-if="auth.can('cuotas')" class="card metric metric-link" to="/cuotas"><small>Cuotas pendientes</small><strong>{{ data.cuotasPendientes }}</strong><em>Ver cuotas pendientes →</em></RouterLink>
         <article v-else class="card metric"><small>Cuotas pendientes</small><strong>{{ data.cuotasPendientes }}</strong><em>De las ventas del mes</em></article>
-        <RouterLink v-if="auth.can('entregas')" class="card metric metric-link" to="/entregas"><small>Próximas entregas</small><strong>{{ data.entregasPendientes }}</strong><em>Ver entregas pendientes →</em></RouterLink>
-        <article v-else class="card metric"><small>Próximas entregas</small><strong>{{ data.entregasPendientes }}</strong><em>Entregas pendientes</em></article>
+        <RouterLink v-if="auth.can('entregas')" class="card metric metric-link" to="/entregas"><small>Próximas entregas</small><strong>{{ data.entregasPendientes }}</strong><em>No se filtra por período · Ver detalle →</em></RouterLink>
+        <article v-else class="card metric"><small>Próximas entregas</small><strong>{{ data.entregasPendientes }}</strong><em>Entregas pendientes (todas)</em></article>
       </div>
     </template>
   </section>
