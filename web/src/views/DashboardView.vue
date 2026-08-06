@@ -11,6 +11,7 @@ type DashboardData = {
   total: Summary & { metros: number; gananciaNeta: number }
   finalizadas: Summary
   enCurso: Summary
+  saldo: number
   cuotasPendientes: number
   entregasPendientes: number
   series: SeriesPoint[]
@@ -20,7 +21,7 @@ type DashboardData = {
 const emptyData = (): DashboardData => ({
   total: { cantidad: 0, facturacion: 0, metros: 0, gananciaNeta: 0 },
   finalizadas: { cantidad: 0, facturacion: 0 }, enCurso: { cantidad: 0, facturacion: 0 },
-  cuotasPendientes: 0, entregasPendientes: 0, series: [], periodo: { desde: '', hasta: '' }
+  saldo: 0, cuotasPendientes: 0, entregasPendientes: 0, series: [], periodo: { desde: '', hasta: '' }
 })
 const data = ref<DashboardData>(emptyData())
 const loading = ref(false), loadError = ref('')
@@ -62,6 +63,8 @@ onMounted(load)
         <article v-else class="card metric"><small>Cuotas pendientes</small><strong>{{ data.cuotasPendientes }}</strong><em>De las ventas del mes</em></article>
         <RouterLink v-if="auth.can('entregas')" class="card metric metric-link" to="/entregas"><small>Próximas entregas</small><strong>{{ data.entregasPendientes }}</strong><em>No se filtra por período · Ver detalle →</em></RouterLink>
         <article v-else class="card metric"><small>Próximas entregas</small><strong>{{ data.entregasPendientes }}</strong><em>Entregas pendientes (todas)</em></article>
+        <RouterLink v-if="auth.can('caja')" class="card metric metric-link" to="/caja"><small>Saldo de caja</small><strong>{{ money(data.saldo) }}</strong><em>Actualizado al momento · Ver caja →</em></RouterLink>
+        <article v-else class="card metric"><small>Saldo de caja</small><strong>{{ money(data.saldo) }}</strong><em>Actualizado al momento</em></article>
       </div>
     </template>
   </section>
