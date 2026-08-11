@@ -109,6 +109,32 @@ public sealed class FinancialRulesTests
     }
 
     [Fact]
+    public void Apply_ConsolidatesMultipleProductLinesIntoOneSale()
+    {
+        var lines = new List<VentaLineaCommand>
+        {
+            new(Guid.NewGuid(), "Verde", 10m, 40m, 100m, 1000m),
+            new(Guid.NewGuid(), "Azul", 5m, 60m, 180m, 900m)
+        };
+        var command = Sale(precioTotal: 1900m) with
+        {
+            TipoCespedId = lines[0].TipoCespedId,
+            CantidadM2 = 15m,
+            PrecioUnitario = 1900m / 15m,
+            CostoCompraUnitario = 700m / 15m,
+            Lineas = lines
+        };
+        var venta = new Venta();
+
+        VentaService.Apply(venta, command, 21m);
+
+        Assert.Equal(15m, venta.CantidadM2);
+        Assert.Equal(1900m, venta.PrecioTotal);
+        Assert.Equal(700m, venta.CostoCompraTotal);
+        Assert.NotNull(venta.LineasJson);
+    }
+
+    [Fact]
     public void CreateInstallments_FinancesBalanceAndPreservesTotal()
     {
         var command = Sale(FormaPago.Cuotas, 3, 100m);

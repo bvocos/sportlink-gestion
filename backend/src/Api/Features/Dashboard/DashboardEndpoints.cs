@@ -35,7 +35,12 @@ public static class DashboardEndpoints
         var filtered = db.Ventas.AsNoTracking()
             .Where(x => x.Estado != EstadoVenta.Cancelada && x.FechaVenta >= start && x.FechaVenta <= end);
         if (clienteId.HasValue) filtered = filtered.Where(x => x.ClienteId == clienteId.Value);
-        if (tipoCespedId.HasValue) filtered = filtered.Where(x => x.TipoCespedId == tipoCespedId.Value);
+        if (tipoCespedId.HasValue)
+        {
+            var productId = tipoCespedId.Value.ToString();
+            filtered = filtered.Where(x => x.TipoCespedId == tipoCespedId.Value ||
+                (x.LineasJson != null && x.LineasJson.Contains(productId)));
+        }
 
         HashSet<Guid>? financialStateIds = null;
         if (!string.IsNullOrWhiteSpace(estadoFinanciero))

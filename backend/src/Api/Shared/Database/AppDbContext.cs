@@ -79,6 +79,10 @@ public static class SeedData
             END;
             """);
         await db.Database.ExecuteSqlRawAsync("""
+            IF COL_LENGTH('dbo.Ventas','LineasJson') IS NULL
+                ALTER TABLE dbo.Ventas ADD LineasJson NVARCHAR(MAX) NULL;
+            """);
+        await db.Database.ExecuteSqlRawAsync("""
             IF COL_LENGTH('dbo.Usuarios','IntentosFallidos') IS NULL
                 ALTER TABLE dbo.Usuarios ADD IntentosFallidos INT NOT NULL
                     CONSTRAINT DF_Usuarios_IntentosFallidos DEFAULT 0;

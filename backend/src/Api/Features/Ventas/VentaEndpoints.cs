@@ -7,16 +7,20 @@ using System.Text.Json;
 
 namespace Api.Features.Ventas;
 
+public record VentaLineaCommand(Guid TipoCespedId, string? Color, decimal CantidadM2,
+    decimal PrecioCompraM2, decimal PrecioVentaM2, decimal Total);
+
 public record RegistrarVentaCommand(Guid ClienteId, DateOnly FechaVenta, Guid TipoCespedId, decimal CantidadM2,
     decimal PrecioUnitario, decimal PrecioTotal, decimal MontoEntrega, FormaPago FormaPago, int? CantidadCuotas, EstadoVenta Estado,
     DateOnly? FechaEntregaEstimada, string? Observaciones, decimal CostoCompraUnitario,
-    decimal CostoEnvio, decimal OtrosCostos, Guid AlicuotaIvaId, string? Color = null) : IRequest<VentaDto>;
+    decimal CostoEnvio, decimal OtrosCostos, Guid AlicuotaIvaId, string? Color = null,
+    List<VentaLineaCommand>? Lineas = null) : IRequest<VentaDto>;
 
 public record VentaDto(Guid Id, Guid ClienteId, string Cliente, Guid TipoCespedId, string TipoCesped,
     Guid AlicuotaIvaId, DateOnly FechaVenta, decimal CantidadM2, decimal PrecioUnitario, decimal PrecioTotal, decimal MontoEntrega,
     decimal CostoCompraUnitario, decimal CostoEnvio, decimal OtrosCostos, FormaPago FormaPago,
     int? CantidadCuotas, EstadoVenta Estado, decimal GananciaNeta, decimal Margen,
-    DateOnly? FechaEntregaEstimada, string? Observaciones, string? Color);
+    DateOnly? FechaEntregaEstimada, string? Observaciones, string? Color, List<VentaLineaCommand> Lineas);
 
 public sealed class RegistrarVentaValidator : AbstractValidator<RegistrarVentaCommand>
 {
@@ -41,6 +45,14 @@ public sealed class RegistrarVentaValidator : AbstractValidator<RegistrarVentaCo
         RuleFor(x => x.OtrosCostos).GreaterThanOrEqualTo(0);
         RuleFor(x => x.CantidadCuotas).NotNull().InclusiveBetween(1, 60).When(x => x.FormaPago == FormaPago.Cuotas);
         RuleFor(x => x.FechaEntregaEstimada).NotNull().When(x => x.Estado == EstadoVenta.Futura);
+        RuleForEach(x => x.Lineas).ChildRules(linea =>
+        {
+            linea.RuleFor(x => x.TipoCespedId).NotEmpty();
+            linea.RuleFor(x => x.CantidadM2).GreaterThan(0);
+            linea.RuleFor(x => x.PrecioCompraM2).GreaterThan(0);
+            linea.RuleFor(x => x.PrecioVentaM2).GreaterThan(0);
+            linea.RuleFor(x => x.Total).GreaterThan(0);
+        });
     }
 }
 
@@ -48,6 +60,7 @@ public sealed class RegistrarVentaHandler(AppDbContext db) : IRequestHandler<Reg
 {
     public async Task<VentaDto> Handle(RegistrarVentaCommand request, CancellationToken ct)
     {
+        request = await VentaService.NormalizeLines(db, request, ct);
         var (cliente, tipo, alicuota) = await VentaService.GetReferences(db, request, ct);
         request = VentaService.NormalizeColor(request, tipo);
         var venta = new Venta();
@@ -71,6 +84,32 @@ public sealed class RegistrarVentaHandler(AppDbContext db) : IRequestHandler<Reg
 
 internal static class VentaService
 {
+    public static async Task<RegistrarVentaCommand> NormalizeLines(AppDbContext db,
+        RegistrarVentaCommand request, CancellationToken ct)
+    {
+        if (request.Lineas is not { Count: > 0 }) return request;
+        var ids = request.Lineas.Select(x => x.TipoCespedId).Distinct().ToArray();
+        var products = await db.TiposCesped.Where(x => ids.Contains(x.Id)).ToDictionaryAsync(x => x.Id, ct);
+        if (products.Count != ids.Length) throw new KeyNotFoundException("Uno de los productos seleccionados no existe.");
+        var lines = request.Lineas.Select(line =>
+        {
+            var product = products[line.TipoCespedId];
+            var colors = JsonSerializer.Deserialize<string[]>(product.ColoresJson) ?? [];
+            if (colors.Length == 0) return line with { Color = null };
+            var color = colors.FirstOrDefault(x => string.Equals(x, line.Color?.Trim(), StringComparison.OrdinalIgnoreCase));
+            if (color is null) throw new KeyNotFoundException($"Seleccioná un color disponible para {product.Nombre}.");
+            return line with { Color = color };
+        }).ToList();
+        var first = lines[0];
+        return request with
+        {
+            Lineas = lines, TipoCespedId = first.TipoCespedId, Color = first.Color,
+            CantidadM2 = lines.Sum(x => x.CantidadM2),
+            PrecioUnitario = lines.Sum(x => x.Total) / lines.Sum(x => x.CantidadM2),
+            PrecioTotal = lines.Sum(x => x.Total),
+            CostoCompraUnitario = lines.Sum(x => x.PrecioCompraM2 * x.CantidadM2) / lines.Sum(x => x.CantidadM2)
+        };
+    }
     public static RegistrarVentaCommand NormalizeColor(RegistrarVentaCommand request, TipoCesped tipo)
     {
         var colors = JsonSerializer.Deserialize<string[]>(tipo.ColoresJson) ?? [];
@@ -92,7 +131,9 @@ internal static class VentaService
     public static void Apply(Venta venta, RegistrarVentaCommand r, decimal porcentajeIva)
     {
         var total = r.PrecioTotal;
-        var costoCompra = r.CostoCompraUnitario * r.CantidadM2;
+        var costoCompra = r.Lineas is { Count: > 0 }
+            ? r.Lineas.Sum(x => x.PrecioCompraM2 * x.CantidadM2)
+            : r.CostoCompraUnitario * r.CantidadM2;
         var costoOperativo = costoCompra + r.CostoEnvio + r.OtrosCostos;
         var iva = FinancialCalculator.CalculateIva(costoOperativo, porcentajeIva);
         var gananciaBruta = total - costoOperativo;
@@ -105,6 +146,7 @@ internal static class VentaService
         venta.CantidadCuotas = r.FormaPago == FormaPago.Cuotas ? r.CantidadCuotas : null;
         venta.Estado = r.Estado; venta.FechaEntregaEstimada = r.Estado == EstadoVenta.Futura ? r.FechaEntregaEstimada : null;
         venta.Observaciones = r.Observaciones;
+        venta.LineasJson = r.Lineas is { Count: > 0 } ? JsonSerializer.Serialize(r.Lineas) : null;
     }
 
     public static void CreateInstallments(Venta venta, RegistrarVentaCommand r)
@@ -130,7 +172,8 @@ internal static class VentaService
         $"{c.Nombre} {c.Apellido}", v.TipoCespedId, t.Nombre, v.AlicuotaIvaId, v.FechaVenta,
         v.CantidadM2, v.PrecioUnitario, v.PrecioTotal, v.MontoEntrega, v.CostoCompraUnitario, v.CostoEnvio,
         v.OtrosCostos, v.FormaPago, v.CantidadCuotas, v.Estado, v.GananciaNeta, v.Margen,
-        v.FechaEntregaEstimada, v.Observaciones, v.Color);
+        v.FechaEntregaEstimada, v.Observaciones, v.Color,
+        JsonSerializer.Deserialize<List<VentaLineaCommand>>(v.LineasJson ?? "[]") ?? []);
 }
 
 public static class VentaEndpoints
@@ -141,6 +184,7 @@ public static class VentaEndpoints
         group.MapPost("/", async (RegistrarVentaCommand command, ISender sender, CancellationToken ct) =>
             Results.Created("/api/ventas", await sender.Send(command, ct)));
         group.MapGet("/", List);
+        group.MapGet("/{id:guid}", GetById);
         group.MapGet("/filtros", Filters);
         group.MapPut("/{id:guid}", Update);
         group.MapDelete("/{id:guid}", Delete);
@@ -159,11 +203,23 @@ public static class VentaEndpoints
         if (desde.HasValue) query = query.Where(x => x.FechaVenta >= desde.Value);
         if (hasta.HasValue) query = query.Where(x => x.FechaVenta <= hasta.Value);
         if (clienteId.HasValue) query = query.Where(x => x.ClienteId == clienteId.Value);
-        if (tipoCespedId.HasValue) query = query.Where(x => x.TipoCespedId == tipoCespedId.Value);
+        if (tipoCespedId.HasValue)
+        {
+            var productId = tipoCespedId.Value.ToString();
+            query = query.Where(x => x.TipoCespedId == tipoCespedId.Value ||
+                (x.LineasJson != null && x.LineasJson.Contains(productId)));
+        }
         var total = await query.CountAsync(ct);
         var rows = await query.OrderByDescending(x => x.FechaVenta).Skip((page - 1) * pageSize).Take(pageSize).ToListAsync(ct);
         return new(rows.Select(v => VentaService.ToDto(v, v.Cliente, v.TipoCesped)).ToList(), page, pageSize, total,
             (int)Math.Ceiling(total / (double)pageSize));
+    }
+
+    private static async Task<IResult> GetById(Guid id, AppDbContext db, CancellationToken ct)
+    {
+        var venta = await db.Ventas.AsNoTracking().Include(x => x.Cliente).Include(x => x.TipoCesped)
+            .SingleOrDefaultAsync(x => x.Id == id, ct);
+        return venta is null ? Results.NotFound() : Results.Ok(VentaService.ToDto(venta, venta.Cliente, venta.TipoCesped));
     }
 
     private static async Task<object> Filters(AppDbContext db, CancellationToken ct) => new
@@ -187,6 +243,12 @@ public static class VentaEndpoints
         var logger = loggerFactory.CreateLogger("Api.Features.Ventas.Update");
         var venta = await db.Ventas.SingleOrDefaultAsync(x => x.Id == id, ct);
         if (venta is null) return Results.NotFound();
+
+        try { request = await VentaService.NormalizeLines(db, request, ct); }
+        catch (KeyNotFoundException exception)
+        {
+            return Results.ValidationProblem(new Dictionary<string, string[]> { ["Lineas"] = [exception.Message] });
+        }
 
         var hasPaidInstallments = await db.Cuotas.AnyAsync(x => x.VentaId == id && x.ImportePagado > 0, ct);
         if (hasPaidInstallments)
@@ -215,6 +277,7 @@ public static class VentaEndpoints
                 .SetProperty(x => x.TipoCespedId, updated.TipoCespedId)
                 .SetProperty(x => x.AlicuotaIvaId, updated.AlicuotaIvaId)
                 .SetProperty(x => x.Color, updated.Color)
+                .SetProperty(x => x.LineasJson, updated.LineasJson)
                 .SetProperty(x => x.FechaVenta, updated.FechaVenta)
                 .SetProperty(x => x.FechaEntregaEstimada, updated.FechaEntregaEstimada)
                 .SetProperty(x => x.CantidadM2, updated.CantidadM2)
@@ -284,6 +347,7 @@ public static class VentaEndpoints
         venta.CantidadCuotas == request.CantidadCuotas &&
         venta.Estado == request.Estado &&
         venta.FechaEntregaEstimada == request.FechaEntregaEstimada &&
+        string.Equals(venta.LineasJson ?? "", request.Lineas is { Count: > 0 } ? JsonSerializer.Serialize(request.Lineas) : "", StringComparison.Ordinal) &&
         string.Equals(venta.Observaciones ?? "", request.Observaciones ?? "", StringComparison.Ordinal);
 
     private static async Task<IResult> UpdateDateOrColorPreservingPayments(Venta venta, RegistrarVentaCommand request,
