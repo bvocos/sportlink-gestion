@@ -17,7 +17,7 @@ function localitySelected(option:GeoOption){form.value.localidad=option.nombre}
 function useManual(){geoMode.value=false;form.value.provinciaId='';form.value.localidadId='';localidades.value=[];geoNotice.value='Ubicación en modo manual: se guardarán los nombres sin códigos oficiales.'}
 function enableOfficial(){geoMode.value=true;geoNotice.value='';form.value.provincia='';form.value.localidad='';form.value.provinciaId='';form.value.localidadId='';localidades.value=[]}
 function message(e:any){const first=Object.values(e.response?.data?.errors??{}).flat()[0];return first?String(first):apiErrorMessage(e,'No se pudo guardar el cliente.')}
-async function save(){error.value='';if(geoMode.value&&(!form.value.provinciaId||!form.value.localidadId)){error.value='Seleccioná una provincia y una localidad de las opciones oficiales.';return}saving.value=true;try{const {data}=await http.post('/clientes',form.value);emit('created',data)}catch(e:any){error.value=message(e)}finally{saving.value=false}}
+async function save(){error.value='';if(!/^\+?[0-9 ()-]{6,30}$/.test(form.value.telefono.trim())){error.value='Ingresá un teléfono válido usando números, espacios, paréntesis, + o -.';return}if(geoMode.value&&(!form.value.provinciaId||!form.value.localidadId)){error.value='Seleccioná una provincia y una localidad de las opciones oficiales.';return}saving.value=true;try{const {data}=await http.post('/clientes',form.value);emit('created',data)}catch(e:any){error.value=message(e)}finally{saving.value=false}}
 onMounted(loadProvincias)
 </script>
 
