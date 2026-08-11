@@ -164,7 +164,7 @@ onMounted(load);
         <h2>Ventas</h2>
         <p>Operaciones, costos y margen en un solo lugar.</p>
       </div>
-      <button class="btn" @click="openNew">+ Registrar venta</button>
+      <RouterLink class="btn" to="/ventas/nueva">+ Registrar venta</RouterLink>
     </div>
     <form class="panel sales-filters" @submit.prevent="loadSales">
       <div class="field"><label>Período</label><select v-model="filters.periodo" @change="applyPeriod"><option value="all">Todo el historial</option><option value="week">Última semana</option><option value="month">Último mes</option><option value="sixMonths">Últimos 6 meses</option><option value="custom">Personalizado</option></select></div>
@@ -193,7 +193,7 @@ onMounted(load);
           <tr v-for="v in items" v-show="!loading" :key="v.id">
             <td>
               <b>{{ v.cliente }}</b
-              ><br /><small>{{ v.tipoCesped }}<template v-if="v.color"> · {{ v.color }}</template> · {{ v.cantidadM2 }} m²</small>
+              ><br /><small><template v-if="v.lineas?.length > 1">{{v.lineas.length}} productos</template><template v-else>{{ v.tipoCesped }}<template v-if="v.color"> · {{ v.color }}</template></template> · {{ v.cantidadM2 }} m²</small>
             </td>
             <td>{{ v.fechaVenta }}</td>
             <td>{{ money(v.precioTotal) }}</td>
@@ -209,7 +209,7 @@ onMounted(load);
                   @click="deliver(v.id)"
                 >
                   Entregar</button
-                ><button class="icon-btn" @click="edit(v)"><Pencil /></button
+                ><RouterLink class="icon-btn" :to="`/ventas/${v.id}/editar`" title="Editar venta"><Pencil /></RouterLink
                 ><button class="icon-btn danger" @click="remove(v)">
                   <Trash2 />
                 </button>

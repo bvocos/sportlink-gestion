@@ -63,7 +63,7 @@ onMounted(load);
           :disabled="!data.movimientos.length"
           @click="exportCsv"
         >
-          Exportar CSV</button
+          Exportar a CSV</button
         ><button class="btn" @click="openForm('Ingreso')">
           + Ingresar dinero</button
         ><button class="btn danger-btn" @click="openForm('Retiro')">

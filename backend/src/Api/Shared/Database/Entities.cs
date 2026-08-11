@@ -38,6 +38,7 @@ public sealed class Venta : AuditableEntity
     public Guid TipoCespedId { get; set; } public TipoCesped TipoCesped { get; set; } = null!;
     public Guid AlicuotaIvaId { get; set; } public AlicuotaIva AlicuotaIva { get; set; } = null!;
     public string? Color { get; set; }
+    public string? LineasJson { get; set; }
     public DateOnly FechaVenta { get; set; } public DateOnly? FechaEntregaEstimada { get; set; }
     public decimal CantidadM2 { get; set; } public decimal PrecioUnitario { get; set; } public decimal PrecioTotal { get; set; }
     public decimal MontoEntrega { get; set; }

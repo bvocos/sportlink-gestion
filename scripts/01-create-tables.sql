@@ -73,6 +73,7 @@ CREATE TABLE dbo.Ventas
     TipoCespedId UNIQUEIDENTIFIER NOT NULL,
     AlicuotaIvaId UNIQUEIDENTIFIER NOT NULL,
     Color NVARCHAR(100) NULL,
+    LineasJson NVARCHAR(MAX) NULL,
     FechaVenta DATE NOT NULL,
     FechaEntregaEstimada DATE NULL,
     CantidadM2 DECIMAL(18,2) NOT NULL,

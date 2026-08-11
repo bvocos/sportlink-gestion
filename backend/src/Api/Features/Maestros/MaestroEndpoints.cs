@@ -77,7 +77,9 @@ public static class MaestroEndpoints
     private static async Task<IResult> DeleteType(Guid id, AppDbContext db, CancellationToken ct)
     {
         var type = await db.TiposCesped.FindAsync([id], ct); if (type is null) return Results.NotFound();
-        if (await db.Ventas.AnyAsync(x => x.TipoCespedId == id, ct))
+        var productId = id.ToString();
+        if (await db.Ventas.AnyAsync(x => x.TipoCespedId == id ||
+            (x.LineasJson != null && x.LineasJson.Contains(productId)), ct))
             return Results.Conflict(new { message = "Este tipo tiene ventas asociadas. Podés desactivarlo en lugar de eliminarlo." });
         db.TiposCesped.Remove(type); await db.SaveChangesAsync(ct); return Results.NoContent();
     }

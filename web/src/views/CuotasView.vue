@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from "vue";
 import { http } from "@/shared/api/httpClient";
 import { formatCurrency as money } from "@/shared/formatters";
+import { downloadCsv } from "@/shared/csv";
 import { confirmAction, notify } from "@/shared/uiFeedback";
 const pendientes = ref<any[]>([]),
   abonadas = ref<any[]>([]),
@@ -101,6 +102,28 @@ async function cancelPayment(c: any) {
     );
   }
 }
+function exportCsv() {
+  const date = new Date().toISOString().slice(0, 10);
+  if (tab.value === "pendientes") {
+    downloadCsv(
+      `cuotas-pendientes-${date}.csv`,
+      ["Cliente", "ID venta", "Producto", "Fecha de venta", "Cuota", "Vencimiento", "Importe pactado", "Importe pagado", "Saldo pendiente", "Estado"],
+      visible.value.map((c) => [
+        c.cliente, c.ventaId, c.tipoCesped, c.fechaVenta, c.numero, c.fechaVencimiento,
+        c.importePactado, c.importePagado, c.importePactado - c.importePagado, c.estado,
+      ]),
+    );
+    return;
+  }
+  downloadCsv(
+    `cuotas-abonadas-${date}.csv`,
+    ["Cliente", "ID venta", "Producto", "Fecha de venta", "Cuota", "Fecha de pago", "Importe abonado", "Impactado en sistema", "Medio de pago", "Estado"],
+    visible.value.map((c) => [
+      c.cliente, c.ventaId, c.tipoCesped, c.fechaVenta, c.numero, c.fechaPago,
+      c.importePagado, new Date(c.fechaImpacto).toLocaleString("es-AR"), c.medioPago, c.estado,
+    ]),
+  );
+}
 onMounted(load);
 </script>
 <template>
@@ -110,6 +133,7 @@ onMounted(load);
         <h2>Cuotas</h2>
         <p>Seguimiento de cobranza por cliente y compra.</p>
       </div>
+      <button class="btn secondary" :disabled="!visible.length" @click="exportCsv">Exportar a CSV</button>
     </div>
     <div class="cuotas-tabs">
       <button
