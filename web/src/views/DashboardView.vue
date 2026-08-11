@@ -46,7 +46,7 @@ onMounted(load)
   <section class="page dashboard-page">
     <div class="page-title">
       <div><h2>Inicio</h2><p>Hola, {{ auth.state.user?.nombre || 'bienvenido' }}. Este es el avance del mes en curso.</p></div>
-      <RouterLink v-if="auth.can('ventas')" class="btn" to="/ventas">+ Nueva venta</RouterLink>
+      <RouterLink v-if="auth.can('ventas')" class="btn" to="/ventas/nueva">+ Nueva venta</RouterLink>
     </div>
 
     <div v-if="loadError" class="error load-state">{{ loadError }} <button class="btn secondary compact" @click="load">Reintentar</button></div>
