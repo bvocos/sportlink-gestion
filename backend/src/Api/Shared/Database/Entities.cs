@@ -60,3 +60,8 @@ public sealed class MovimientoCaja : AuditableEntity
     public TipoMovimiento Tipo { get; set; } public DateTimeOffset Fecha { get; set; } public decimal Monto { get; set; }
     public string Concepto { get; set; } = ""; public string Usuario { get; set; } = "sistema"; public Guid? VentaId { get; set; } public Guid? CuotaId { get; set; }
 }
+public sealed class Gasto : AuditableEntity
+{
+    public DateOnly Fecha { get; set; } public string Categoria { get; set; } = ""; public string Descripcion { get; set; } = "";
+    public decimal Importe { get; set; } public string? Observaciones { get; set; }
+}

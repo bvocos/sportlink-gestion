@@ -8,6 +8,7 @@ const permissionRoutes: Record<string, string> = {
   clientes: '/clientes',
   cuotas: '/cuotas',
   caja: '/caja',
+  gastos: '/gastos',
   rentabilidad: '/rentabilidad',
   administracion: '/admin'
 }
@@ -24,6 +25,7 @@ const routes = [
   { path: '/clientes', component: () => import('./views/ClientesView.vue'), meta: { permission: 'clientes' } },
   { path: '/cuotas', component: () => import('./views/CuotasView.vue'), meta: { permission: 'cuotas' } },
   { path: '/caja', component: () => import('./views/CajaView.vue'), meta: { permission: 'caja' } },
+  { path: '/gastos', component: () => import('./views/GastosView.vue'), meta: { permission: 'gastos' } },
   { path: '/rentabilidad', component: () => import('./views/RentabilidadView.vue'), meta: { permission: 'rentabilidad' } },
   { path: '/admin', component: () => import('./views/AdminView.vue'), meta: { permission: 'administracion' } },
   { path: '/usuarios', component: () => import('./views/UsuariosView.vue'), meta: { admin: true } },

@@ -1,14 +1,14 @@
 <script setup lang="ts">
 import{computed,onBeforeUnmount,onMounted,ref}from'vue'
 import{useRoute,useRouter}from'vue-router'
-import{Menu,X,ChevronLeft,ChevronRight,LayoutDashboard,Users,ShoppingCart,CalendarClock,Truck,WalletCards,ChartNoAxesCombined,Settings,UserCog,LogOut,ClipboardList}from'lucide-vue-next'
+import{Menu,X,ChevronLeft,ChevronRight,LayoutDashboard,Users,ShoppingCart,CalendarClock,Truck,WalletCards,ReceiptText,ChartNoAxesCombined,Settings,UserCog,LogOut,ClipboardList}from'lucide-vue-next'
 import{auth}from'./auth'
 import{http}from'./shared/api/httpClient'
 import DolarBlueWidget from'./shared/components/DolarBlueWidget.vue'
 import UiFeedback from'./shared/components/UiFeedback.vue'
 
 const open=ref(false),collapsed=ref(localStorage.getItem('sidebar-collapsed')==='true'),route=useRoute(),router=useRouter(),systemOnline=ref(navigator.onLine)
-const allLinks=[['/','Inicio',LayoutDashboard,'dashboard'],['/ventas','Ventas',ShoppingCart,'ventas'],['/entregas','Próximas entregas',Truck,'entregas'],['/clientes','Clientes',Users,'clientes'],['/cuotas','Cuotas',CalendarClock,'cuotas'],['/caja','Caja',WalletCards,'caja'],['/rentabilidad','Rentabilidad',ChartNoAxesCombined,'rentabilidad'],['/admin','Productos',Settings,'administracion']] as const
+const allLinks=[['/','Inicio',LayoutDashboard,'dashboard'],['/ventas','Ventas',ShoppingCart,'ventas'],['/entregas','Próximas entregas',Truck,'entregas'],['/clientes','Clientes',Users,'clientes'],['/cuotas','Cuotas',CalendarClock,'cuotas'],['/caja','Caja',WalletCards,'caja'],['/gastos','Gastos',ReceiptText,'gastos'],['/rentabilidad','Rentabilidad',ChartNoAxesCombined,'rentabilidad'],['/admin','Productos',Settings,'administracion']] as const
 const links=computed(()=>allLinks.filter(x=>auth.can(x[3])))
 let connectivityTimer:number|undefined
 async function checkSystem(){if(!navigator.onLine){systemOnline.value=false;return}try{await http.get('/health',{timeout:3000});systemOnline.value=true}catch{systemOnline.value=false}}

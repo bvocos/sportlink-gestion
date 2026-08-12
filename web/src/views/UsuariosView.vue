@@ -7,6 +7,7 @@ import { confirmAction, notify } from '@/shared/uiFeedback'
 const permissions = [
   ['dashboard', 'Inicio'], ['ventas', 'Ventas'], ['entregas', 'Próximas entregas'],
   ['clientes', 'Clientes'], ['cuotas', 'Cuotas'], ['caja', 'Caja'],
+  ['gastos', 'Gastos'],
   ['rentabilidad', 'Rentabilidad'], ['administracion', 'Administración de productos']
 ]
 const items = ref<any[]>([])
