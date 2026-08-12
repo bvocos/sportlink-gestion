@@ -21,6 +21,6 @@ public static class AuditoriaEndpoints
         if (!string.IsNullOrWhiteSpace(buscar)) query = query.Where(x => x.Usuario.Contains(buscar) || x.Entidad.Contains(buscar) || x.EntidadId.Contains(buscar) || x.DetalleJson.Contains(buscar));
         var total = await query.CountAsync(ct);
         var items = await query.OrderByDescending(x => x.FechaHora).Skip((page - 1) * pageSize).Take(pageSize).ToListAsync(ct);
-        return Results.Ok(new { items, total, page, pageSize, modulos = new[] { "Ventas", "Cuotas", "Caja", "Clientes", "Usuarios", "Administración" } });
+        return Results.Ok(new { items, total, page, pageSize, modulos = new[] { "Ventas", "Cuotas", "Caja", "Gastos", "Clientes", "Usuarios", "Administración" } });
     }
 }

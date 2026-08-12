@@ -28,8 +28,10 @@ export const auth = {
   },
   async login(usuario: string, password: string) {
     if (checkPromise) await checkPromise
-    await http.post('/auth/login', { usuario, password })
-    state.user = (await http.get('/auth/me', { headers: { 'Cache-Control': 'no-cache' } })).data
+    // Azure puede iniciar desde cero luego de un período sin uso. El login tiene
+    // un margen mayor que las operaciones normales para tolerar ese arranque.
+    await http.post('/auth/login', { usuario, password }, { timeout: 60000 })
+    state.user = (await http.get('/auth/me', { headers: { 'Cache-Control': 'no-cache' }, timeout: 30000 })).data
     state.checked = true
     return state.user
   },

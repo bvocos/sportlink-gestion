@@ -12,15 +12,17 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, IHttpCo
     public DbSet<AlicuotaIva> AlicuotasIva => Set<AlicuotaIva>(); public DbSet<Configuracion> Configuraciones => Set<Configuracion>();
     public DbSet<Usuario> Usuarios => Set<Usuario>();
     public DbSet<RegistroAuditoria> RegistrosAuditoria => Set<RegistroAuditoria>();
+    public DbSet<Gasto> Gastos => Set<Gasto>();
     protected override void OnModelCreating(ModelBuilder b)
     {
-        foreach (var t in new[] { typeof(Venta), typeof(Cuota), typeof(MovimientoCaja), typeof(TipoCesped), typeof(AlicuotaIva), typeof(Configuracion) })
+        foreach (var t in new[] { typeof(Venta), typeof(Cuota), typeof(MovimientoCaja), typeof(Gasto), typeof(TipoCesped), typeof(AlicuotaIva), typeof(Configuracion) })
             foreach (var p in b.Entity(t).Metadata.GetProperties().Where(p => p.ClrType == typeof(decimal))) p.SetColumnType("decimal(18,2)");
         b.Entity<Cliente>().Property(x => x.Tipo).HasConversion<string>(); b.Entity<Venta>().Property(x => x.Estado).HasConversion<string>();
         b.Entity<Venta>().Property(x => x.FormaPago).HasConversion<string>(); b.Entity<Cuota>().Property(x => x.Estado).HasConversion<string>();
         b.Entity<MovimientoCaja>().Property(x => x.Tipo).HasConversion<string>(); b.Entity<Configuracion>().HasIndex(x => x.Clave).IsUnique();
         b.Entity<Usuario>().HasIndex(x=>x.NombreUsuario).IsUnique();
         b.Entity<RegistroAuditoria>().HasIndex(x => x.FechaHora); b.Entity<RegistroAuditoria>().HasIndex(x => x.Modulo);
+        b.Entity<Gasto>().HasIndex(x => x.Fecha);
         b.Entity<Venta>().Property(x => x.Margen).HasColumnType("decimal(18,6)");
         b.Entity<Venta>().HasOne(x => x.Cliente).WithMany().HasForeignKey(x => x.ClienteId).OnDelete(DeleteBehavior.Restrict);
         b.Entity<Venta>().HasMany(x => x.Cuotas).WithOne(x => x.Venta).HasForeignKey(x => x.VentaId).OnDelete(DeleteBehavior.Cascade);
@@ -61,7 +63,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, IHttpCo
 
     private static bool IsSensitive(string name) => name.Contains("Password", StringComparison.OrdinalIgnoreCase) || name.Contains("Hash", StringComparison.OrdinalIgnoreCase);
     private static object? Printable(object? value) => value is DateOnly date ? date.ToString("yyyy-MM-dd") : value;
-    private static string ModuleFor(string entity) => entity switch { "Venta" => "Ventas", "Cuota" => "Cuotas", "MovimientoCaja" => "Caja", "Cliente" => "Clientes", "Usuario" => "Usuarios", "TipoCesped" or "AlicuotaIva" or "Configuracion" => "Administración", _ => entity };
+    private static string ModuleFor(string entity) => entity switch { "Venta" => "Ventas", "Cuota" => "Cuotas", "MovimientoCaja" => "Caja", "Gasto" => "Gastos", "Cliente" => "Clientes", "Usuario" => "Usuarios", "TipoCesped" or "AlicuotaIva" or "Configuracion" => "Administración", _ => entity };
 }
 
 public static class SeedData
@@ -81,6 +83,19 @@ public static class SeedData
         await db.Database.ExecuteSqlRawAsync("""
             IF COL_LENGTH('dbo.Ventas','LineasJson') IS NULL
                 ALTER TABLE dbo.Ventas ADD LineasJson NVARCHAR(MAX) NULL;
+            """);
+        await db.Database.ExecuteSqlRawAsync("""
+            IF OBJECT_ID(N'dbo.Gastos', N'U') IS NULL
+            BEGIN
+                CREATE TABLE dbo.Gastos(
+                    Id UNIQUEIDENTIFIER NOT NULL CONSTRAINT DF_Gastos_Id DEFAULT NEWSEQUENTIALID(),
+                    Fecha DATE NOT NULL, Categoria NVARCHAR(100) NOT NULL, Descripcion NVARCHAR(300) NOT NULL,
+                    Importe DECIMAL(18,2) NOT NULL, Observaciones NVARCHAR(1000) NULL,
+                    CreatedAt DATETIMEOFFSET(7) NOT NULL CONSTRAINT DF_Gastos_CreatedAt DEFAULT SYSDATETIMEOFFSET(),
+                    UpdatedAt DATETIMEOFFSET(7) NULL, CONSTRAINT PK_Gastos PRIMARY KEY CLUSTERED (Id),
+                    CONSTRAINT CK_Gastos_Importe CHECK (Importe > 0));
+                CREATE INDEX IX_Gastos_Fecha ON dbo.Gastos(Fecha DESC);
+            END;
             """);
         await db.Database.ExecuteSqlRawAsync("""
             IF COL_LENGTH('dbo.Usuarios','IntentosFallidos') IS NULL

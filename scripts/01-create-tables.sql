@@ -161,5 +161,20 @@ CREATE INDEX IX_MovimientosCaja_Fecha ON dbo.MovimientosCaja (Fecha DESC);
 CREATE INDEX IX_MovimientosCaja_VentaId ON dbo.MovimientosCaja (VentaId) WHERE VentaId IS NOT NULL;
 CREATE INDEX IX_MovimientosCaja_CuotaId ON dbo.MovimientosCaja (CuotaId) WHERE CuotaId IS NOT NULL;
 
+CREATE TABLE dbo.Gastos
+(
+    Id UNIQUEIDENTIFIER NOT NULL CONSTRAINT DF_Gastos_Id DEFAULT NEWSEQUENTIALID(),
+    Fecha DATE NOT NULL,
+    Categoria NVARCHAR(100) NOT NULL,
+    Descripcion NVARCHAR(300) NOT NULL,
+    Importe DECIMAL(18,2) NOT NULL,
+    Observaciones NVARCHAR(1000) NULL,
+    CreatedAt DATETIMEOFFSET(7) NOT NULL CONSTRAINT DF_Gastos_CreatedAt DEFAULT SYSDATETIMEOFFSET(),
+    UpdatedAt DATETIMEOFFSET(7) NULL,
+    CONSTRAINT PK_Gastos PRIMARY KEY CLUSTERED (Id),
+    CONSTRAINT CK_Gastos_Importe CHECK (Importe > 0)
+);
+CREATE INDEX IX_Gastos_Fecha ON dbo.Gastos (Fecha DESC);
+
 COMMIT TRANSACTION;
 GO
