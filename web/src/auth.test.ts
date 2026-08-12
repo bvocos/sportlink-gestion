@@ -40,9 +40,10 @@ describe("auth.login", () => {
     expect(mocks.post).toHaveBeenCalledWith("/auth/login", {
       usuario: "admin",
       password: "secreto",
-    });
+    }, { timeout: 60000 });
     expect(mocks.get).toHaveBeenCalledWith("/auth/me", {
       headers: { "Cache-Control": "no-cache" },
+      timeout: 30000,
     });
     expect(mocks.post.mock.invocationCallOrder[0]!).toBeLessThan(
       mocks.get.mock.invocationCallOrder[0]!,

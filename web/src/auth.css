@@ -3,3 +3,4 @@
 .full-field{grid-column:1/-1}
 .confirm-layer{z-index:20}.confirm-modal{width:min(440px,100%)}.app-toast{position:fixed;right:20px;top:20px;z-index:30;max-width:420px;padding:13px 17px;border-radius:10px;color:#fff;box-shadow:0 8px 28px #10271d35;font-weight:600}.app-toast.error{background:#a3362c}.app-toast.success{background:#337a4e}.toast-enter-active,.toast-leave-active{transition:.2s}.toast-enter-from,.toast-leave-to{opacity:0;transform:translateY(-8px)}@media(max-width:650px){.app-toast{left:12px;right:12px;top:12px}}
 .load-state{margin:18px 0;display:flex;align-items:center;justify-content:space-between;gap:12px}
+.login-waking{margin:0;padding:10px 12px;border-radius:8px;background:#eef6e9;color:#315e3d;font-size:13px;text-align:center}
