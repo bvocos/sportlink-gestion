@@ -13,6 +13,24 @@ export interface Session {
 const state = reactive<{ user: Session | null; checked: boolean }>({ user: null, checked: false })
 let checkPromise: Promise<Session | null> | null = null
 
+const delay = (milliseconds: number) => new Promise(resolve => setTimeout(resolve, milliseconds))
+
+async function waitForBackend() {
+  let lastError: unknown
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      await http.get('/health', { timeout: 30000 })
+      return
+    } catch (error: any) {
+      // Una respuesta HTTP confirma que la API ya está disponible.
+      if (error?.response) return
+      lastError = error
+      if (attempt < 2) await delay(1500)
+    }
+  }
+  throw lastError
+}
+
 export const auth = {
   state,
   async check() {
@@ -28,6 +46,7 @@ export const auth = {
   },
   async login(usuario: string, password: string) {
     if (checkPromise) await checkPromise
+    await waitForBackend()
     // Azure puede iniciar desde cero luego de un período sin uso. El login tiene
     // un margen mayor que las operaciones normales para tolerar ese arranque.
     await http.post('/auth/login', { usuario, password }, { timeout: 60000 })
