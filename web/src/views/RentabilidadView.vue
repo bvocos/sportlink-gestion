@@ -22,6 +22,14 @@ const totales = ref({
   gananciaNetaTotal: 0,
   margenPromedioPonderado: 0,
 });
+function financialStatusClass(status: string) {
+  return {
+    "En pérdida": "danger",
+    "Pendiente de cobro": "warn",
+    Rentable: "",
+    "Muy rentable": "strong",
+  }[status] ?? "";
+}
 async function load(reset = false) {
   if (reset) page.value = 1;
   loading.value = true;
@@ -260,7 +268,7 @@ onMounted(() => load());
               >
             </td>
             <td>
-              <span class="badge">{{ r.estadoFinanciero }}</span>
+              <span class="badge" :class="financialStatusClass(r.estadoFinanciero)">{{ r.estadoFinanciero }}</span>
             </td>
           </tr>
         </tbody>
