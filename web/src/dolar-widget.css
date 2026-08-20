@@ -2,3 +2,8 @@
 @media(max-width:650px){body:has(.modal-bg) .dolar-widget{opacity:0!important;pointer-events:none!important;transform:translateY(10px)!important}}
 .dolar-widget:not(.minimized){width:290px}.dolar-quotes{display:grid;gap:10px;margin-top:11px}.dolar-quotes section{display:grid;gap:6px}.dolar-quotes section>b{font-size:12px;color:#dce9e3}.dolar-quotes .dolar-values{margin-top:0}.dolar-quotes section+section{padding-top:9px;border-top:1px solid #ffffff18}@media(max-width:650px){.dolar-widget:not(.minimized){width:245px}}
 .dolar-actions{flex:0 0 auto}.dolar-widget.minimized .dolar-title>div:not(.dolar-actions){display:none}.dolar-widget.minimized .dolar-mini-value{min-width:0;overflow:hidden;text-overflow:ellipsis}.dolar-widget.minimized .dolar-actions{margin-left:auto}
+.dolar-widget{transition:width .2s,padding .2s,background-color .15s ease,color .15s ease}
+.dolar-widget.minimized{background:#f0f2ef;color:#536b60;border-color:#d8dfda}
+.dolar-widget.minimized .dolar-title>svg{color:#536b60}
+.dolar-widget.minimized .dolar-actions button{background:#e2e7e3;color:#536b60}
+.dolar-widget.minimized .dolar-actions button:hover{background:#d8dfda}
