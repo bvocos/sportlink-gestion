@@ -22,6 +22,17 @@ const totales = ref({
   gananciaNetaTotal: 0,
   margenPromedioPonderado: 0,
 });
+function hasActiveFilters() {
+  return !!(buscar.value.trim() || desde.value || hasta.value || estadoFinanciero.value);
+}
+function financialStatusClass(status: string) {
+  return {
+    "En pérdida": "danger",
+    "Pendiente de cobro": "warn",
+    Rentable: "",
+    "Muy rentable": "strong",
+  }[status] ?? "";
+}
 async function load(reset = false) {
   if (reset) page.value = 1;
   loading.value = true;
@@ -260,13 +271,19 @@ onMounted(() => load());
               >
             </td>
             <td>
-              <span class="badge">{{ r.estadoFinanciero }}</span>
+              <span class="badge" :class="financialStatusClass(r.estadoFinanciero)">{{ r.estadoFinanciero }}</span>
             </td>
           </tr>
         </tbody>
       </table>
       <div v-if="!loading && !items.length" class="empty">
-        No hay ventas para la búsqueda seleccionada.
+        <template v-if="hasActiveFilters()">
+          Ningún resultado con estos filtros — probá ajustarlos.
+        </template>
+        <template v-else>
+          <p>Todavía no hay ventas para analizar.</p>
+          <RouterLink class="btn" to="/ventas/nueva">+ Nueva venta</RouterLink>
+        </template>
       </div>
       <div v-if="totalPages > 1" class="actions">
         <button

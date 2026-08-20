@@ -7,6 +7,13 @@ public static class CotizacionEndpoints
 {
     public static void MapCotizacionEndpoints(this IEndpointRouteBuilder app)
     {
+        app.MapGet("/api/cotizaciones/dolares", async (DolarBlueService service, CancellationToken ct) =>
+        {
+            var quotes = await service.GetAllAsync(ct);
+            return quotes is null
+                ? Results.Problem(statusCode: StatusCodes.Status503ServiceUnavailable, title: "Cotizaciones temporalmente no disponibles")
+                : Results.Ok(quotes);
+        }).WithTags("Cotizaciones");
         app.MapGet("/api/cotizaciones/dolar-blue", async (DolarBlueService service, CancellationToken ct) =>
         {
             var quote = await service.GetAsync(ct);
@@ -21,6 +28,7 @@ public sealed class DolarBlueService(IHttpClientFactory clients, ILogger<DolarBl
 {
     private readonly SemaphoreSlim gate = new(1, 1);
     private DolarBlueResponse? last;
+    private DolarBlueResponse? lastOfficial;
     private DateTimeOffset nextRefresh = DateTimeOffset.MinValue;
 
     public async Task<DolarBlueResponse?> GetAsync(CancellationToken ct)
@@ -49,9 +57,33 @@ public sealed class DolarBlueService(IHttpClientFactory clients, ILogger<DolarBl
         }
         finally { gate.Release(); }
     }
+
+    public async Task<DolarQuotesResponse?> GetAllAsync(CancellationToken ct)
+    {
+        var blue = await GetAsync(ct);
+        var official = await GetOfficialAsync(ct);
+        return blue is null && official is null ? null : new DolarQuotesResponse(blue, official);
+    }
+
+    private async Task<DolarBlueResponse?> GetOfficialAsync(CancellationToken ct)
+    {
+        try
+        {
+            var data = await clients.CreateClient("DolarApi").GetFromJsonAsync<DolarApiQuote>("v1/dolares/oficial", ct);
+            if (data is not null && data.Compra > 0 && data.Venta > 0)
+                lastOfficial = new DolarBlueResponse(data.Compra, data.Venta, data.FechaActualizacion, "DolarApi", false);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            logger.LogWarning(ex, "No se pudo actualizar la cotización del dólar oficial");
+            if (lastOfficial is not null) lastOfficial = lastOfficial with { Desactualizada = true };
+        }
+        return lastOfficial;
+    }
 }
 
 public sealed record DolarBlueResponse(decimal Compra, decimal Venta, DateTimeOffset FechaActualizacion, string Fuente, bool Desactualizada);
+public sealed record DolarQuotesResponse(DolarBlueResponse? Blue, DolarBlueResponse? Oficial);
 internal sealed record DolarApiQuote(
     [property: JsonPropertyName("compra")] decimal Compra,
     [property: JsonPropertyName("venta")] decimal Venta,

@@ -44,9 +44,11 @@ onMounted(load)
 
 <template>
   <section class="page dashboard-page">
-    <div class="page-title">
-      <div><h2>Inicio</h2><p>Hola, {{ auth.state.user?.nombre || 'bienvenido' }}. Este es el avance del mes en curso.</p></div>
-      <RouterLink v-if="auth.can('ventas')" class="btn" to="/ventas/nueva">+ Nueva venta</RouterLink>
+    <div class="dashboard-brand">
+      <div class="page-title">
+        <div><h2>Inicio</h2><p>Hola, {{ auth.state.user?.nombre || 'bienvenido' }}. Este es el avance del mes en curso.</p></div>
+        <RouterLink v-if="auth.can('ventas')" class="btn" to="/ventas/nueva">+ Nueva venta</RouterLink>
+      </div>
     </div>
 
     <div v-if="loadError" class="error load-state">{{ loadError }} <button class="btn secondary compact" @click="load">Reintentar</button></div>
@@ -54,7 +56,7 @@ onMounted(load)
     <template v-else>
       <p class="dashboard-period">Resultados del mes: {{ periodLabel }}</p>
       <div class="grid dashboard-metrics">
-        <article class="card metric chart-metric"><small>Facturación del mes</small><strong>{{ money(data.total.facturacion) }}</strong><em>{{ pluralize(data.total.cantidad, 'venta', 'ventas') }} no canceladas</em><MiniSparkline :values="billingSeries" /></article>
+        <article class="card metric chart-metric featured"><small>Facturación del mes</small><strong>{{ money(data.total.facturacion) }}</strong><em>{{ pluralize(data.total.cantidad, 'venta', 'ventas') }} no canceladas</em><MiniSparkline :values="billingSeries" /></article>
         <article class="card metric chart-metric finished"><small>Ventas finalizadas</small><strong>{{ money(data.finalizadas.facturacion) }}</strong><em>{{ pluralize(data.finalizadas.cantidad, 'operación entregada', 'operaciones entregadas') }}</em><MiniSparkline :values="finishedSeries" color="#2f7d4b" /></article>
         <article class="card metric chart-metric active"><small>Ventas en curso</small><strong>{{ money(data.enCurso.facturacion) }}</strong><em>{{ pluralize(data.enCurso.cantidad, 'operación pendiente', 'operaciones pendientes') }}</em><MiniSparkline :values="activeSeries" color="#c27a22" /></article>
         <article class="card metric chart-metric profit"><small>Ganancia neta estimada</small><strong :class="{ negative: data.total.gananciaNeta < 0 }">{{ money(data.total.gananciaNeta) }}</strong><em>Sobre las ventas del mes</em><MiniSparkline :values="profitSeries" color="#5372c8" /></article>

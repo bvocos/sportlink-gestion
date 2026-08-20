@@ -37,6 +37,14 @@ const blank = () => ({
   alicuotaIvaId: "",
 });
 const form = ref(blank());
+function saleStatusClass(status: string) {
+  return {
+    Cancelada: "danger",
+    Futura: "",
+    Confirmada: "warn",
+    Entregada: "strong",
+  }[status] ?? "";
+}
 const selectedProduct = computed(() => maestros.value.tiposCesped.find((x:any) => x.id === form.value.tipoCespedId));
 const availableColors = computed<string[]>(() => selectedProduct.value?.colores ?? []);
 const calculatedTotal = computed(() =>
@@ -199,7 +207,7 @@ onMounted(load);
             <td>{{ money(v.precioTotal) }}</td>
             <td>{{ money(v.montoEntrega) }}</td>
             <td>
-              <span class="badge">{{ v.estado }}</span>
+              <span class="badge" :class="saleStatusClass(v.estado)">{{ v.estado }}</span>
             </td>
             <td>
               <div class="row-actions">

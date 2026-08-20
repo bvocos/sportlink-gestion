@@ -77,7 +77,15 @@ if (!app.Environment.IsDevelopment())
     app.UseHttpsRedirection();
 }
 app.UseDefaultFiles();
-app.UseStaticFiles();
+app.UseStaticFiles(new StaticFileOptions
+{
+    OnPrepareResponse = context =>
+    {
+        var name = context.File.Name;
+        if (name is "index.html" or "sw.js" or "registerSW.js")
+            context.Context.Response.Headers.CacheControl = "no-cache, no-store, must-revalidate";
+    }
+});
 app.UseCors();
 app.UseRateLimiter();
 app.UseAuthentication();
