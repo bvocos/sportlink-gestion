@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
-import { http } from "@/shared/api/httpClient";
+import { http, apiErrorMessage } from "@/shared/api/httpClient";
 import { formatCurrency as money } from "@/shared/formatters";
 import { downloadCsv } from "@/shared/csv";
 import { confirmAction, notify } from "@/shared/uiFeedback";
@@ -9,7 +9,10 @@ const pendientes = ref<any[]>([]),
   tab = ref<"pendientes" | "abonadas">("pendientes"),
   clienteFiltro = ref(""),
   selected = ref<any | null>(null),
-  paymentError = ref("");
+  paymentError = ref(""),
+  editingDueDate = ref<any | null>(null),
+  dueDate = ref(""),
+  dueDateError = ref("");
 const payment = ref({
   importe: 0,
   medioPago: "Transferencia",
@@ -51,6 +54,26 @@ function openPayment(c: any) {
     fechaPago: new Date().toISOString().slice(0, 10),
   };
   paymentError.value = "";
+}
+function openDueDate(c: any) {
+  editingDueDate.value = c;
+  dueDate.value = c.fechaVencimiento;
+  dueDateError.value = "";
+}
+async function saveDueDate() {
+  if (!editingDueDate.value || !dueDate.value) {
+    dueDateError.value = "Ingresá una fecha de vencimiento válida.";
+    return;
+  }
+  try {
+    await http.put(`/cuotas/${editingDueDate.value.id}/vencimiento`, {
+      fechaVencimiento: dueDate.value,
+    });
+    editingDueDate.value = null;
+    await load();
+  } catch (e: any) {
+    dueDateError.value = apiErrorMessage(e, "No se pudo modificar el vencimiento.");
+  }
 }
 function apiError(e: any) {
   const errors = e.response?.data?.errors;
@@ -203,19 +226,25 @@ onMounted(load);
               }}</span>
             </td>
             <td>
-              <button
-                v-if="tab === 'pendientes'"
-                class="btn"
-                @click="openPayment(c)"
-              >
-                Registrar pago</button
-              ><button
-                v-else
-                class="btn danger-btn compact"
-                @click="cancelPayment(c)"
-              >
-                Anular cobro
-              </button>
+              <div class="row-actions">
+                <button
+                  v-if="tab === 'pendientes'"
+                  class="btn compact"
+                  @click="openPayment(c)"
+                >
+                  Registrar pago
+                </button>
+                <button
+                  v-else
+                  class="btn danger-btn compact"
+                  @click="cancelPayment(c)"
+                >
+                  Anular cobro
+                </button>
+                <button class="btn secondary compact" @click="openDueDate(c)">
+                  Editar vencimiento
+                </button>
+              </div>
             </td>
           </tr>
         </tbody>
@@ -264,6 +293,31 @@ onMounted(load);
           <button type="button" class="btn secondary" @click="selected = null">
             Cancelar</button
           ><button class="btn">Confirmar pago</button>
+        </div>
+      </form>
+    </div>
+    <div v-if="editingDueDate" class="modal-bg">
+      <form class="modal small-modal" @submit.prevent="saveDueDate">
+        <h3>Editar vencimiento</h3>
+        <p>
+          <b>{{ editingDueDate.cliente }}</b><br />
+          {{ editingDueDate.tipoCesped }} · Cuota #{{ editingDueDate.numero }}
+        </p>
+        <p v-if="dueDateError" class="error">{{ dueDateError }}</p>
+        <div class="field">
+          <label>Fecha de vencimiento</label>
+          <input v-model="dueDate" type="date" required />
+          <small>Únicamente se modificará esta fecha.</small>
+        </div>
+        <div class="actions">
+          <button
+            type="button"
+            class="btn secondary"
+            @click="editingDueDate = null"
+          >
+            Cancelar
+          </button>
+          <button class="btn">Guardar fecha</button>
         </div>
       </form>
     </div>

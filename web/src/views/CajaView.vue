@@ -8,7 +8,10 @@ const data = ref<any>({ saldo: 0, movimientos: [] }),
   show = ref(false),
   error = ref(""),
   loadError = ref(""),
-  loading = ref(false);
+  loading = ref(false),
+  editingMovement = ref<any | null>(null),
+  observation = ref(""),
+  observationError = ref("");
 const form = ref({ tipo: "Ingreso", monto: 0, concepto: "" });
 async function load() {
   loading.value = true;
@@ -33,6 +36,30 @@ async function save() {
     await load();
   } catch (e: any) {
     error.value = apiErrorMessage(e, "No se pudo registrar el movimiento.");
+  }
+}
+function openObservation(movement: any) {
+  editingMovement.value = movement;
+  observation.value = movement.concepto;
+  observationError.value = "";
+}
+async function saveObservation() {
+  if (!editingMovement.value) return;
+  if (!observation.value.trim()) {
+    observationError.value = "La observación es obligatoria.";
+    return;
+  }
+  try {
+    await http.put(`/caja/movimientos/${editingMovement.value.id}/observacion`, {
+      observacion: observation.value,
+    });
+    editingMovement.value = null;
+    await load();
+  } catch (e: any) {
+    observationError.value = apiErrorMessage(
+      e,
+      "No se pudo modificar la observación.",
+    );
   }
 }
 function exportCsv() {
@@ -92,6 +119,7 @@ onMounted(load);
               <th>Observación</th>
               <th>Usuario</th>
               <th>Monto</th>
+              <th>Acciones</th>
             </tr>
           </thead>
           <tbody>
@@ -109,6 +137,11 @@ onMounted(load);
                   >{{ m.tipo === "Retiro" ? "− " : "+ "
                   }}{{ money(m.monto) }}</b
                 >
+              </td>
+              <td>
+                <button class="btn secondary compact" @click="openObservation(m)">
+                  Editar observación
+                </button>
               </td>
             </tr>
           </tbody>
@@ -157,6 +190,36 @@ onMounted(load);
           >
             Confirmar {{ form.tipo.toLowerCase() }}
           </button>
+        </div>
+      </form>
+    </div>
+    <div v-if="editingMovement" class="modal-bg">
+      <form class="modal small-modal" @submit.prevent="saveObservation">
+        <h3>Editar observación</h3>
+        <p>
+          {{ new Date(editingMovement.fecha).toLocaleString("es-AR") }} ·
+          <b>{{ editingMovement.tipo }}</b> · {{ money(editingMovement.monto) }}
+        </p>
+        <p v-if="observationError" class="error">{{ observationError }}</p>
+        <div class="field">
+          <label>Observación / motivo</label>
+          <textarea
+            v-model="observation"
+            maxlength="500"
+            rows="4"
+            required
+          ></textarea>
+          <small>El tipo y el monto del movimiento no se modificarán.</small>
+        </div>
+        <div class="actions">
+          <button
+            type="button"
+            class="btn secondary"
+            @click="editingMovement = null"
+          >
+            Cancelar
+          </button>
+          <button class="btn">Guardar observación</button>
         </div>
       </form>
     </div>

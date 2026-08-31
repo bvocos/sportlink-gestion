@@ -185,6 +185,14 @@ public sealed class FinancialRulesTests
     public void CancellationValidation_AcceptsFullyPaidInstallment() =>
         Assert.Null(CuotaEndpoints.ValidateCancellation(100m, 100m));
 
+    [Fact]
+    public void DueDateValidation_RejectsMissingDate() =>
+        Assert.NotNull(CuotaEndpoints.ValidateDueDate(default));
+
+    [Fact]
+    public void DueDateValidation_AcceptsAValidDate() =>
+        Assert.Null(CuotaEndpoints.ValidateDueDate(new DateOnly(2026, 9, 15)));
+
     [Theory]
     [InlineData(1000, 100, 0, 100, 900)]
     [InlineData(1000, 100, 300, 400, 600)]
@@ -204,4 +212,19 @@ public sealed class FinancialRulesTests
     [Fact]
     public void WithdrawalValidation_AcceptsAvailableBalance() =>
         Assert.Null(CajaEndpoints.ValidateWithdrawal(TipoMovimiento.Retiro, 100m, 100m));
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void CashObservationValidation_RejectsEmptyValues(string? observation) =>
+        Assert.NotNull(CajaEndpoints.ValidateObservation(observation));
+
+    [Fact]
+    public void CashObservationValidation_AcceptsValidText() =>
+        Assert.Null(CajaEndpoints.ValidateObservation("Corrección del motivo"));
+
+    [Fact]
+    public void CashObservationValidation_RejectsMoreThanFiveHundredCharacters() =>
+        Assert.NotNull(CajaEndpoints.ValidateObservation(new string('a', 501)));
 }
