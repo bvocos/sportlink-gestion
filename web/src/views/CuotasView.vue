@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { http, apiErrorMessage } from "@/shared/api/httpClient";
 import { formatCurrency as money } from "@/shared/formatters";
 import { downloadCsv } from "@/shared/csv";
@@ -12,7 +12,12 @@ const pendientes = ref<any[]>([]),
   paymentError = ref(""),
   editingDueDate = ref<any | null>(null),
   dueDate = ref(""),
-  dueDateError = ref("");
+  dueDateError = ref(""),
+  totalPendiente = ref(0),
+  cantidadPendiente = ref(0),
+  resumenLoading = ref(false);
+let resumenTimer: ReturnType<typeof setTimeout> | undefined;
+let resumenRequest = 0;
 const payment = ref({
   importe: 0,
   medioPago: "Transferencia",
@@ -44,6 +49,22 @@ async function load() {
   ]);
   pendientes.value = p.data;
   abonadas.value = a.data;
+  await loadPendingSummary();
+}
+async function loadPendingSummary() {
+  const request = ++resumenRequest;
+  resumenLoading.value = true;
+  try {
+    const r = await http.get("/cuotas/pendientes/resumen", { params: { buscar: clienteFiltro.value.trim() || undefined } });
+    if (request === resumenRequest) {
+      totalPendiente.value = Number(r.data.totalPendiente ?? 0);
+      cantidadPendiente.value = Number(r.data.cantidad ?? 0);
+    }
+  } catch (e) {
+    if (request === resumenRequest) notify(apiErrorMessage(e, "No se pudo calcular el total pendiente."));
+  } finally {
+    if (request === resumenRequest) resumenLoading.value = false;
+  }
 }
 function openPayment(c: any) {
   selected.value = c;
@@ -148,6 +169,11 @@ function exportCsv() {
   );
 }
 onMounted(load);
+watch(clienteFiltro, () => {
+  if (resumenTimer) clearTimeout(resumenTimer);
+  resumenTimer = setTimeout(loadPendingSummary, 300);
+});
+onBeforeUnmount(() => { if (resumenTimer) clearTimeout(resumenTimer); });
 </script>
 <template>
   <section class="page">
@@ -179,6 +205,10 @@ onMounted(load);
         placeholder="Nombre o apellido"
       /><small>{{ visible.length }} cuotas</small>
     </div>
+    <article v-if="tab === 'pendientes'" class="card cuotas-pending-total">
+      <div><small>{{ clienteFiltro.trim() ? "Pendiente del cliente buscado" : "Pendiente total por cobrar" }}</small><strong>{{ resumenLoading ? "Calculando…" : money(totalPendiente) }}</strong></div>
+      <span>{{ cantidadPendiente }} {{ cantidadPendiente === 1 ? "cuota pendiente" : "cuotas pendientes" }}</span>
+    </article>
     <div class="panel">
       <table>
         <thead>

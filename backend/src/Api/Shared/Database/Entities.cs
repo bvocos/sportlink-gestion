@@ -7,6 +7,7 @@ public enum FormaPago { Cuotas, Contado, Transferencia, Cheque, Otros }
 public enum EstadoVenta { Confirmada, Futura, Entregada, Cancelada }
 public enum EstadoCuota { Pendiente, Pagada, PagadaParcial, Vencida }
 public enum TipoMovimiento { Ingreso, Retiro }
+public enum EstadoPresupuesto { Borrador, Enviado, Aceptado, Rechazado, Vencido }
 public sealed class Usuario : AuditableEntity { public string Nombre { get; set; }=""; public string NombreUsuario { get; set; }=""; public string PasswordHash { get; set; }=""; public string Rol { get; set; }="Usuario"; public string PermisosJson { get; set; }="[]"; public bool Activo { get; set; }=true; public bool DebeCambiarPassword { get; set; }=true; public int IntentosFallidos { get; set; } public DateTimeOffset? BloqueadoHasta { get; set; } }
 public sealed class RegistroAuditoria
 {
@@ -29,7 +30,7 @@ public sealed class Cliente : AuditableEntity
     public string? LocalidadId { get; set; } public string? ProvinciaId { get; set; }
     public TipoCliente Tipo { get; set; } public DateOnly FechaPrimerContacto { get; set; } public string? Observaciones { get; set; }
 }
-public sealed class TipoCesped : AuditableEntity { public string Nombre { get; set; } = ""; public string? Descripcion { get; set; } public decimal PrecioVentaM2 { get; set; } public decimal CostoM2 { get; set; } public string ColoresJson { get; set; } = "[]"; public bool Activo { get; set; } = true; }
+public sealed class TipoCesped : AuditableEntity { public string Nombre { get; set; } = ""; public string? Descripcion { get; set; } public string? DescripcionPresupuesto { get; set; } public string? EspecificacionesPresupuesto { get; set; } public string? FichaTecnicaUrl { get; set; } public decimal PrecioVentaM2 { get; set; } public decimal PrecioContadoM2 { get; set; } public decimal PrecioFinanciadoM2 { get; set; } public decimal CostoM2 { get; set; } public string ColoresJson { get; set; } = "[]"; public bool Activo { get; set; } = true; }
 public sealed class AlicuotaIva : AuditableEntity { public string Nombre { get; set; } = ""; public decimal Porcentaje { get; set; } }
 public sealed class Configuracion : AuditableEntity { public string Clave { get; set; } = ""; public decimal ValorDecimal { get; set; } }
 public sealed class Venta : AuditableEntity
@@ -64,4 +65,26 @@ public sealed class Gasto : AuditableEntity
 {
     public DateOnly Fecha { get; set; } public string Categoria { get; set; } = ""; public string Descripcion { get; set; } = "";
     public decimal Importe { get; set; } public string? Observaciones { get; set; }
+}
+public sealed class Presupuesto : AuditableEntity
+{
+    public int Numero { get; set; }
+    public Guid ClienteId { get; set; } public Cliente Cliente { get; set; } = null!;
+    public DateOnly Fecha { get; set; } public DateOnly ValidezHasta { get; set; }
+    public EstadoPresupuesto Estado { get; set; } = EstadoPresupuesto.Borrador;
+    public decimal DescuentoContadoPorcentaje { get; set; }
+    public decimal IvaContadoPorcentaje { get; set; } = 10.5m;
+    public decimal IvaFinanciadoPorcentaje { get; set; } = 21m;
+    public decimal EntregaFinanciada { get; set; }
+    public string? Observaciones { get; set; }
+    public List<PresupuestoLinea> Lineas { get; set; } = [];
+}
+public sealed class PresupuestoLinea : AuditableEntity
+{
+    public Guid PresupuestoId { get; set; } public Presupuesto Presupuesto { get; set; } = null!;
+    public Guid? TipoCespedId { get; set; }
+    public string Producto { get; set; } = ""; public string? Descripcion { get; set; } public string? DescripcionPresupuesto { get; set; } public string? EspecificacionesPresupuesto { get; set; } public string? FichaTecnicaUrl { get; set; } public string? Color { get; set; }
+    public decimal CantidadM2 { get; set; }
+    public decimal PrecioContadoM2 { get; set; } public decimal PrecioFinanciadoM2 { get; set; }
+    public decimal TotalContado { get; set; } public decimal TotalFinanciado { get; set; }
 }

@@ -13,9 +13,10 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, IHttpCo
     public DbSet<Usuario> Usuarios => Set<Usuario>();
     public DbSet<RegistroAuditoria> RegistrosAuditoria => Set<RegistroAuditoria>();
     public DbSet<Gasto> Gastos => Set<Gasto>();
+    public DbSet<Presupuesto> Presupuestos => Set<Presupuesto>(); public DbSet<PresupuestoLinea> PresupuestoLineas => Set<PresupuestoLinea>();
     protected override void OnModelCreating(ModelBuilder b)
     {
-        foreach (var t in new[] { typeof(Venta), typeof(Cuota), typeof(MovimientoCaja), typeof(Gasto), typeof(TipoCesped), typeof(AlicuotaIva), typeof(Configuracion) })
+        foreach (var t in new[] { typeof(Venta), typeof(Cuota), typeof(MovimientoCaja), typeof(Gasto), typeof(TipoCesped), typeof(AlicuotaIva), typeof(Configuracion), typeof(Presupuesto), typeof(PresupuestoLinea) })
             foreach (var p in b.Entity(t).Metadata.GetProperties().Where(p => p.ClrType == typeof(decimal))) p.SetColumnType("decimal(18,2)");
         b.Entity<Cliente>().Property(x => x.Tipo).HasConversion<string>(); b.Entity<Venta>().Property(x => x.Estado).HasConversion<string>();
         b.Entity<Venta>().Property(x => x.FormaPago).HasConversion<string>(); b.Entity<Cuota>().Property(x => x.Estado).HasConversion<string>();
@@ -23,6 +24,10 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, IHttpCo
         b.Entity<Usuario>().HasIndex(x=>x.NombreUsuario).IsUnique();
         b.Entity<RegistroAuditoria>().HasIndex(x => x.FechaHora); b.Entity<RegistroAuditoria>().HasIndex(x => x.Modulo);
         b.Entity<Gasto>().HasIndex(x => x.Fecha);
+        b.Entity<Presupuesto>().Property(x => x.Estado).HasConversion<string>();
+        b.Entity<Presupuesto>().Property(x => x.Numero).UseIdentityColumn(); b.Entity<Presupuesto>().HasIndex(x => x.Numero).IsUnique(); b.Entity<Presupuesto>().HasIndex(x => x.Fecha);
+        b.Entity<Presupuesto>().HasOne(x => x.Cliente).WithMany().HasForeignKey(x => x.ClienteId).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<Presupuesto>().HasMany(x => x.Lineas).WithOne(x => x.Presupuesto).HasForeignKey(x => x.PresupuestoId).OnDelete(DeleteBehavior.Cascade);
         b.Entity<Venta>().Property(x => x.Margen).HasColumnType("decimal(18,6)");
         b.Entity<Venta>().HasOne(x => x.Cliente).WithMany().HasForeignKey(x => x.ClienteId).OnDelete(DeleteBehavior.Restrict);
         b.Entity<Venta>().HasMany(x => x.Cuotas).WithOne(x => x.Venta).HasForeignKey(x => x.VentaId).OnDelete(DeleteBehavior.Cascade);
@@ -63,7 +68,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, IHttpCo
 
     private static bool IsSensitive(string name) => name.Contains("Password", StringComparison.OrdinalIgnoreCase) || name.Contains("Hash", StringComparison.OrdinalIgnoreCase);
     private static object? Printable(object? value) => value is DateOnly date ? date.ToString("yyyy-MM-dd") : value;
-    private static string ModuleFor(string entity) => entity switch { "Venta" => "Ventas", "Cuota" => "Cuotas", "MovimientoCaja" => "Caja", "Gasto" => "Gastos", "Cliente" => "Clientes", "Usuario" => "Usuarios", "TipoCesped" or "AlicuotaIva" or "Configuracion" => "Administración", _ => entity };
+    private static string ModuleFor(string entity) => entity switch { "Venta" => "Ventas", "Cuota" => "Cuotas", "MovimientoCaja" => "Caja", "Gasto" => "Gastos", "Presupuesto" or "PresupuestoLinea" => "Presupuestos", "Cliente" => "Clientes", "Usuario" => "Usuarios", "TipoCesped" or "AlicuotaIva" or "Configuracion" => "Administración", _ => entity };
 }
 
 public static class SeedData
@@ -120,6 +125,67 @@ public static class SeedData
                     CONSTRAINT DF_TiposCesped_ColoresJson DEFAULT N'[]' WITH VALUES;
             IF COL_LENGTH('dbo.Ventas','Color') IS NULL
                 ALTER TABLE dbo.Ventas ADD Color NVARCHAR(100) NULL;
+            """);
+        await db.Database.ExecuteSqlRawAsync("""
+            IF COL_LENGTH('dbo.TiposCesped','PrecioContadoM2') IS NULL
+            BEGIN
+                ALTER TABLE dbo.TiposCesped ADD PrecioContadoM2 DECIMAL(18,2) NOT NULL
+                    CONSTRAINT DF_TiposCesped_PrecioContadoM2 DEFAULT 0 WITH VALUES;
+                EXEC(N'UPDATE dbo.TiposCesped SET PrecioContadoM2=PrecioVentaM2');
+            END;
+            IF COL_LENGTH('dbo.TiposCesped','PrecioFinanciadoM2') IS NULL
+            BEGIN
+                ALTER TABLE dbo.TiposCesped ADD PrecioFinanciadoM2 DECIMAL(18,2) NOT NULL
+                    CONSTRAINT DF_TiposCesped_PrecioFinanciadoM2 DEFAULT 0 WITH VALUES;
+                EXEC(N'UPDATE dbo.TiposCesped SET PrecioFinanciadoM2=PrecioVentaM2');
+            END;
+            IF COL_LENGTH('dbo.TiposCesped','DescripcionPresupuesto') IS NULL
+                ALTER TABLE dbo.TiposCesped ADD DescripcionPresupuesto NVARCHAR(MAX) NULL;
+            IF COL_LENGTH('dbo.TiposCesped','EspecificacionesPresupuesto') IS NULL
+                ALTER TABLE dbo.TiposCesped ADD EspecificacionesPresupuesto NVARCHAR(MAX) NULL;
+            IF COL_LENGTH('dbo.TiposCesped','FichaTecnicaUrl') IS NULL
+                ALTER TABLE dbo.TiposCesped ADD FichaTecnicaUrl NVARCHAR(1000) NULL;
+            """);
+        await db.Database.ExecuteSqlRawAsync("""
+            IF OBJECT_ID(N'dbo.Presupuestos', N'U') IS NULL
+            BEGIN
+                CREATE TABLE dbo.Presupuestos(Id UNIQUEIDENTIFIER NOT NULL, Numero INT IDENTITY(1,1) NOT NULL, ClienteId UNIQUEIDENTIFIER NOT NULL,
+                    Fecha DATE NOT NULL, ValidezHasta DATE NOT NULL, Estado NVARCHAR(30) NOT NULL,
+                    DescuentoContadoPorcentaje DECIMAL(18,2) NOT NULL, IvaContadoPorcentaje DECIMAL(18,2) NOT NULL,
+                    IvaFinanciadoPorcentaje DECIMAL(18,2) NOT NULL, EntregaFinanciada DECIMAL(18,2) NOT NULL,
+                    Observaciones NVARCHAR(2000) NULL, CreatedAt DATETIMEOFFSET(7) NOT NULL, UpdatedAt DATETIMEOFFSET(7) NULL,
+                    CONSTRAINT PK_Presupuestos PRIMARY KEY(Id), CONSTRAINT FK_Presupuestos_Clientes FOREIGN KEY(ClienteId) REFERENCES dbo.Clientes(Id));
+                CREATE UNIQUE INDEX IX_Presupuestos_Numero ON dbo.Presupuestos(Numero); CREATE INDEX IX_Presupuestos_Fecha ON dbo.Presupuestos(Fecha);
+                CREATE TABLE dbo.PresupuestoLineas(Id UNIQUEIDENTIFIER NOT NULL, PresupuestoId UNIQUEIDENTIFIER NOT NULL, TipoCespedId UNIQUEIDENTIFIER NULL,
+                    Producto NVARCHAR(200) NOT NULL, Descripcion NVARCHAR(2000) NULL, Color NVARCHAR(100) NULL,
+                    CantidadM2 DECIMAL(18,2) NOT NULL, PrecioContadoM2 DECIMAL(18,2) NOT NULL, PrecioFinanciadoM2 DECIMAL(18,2) NOT NULL,
+                    TotalContado DECIMAL(18,2) NOT NULL, TotalFinanciado DECIMAL(18,2) NOT NULL,
+                    CreatedAt DATETIMEOFFSET(7) NOT NULL, UpdatedAt DATETIMEOFFSET(7) NULL, CONSTRAINT PK_PresupuestoLineas PRIMARY KEY(Id),
+                    CONSTRAINT FK_PresupuestoLineas_Presupuestos FOREIGN KEY(PresupuestoId) REFERENCES dbo.Presupuestos(Id) ON DELETE CASCADE);
+            END;
+            IF COL_LENGTH('dbo.Presupuestos','CantidadCuotas') IS NOT NULL
+                ALTER TABLE dbo.Presupuestos DROP COLUMN CantidadCuotas;
+            """);
+        await db.Database.ExecuteSqlRawAsync("""
+            IF COL_LENGTH('dbo.PresupuestoLineas','PrecioContadoM2') IS NULL
+            BEGIN
+                ALTER TABLE dbo.PresupuestoLineas ADD PrecioContadoM2 DECIMAL(18,2) NOT NULL CONSTRAINT DF_PresupuestoLineas_PrecioContadoM2 DEFAULT 0 WITH VALUES;
+                ALTER TABLE dbo.PresupuestoLineas ADD PrecioFinanciadoM2 DECIMAL(18,2) NOT NULL CONSTRAINT DF_PresupuestoLineas_PrecioFinanciadoM2 DEFAULT 0 WITH VALUES;
+                ALTER TABLE dbo.PresupuestoLineas ADD TotalContado DECIMAL(18,2) NOT NULL CONSTRAINT DF_PresupuestoLineas_TotalContado DEFAULT 0 WITH VALUES;
+                ALTER TABLE dbo.PresupuestoLineas ADD TotalFinanciado DECIMAL(18,2) NOT NULL CONSTRAINT DF_PresupuestoLineas_TotalFinanciado DEFAULT 0 WITH VALUES;
+                IF COL_LENGTH('dbo.PresupuestoLineas','PrecioVentaM2') IS NOT NULL
+                    EXEC(N'UPDATE dbo.PresupuestoLineas SET PrecioContadoM2=PrecioVentaM2, PrecioFinanciadoM2=PrecioVentaM2, TotalContado=Total, TotalFinanciado=Total');
+            END;
+            IF COL_LENGTH('dbo.PresupuestoLineas','PrecioVentaM2') IS NOT NULL
+                ALTER TABLE dbo.PresupuestoLineas DROP COLUMN PrecioVentaM2;
+            IF COL_LENGTH('dbo.PresupuestoLineas','Total') IS NOT NULL
+                ALTER TABLE dbo.PresupuestoLineas DROP COLUMN Total;
+            IF COL_LENGTH('dbo.PresupuestoLineas','DescripcionPresupuesto') IS NULL
+                ALTER TABLE dbo.PresupuestoLineas ADD DescripcionPresupuesto NVARCHAR(MAX) NULL;
+            IF COL_LENGTH('dbo.PresupuestoLineas','EspecificacionesPresupuesto') IS NULL
+                ALTER TABLE dbo.PresupuestoLineas ADD EspecificacionesPresupuesto NVARCHAR(MAX) NULL;
+            IF COL_LENGTH('dbo.PresupuestoLineas','FichaTecnicaUrl') IS NULL
+                ALTER TABLE dbo.PresupuestoLineas ADD FichaTecnicaUrl NVARCHAR(1000) NULL;
             """);
         if (!await db.AlicuotasIva.AnyAsync()) db.AlicuotasIva.AddRange(new AlicuotaIva { Nombre="IVA 21%", Porcentaje=21 }, new AlicuotaIva { Nombre="IVA 10,5%", Porcentaje=10.5m }, new AlicuotaIva { Nombre="Exento", Porcentaje=0 });
         if (!await db.TiposCesped.AnyAsync()) db.TiposCesped.AddRange(new TipoCesped { Nombre="Decorativo 20 mm" }, new TipoCesped { Nombre="Premium 35 mm" }, new TipoCesped { Nombre="Deportivo 50 mm" });

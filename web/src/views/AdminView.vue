@@ -12,7 +12,12 @@ const items = ref<any[]>([]),
   form = ref({
     nombre: "",
     descripcion: "",
+    descripcionPresupuesto: "",
+    especificacionesPresupuesto: "",
+    fichaTecnicaUrl: "",
     precioVentaM2: 0,
+    precioContadoM2: 0,
+    precioFinanciadoM2: 0,
     costoM2: 0,
     colores: [] as string[],
     activo: true,
@@ -26,7 +31,12 @@ function create() {
   form.value = {
     nombre: "",
     descripcion: "",
+    descripcionPresupuesto: "",
+    especificacionesPresupuesto: "",
+    fichaTecnicaUrl: "",
     precioVentaM2: 0,
+    precioContadoM2: 0,
+    precioFinanciadoM2: 0,
     costoM2: 0,
     colores: [],
     activo: true,
@@ -40,7 +50,12 @@ function edit(x: any) {
   form.value = {
     nombre: x.nombre,
     descripcion: x.descripcion ?? "",
+    descripcionPresupuesto: x.descripcionPresupuesto ?? "",
+    especificacionesPresupuesto: x.especificacionesPresupuesto ?? "",
+    fichaTecnicaUrl: x.fichaTecnicaUrl ?? "",
     precioVentaM2: x.precioVentaM2,
+    precioContadoM2: x.precioContadoM2 ?? x.precioVentaM2,
+    precioFinanciadoM2: x.precioFinanciadoM2 ?? x.precioVentaM2,
     costoM2: x.costoM2,
     colores: [...(x.colores ?? [])],
     activo: x.activo,
@@ -73,7 +88,12 @@ async function toggle(x: any) {
   await http.put(`/maestros/tipos-cesped/${x.id}`, {
     nombre: x.nombre,
     descripcion: x.descripcion,
+    descripcionPresupuesto: x.descripcionPresupuesto,
+    especificacionesPresupuesto: x.especificacionesPresupuesto,
+    fichaTecnicaUrl: x.fichaTecnicaUrl,
     precioVentaM2: x.precioVentaM2,
+    precioContadoM2: x.precioContadoM2,
+    precioFinanciadoM2: x.precioFinanciadoM2,
     costoM2: x.costoM2,
     colores: x.colores ?? [],
     activo: !x.activo,
@@ -108,6 +128,8 @@ onMounted(load);
             <th>Descripción</th>
             <th>Venta / m²</th>
             <th>Costo / m²</th>
+            <th>Contado / m²</th>
+            <th>Financiado / m²</th>
             <th>Colores</th>
             <th>Estado</th>
             <th></th>
@@ -121,6 +143,8 @@ onMounted(load);
             <td>{{ x.descripcion || "—" }}</td>
             <td>{{ money(x.precioVentaM2) }}</td>
             <td>{{ money(x.costoM2) }}</td>
+            <td>{{ money(x.precioContadoM2) }}</td>
+            <td>{{ money(x.precioFinanciadoM2) }}</td>
             <td><div class="color-list"><span v-for="color in x.colores" :key="color" class="badge color-badge">{{ color }}</span><span v-if="!x.colores?.length">—</span></div></td>
             <td>
               <span class="badge" :class="{ warn: !x.activo }">{{
@@ -157,6 +181,24 @@ onMounted(load);
           <label>Descripción</label
           ><textarea v-model="form.descripcion"></textarea>
         </div>
+        <fieldset class="quote-product-content">
+          <legend>Contenido del presupuesto</legend>
+          <small>Se carga una sola vez y se incorpora automáticamente al PDF cuando este producto forma parte del presupuesto.</small>
+          <div class="field">
+            <label>Descripción general para PDF</label>
+            <textarea v-model="form.descripcionPresupuesto" rows="5" placeholder="Presentación comercial y características generales del producto"></textarea>
+          </div>
+          <div class="field">
+            <label>Especificaciones técnicas / cotización</label>
+            <textarea v-model="form.especificacionesPresupuesto" rows="7" placeholder="Una característica por línea. Ej.:&#10;Ancho del rollo: 4 m&#10;Largo del rollo: 25 m&#10;Altura de hilo: 50 mm"></textarea>
+            <small>Los saltos de línea se respetan en el PDF. Los metros, precios y totales se completan desde cada presupuesto.</small>
+          </div>
+          <div class="field">
+            <label>Enlace a ficha técnica</label>
+            <input v-model.trim="form.fichaTecnicaUrl" type="url" placeholder="https://.../ficha-tecnica.pdf">
+            <small>Puede ser un PDF público de Google Drive, OneDrive o tu sitio web.</small>
+          </div>
+        </fieldset>
         <div class="form-grid price-grid">
           <div class="field">
             <label>Precio de venta por m²</label
@@ -178,6 +220,10 @@ onMounted(load);
               required
             />
           </div>
+        </div>
+        <div class="form-grid price-grid">
+          <div class="field"><label>Precio contado por m²</label><input v-model.number="form.precioContadoM2" type="number" min="0" step="0.01" required /></div>
+          <div class="field"><label>Precio financiado por m²</label><input v-model.number="form.precioFinanciadoM2" type="number" min="0" step="0.01" required /></div>
         </div>
         <label class="check"
           ><input v-model="form.activo" type="checkbox" /> Disponible para

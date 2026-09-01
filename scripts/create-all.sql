@@ -10,6 +10,10 @@
 :r .\08-add-auditoria.sql
 :r .\09-add-seguridad-usuarios.sql
 :r .\10-add-geografia-clientes.sql
+:r .\11-add-presupuestos.sql
+:r .\12-add-precios-presupuestos-productos.sql
+:r .\13-add-precios-lineas-presupuesto.sql
+:r .\14-add-contenido-presupuesto-productos.sql
 
 PRINT N'Base CespedVentas creada correctamente.';
 GO

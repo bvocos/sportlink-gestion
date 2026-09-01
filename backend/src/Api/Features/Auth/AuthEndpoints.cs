@@ -196,5 +196,5 @@ public static class AuthEndpoints
 public static class Permissions
 {
     public static readonly string[] All =
-        ["dashboard", "ventas", "entregas", "clientes", "cuotas", "caja", "gastos", "rentabilidad", "administracion", "usuarios"];
+        ["dashboard", "ventas", "presupuestos", "entregas", "clientes", "cuotas", "caja", "gastos", "rentabilidad", "administracion", "usuarios"];
 }

@@ -75,6 +75,8 @@ const fieldLabels: Record<string, string> = {
   CuotaId: "Cuota",
   Descripcion: "Descripción",
   PrecioVentaM2: "Precio de venta por m²",
+  PrecioContadoM2: "Precio contado por m²",
+  PrecioFinanciadoM2: "Precio financiado por m²",
   CostoM2: "Costo por m²",
   Porcentaje: "Porcentaje",
   Clave: "Clave",

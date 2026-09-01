@@ -4,7 +4,7 @@ using System.Text.Json;
 
 namespace Api.Features.Maestros;
 
-public record TipoCespedRequest(string Nombre, string? Descripcion, decimal PrecioVentaM2, decimal CostoM2,
+public record TipoCespedRequest(string Nombre, string? Descripcion, string? DescripcionPresupuesto, string? EspecificacionesPresupuesto, string? FichaTecnicaUrl, decimal PrecioVentaM2, decimal PrecioContadoM2, decimal PrecioFinanciadoM2, decimal CostoM2,
     IReadOnlyList<string>? Colores, bool Activo = true);
 
 public static class MaestroEndpoints
@@ -24,7 +24,7 @@ public static class MaestroEndpoints
 
     private static object ToDto(TipoCesped type) => new
     {
-        type.Id, type.Nombre, type.Descripcion, type.PrecioVentaM2, type.CostoM2,
+        type.Id, type.Nombre, type.Descripcion, type.DescripcionPresupuesto, type.EspecificacionesPresupuesto, type.FichaTecnicaUrl, type.PrecioVentaM2, type.PrecioContadoM2, type.PrecioFinanciadoM2, type.CostoM2,
         colores = Colors(type), type.Activo
     };
 
@@ -48,7 +48,11 @@ public static class MaestroEndpoints
         if (string.IsNullOrWhiteSpace(request.Nombre)) return new() { ["nombre"] = ["El nombre es obligatorio."] };
         if (request.Nombre.Length > 150) return new() { ["nombre"] = ["El nombre no puede superar 150 caracteres."] };
         if (request.PrecioVentaM2 < 0) return new() { ["precioVentaM2"] = ["El precio de venta no puede ser negativo."] };
+        if (request.PrecioContadoM2 < 0) return new() { ["precioContadoM2"] = ["El precio de contado no puede ser negativo."] };
+        if (request.PrecioFinanciadoM2 < 0) return new() { ["precioFinanciadoM2"] = ["El precio financiado no puede ser negativo."] };
         if (request.CostoM2 < 0) return new() { ["costoM2"] = ["El costo no puede ser negativo."] };
+        if (!string.IsNullOrWhiteSpace(request.FichaTecnicaUrl) && (!Uri.TryCreate(request.FichaTecnicaUrl.Trim(), UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https")))
+            return new() { ["fichaTecnicaUrl"] = ["La ficha técnica debe ser una URL http o https válida."] };
         if (NormalizeColors(request.Colores).Any(x => x.Length > 100))
             return new() { ["colores"] = ["Cada color puede tener hasta 100 caracteres."] };
         return null;
@@ -59,7 +63,7 @@ public static class MaestroEndpoints
         var errors = Validate(request); if (errors is not null) return Results.ValidationProblem(errors);
         var name = request.Nombre.Trim();
         if (await db.TiposCesped.AnyAsync(x => x.Nombre == name, ct)) return Results.Conflict(new { message = "Ya existe un tipo de césped con ese nombre." });
-        var type = new TipoCesped { Nombre = name, Descripcion = request.Descripcion?.Trim(), PrecioVentaM2 = request.PrecioVentaM2, CostoM2 = request.CostoM2, ColoresJson = JsonSerializer.Serialize(NormalizeColors(request.Colores)), Activo = request.Activo };
+        var type = new TipoCesped { Nombre = name, Descripcion = request.Descripcion?.Trim(), DescripcionPresupuesto = request.DescripcionPresupuesto?.Trim(), EspecificacionesPresupuesto = request.EspecificacionesPresupuesto?.Trim(), FichaTecnicaUrl = request.FichaTecnicaUrl?.Trim(), PrecioVentaM2 = request.PrecioVentaM2, PrecioContadoM2 = request.PrecioContadoM2, PrecioFinanciadoM2 = request.PrecioFinanciadoM2, CostoM2 = request.CostoM2, ColoresJson = JsonSerializer.Serialize(NormalizeColors(request.Colores)), Activo = request.Activo };
         db.TiposCesped.Add(type); await db.SaveChangesAsync(ct);
         return Results.Created($"/api/maestros/tipos-cesped/{type.Id}", ToDto(type));
     }
@@ -70,7 +74,7 @@ public static class MaestroEndpoints
         var type = await db.TiposCesped.FindAsync([id], ct); if (type is null) return Results.NotFound();
         var name = request.Nombre.Trim();
         if (await db.TiposCesped.AnyAsync(x => x.Id != id && x.Nombre == name, ct)) return Results.Conflict(new { message = "Ya existe un tipo de césped con ese nombre." });
-        type.Nombre = name; type.Descripcion = request.Descripcion?.Trim(); type.PrecioVentaM2 = request.PrecioVentaM2; type.CostoM2 = request.CostoM2; type.ColoresJson = JsonSerializer.Serialize(NormalizeColors(request.Colores)); type.Activo = request.Activo;
+        type.Nombre = name; type.Descripcion = request.Descripcion?.Trim(); type.DescripcionPresupuesto = request.DescripcionPresupuesto?.Trim(); type.EspecificacionesPresupuesto = request.EspecificacionesPresupuesto?.Trim(); type.FichaTecnicaUrl = request.FichaTecnicaUrl?.Trim(); type.PrecioVentaM2 = request.PrecioVentaM2; type.PrecioContadoM2 = request.PrecioContadoM2; type.PrecioFinanciadoM2 = request.PrecioFinanciadoM2; type.CostoM2 = request.CostoM2; type.ColoresJson = JsonSerializer.Serialize(NormalizeColors(request.Colores)); type.Activo = request.Activo;
         await db.SaveChangesAsync(ct); return Results.Ok(ToDto(type));
     }
 

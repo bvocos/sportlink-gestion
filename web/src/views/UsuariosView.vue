@@ -5,6 +5,7 @@ import { http, apiErrorMessage } from '@/shared/api/httpClient'
 import { confirmAction, notify } from '@/shared/uiFeedback'
 
 const permissions = [
+  ['presupuestos', 'Presupuestos'],
   ['dashboard', 'Inicio'], ['ventas', 'Ventas'], ['entregas', 'Próximas entregas'],
   ['clientes', 'Clientes'], ['cuotas', 'Cuotas'], ['caja', 'Caja'],
   ['gastos', 'Gastos'],

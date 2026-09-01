@@ -4,6 +4,7 @@ import { auth } from './auth'
 const permissionRoutes: Record<string, string> = {
   dashboard: '/',
   ventas: '/ventas',
+  presupuestos: '/presupuestos',
   entregas: '/entregas',
   clientes: '/clientes',
   cuotas: '/cuotas',
@@ -21,6 +22,9 @@ const routes = [
   { path: '/ventas', component: () => import('./views/VentasView.vue'), meta: { permission: 'ventas' } },
   { path: '/ventas/nueva', component: () => import('./views/NuevaVentaView.vue'), meta: { permission: 'ventas' } },
   { path: '/ventas/:id/editar', component: () => import('./views/NuevaVentaView.vue'), meta: { permission: 'ventas' } },
+  { path: '/presupuestos', component: () => import('./views/PresupuestosView.vue'), meta: { permission: 'presupuestos' } },
+  { path: '/presupuestos/nuevo', component: () => import('./views/NuevoPresupuestoView.vue'), meta: { permission: 'presupuestos' } },
+  { path: '/presupuestos/:id/editar', component: () => import('./views/NuevoPresupuestoView.vue'), meta: { permission: 'presupuestos' } },
   { path: '/entregas', component: () => import('./views/EntregasView.vue'), meta: { permission: 'entregas' } },
   { path: '/clientes', component: () => import('./views/ClientesView.vue'), meta: { permission: 'clientes' } },
   { path: '/cuotas', component: () => import('./views/CuotasView.vue'), meta: { permission: 'cuotas' } },
