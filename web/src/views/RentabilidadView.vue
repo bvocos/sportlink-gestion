@@ -4,6 +4,9 @@ import { http, apiErrorMessage } from "@/shared/api/httpClient";
 import { formatCurrency as money, pluralize } from "@/shared/formatters";
 import { downloadBlob, downloadCsv } from "@/shared/csv";
 import { notify } from "@/shared/uiFeedback";
+import { computed } from "vue";
+import { auth } from "@/auth";
+import SucursalFilter from "@/shared/components/SucursalFilter.vue";
 const items = ref<any[]>([]),
   loading = ref(false),
   exporting = ref(false),
@@ -12,9 +15,11 @@ const items = ref<any[]>([]),
   desde = ref(""),
   hasta = ref(""),
   estadoFinanciero = ref(""),
+  sucursalId = ref(""),
   page = ref(1),
   totalPages = ref(0),
   total = ref(0);
+const isAdmin = computed(() => auth.state.user?.rol === "Administrador");
 const totales = ref({
   cantidadVentas: 0,
   facturacionTotal: 0,
@@ -23,7 +28,7 @@ const totales = ref({
   margenPromedioPonderado: 0,
 });
 function hasActiveFilters() {
-  return !!(buscar.value.trim() || desde.value || hasta.value || estadoFinanciero.value);
+  return !!(buscar.value.trim() || desde.value || hasta.value || estadoFinanciero.value || sucursalId.value);
 }
 function financialStatusClass(status: string) {
   return {
@@ -44,6 +49,7 @@ async function load(reset = false) {
         desde: desde.value || undefined,
         hasta: hasta.value || undefined,
         estadoFinanciero: estadoFinanciero.value || undefined,
+        sucursalId: sucursalId.value || undefined,
         page: page.value,
         pageSize: 50,
       },
@@ -66,6 +72,7 @@ function clearFilters() {
   desde.value = "";
   hasta.value = "";
   estadoFinanciero.value = "";
+  sucursalId.value = "";
   load(true);
 }
 function changePage(value: number) {
@@ -118,6 +125,7 @@ async function exportAll() {
         desde: desde.value || undefined,
         hasta: hasta.value || undefined,
         estadoFinanciero: estadoFinanciero.value || undefined,
+        sucursalId: sucursalId.value || undefined,
       },
       responseType: "blob",
     });
@@ -181,6 +189,7 @@ onMounted(() => load());
           <option value="En pérdida">En pérdida</option>
         </select>
       </div>
+      <SucursalFilter v-if="isAdmin" v-model="sucursalId" />
       <div class="filter-actions">
         <button class="btn" :disabled="loading">Buscar</button
         ><button type="button" class="btn secondary" @click="clearFilters">

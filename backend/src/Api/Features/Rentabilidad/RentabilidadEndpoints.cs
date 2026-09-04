@@ -3,6 +3,7 @@ using System.Text;
 using Api.Shared.Common;
 using Api.Shared.Database;
 using Microsoft.EntityFrameworkCore;
+using System.Security.Claims;
 
 namespace Api.Features.Rentabilidad;
 
@@ -42,9 +43,12 @@ public static class RentabilidadEndpoints
         return query.Where(x => (x.Cliente.Nombre + " " + x.Cliente.Apellido).Contains(buscar));
     }
 
-    private static IQueryable<Venta> FilteredQuery(AppDbContext db, string? buscar,
+    internal static IQueryable<Venta> VisibleQuery(IQueryable<Venta> query, ClaimsPrincipal user,
+        Guid? sucursalId = null) => query.WhereVisibleParaUsuario(user, sucursalId);
+
+    private static IQueryable<Venta> FilteredQuery(AppDbContext db, ClaimsPrincipal user, Guid? sucursalId, string? buscar,
         DateOnly? desde, DateOnly? hasta) =>
-        ApplyFilters(db.Ventas.AsNoTracking().Include(x => x.Cliente).Include(x => x.AlicuotaIva)
+        ApplyFilters(VisibleQuery(db.Ventas.AsNoTracking().Include(x => x.Cliente).Include(x => x.AlicuotaIva), user, sucursalId)
             .Where(x => x.Estado != EstadoVenta.Cancelada), buscar, desde, hasta);
 
     internal static bool IsValidFinancialState(string? estado) => string.IsNullOrWhiteSpace(estado) ||
@@ -88,8 +92,8 @@ public static class RentabilidadEndpoints
     }
 
     private static async Task<IResult> GetReport(string? buscar, DateOnly? desde, DateOnly? hasta,
-        string? estadoFinanciero, int page, int pageSize,
-        AppDbContext db, CancellationToken ct)
+        string? estadoFinanciero, Guid? sucursalId, int page, int pageSize,
+        ClaimsPrincipal user, AppDbContext db, CancellationToken ct)
     {
         if (desde > hasta)
             return Results.ValidationProblem(new Dictionary<string, string[]>
@@ -101,7 +105,7 @@ public static class RentabilidadEndpoints
         pageSize = Math.Clamp(pageSize, 1, 100);
         var umbral = (await db.Configuraciones.AsNoTracking()
             .SingleAsync(x => x.Clave == "UmbralMuyRentable", ct)).ValorDecimal;
-        var ventas = await FilteredQuery(db, buscar, desde, hasta)
+        var ventas = await FilteredQuery(db, user, sucursalId, buscar, desde, hasta)
             .OrderByDescending(x => x.FechaVenta).ThenByDescending(x => x.CreatedAt).ToListAsync(ct);
         var rows = await BuildRows(ventas, umbral, db, ct);
         if (!string.IsNullOrWhiteSpace(estadoFinanciero))
@@ -131,7 +135,7 @@ public static class RentabilidadEndpoints
     }
 
     private static async Task<IResult> ExportAll(string? buscar, DateOnly? desde, DateOnly? hasta,
-        string? estadoFinanciero, AppDbContext db, CancellationToken ct)
+        string? estadoFinanciero, Guid? sucursalId, ClaimsPrincipal user, AppDbContext db, CancellationToken ct)
     {
         if (desde > hasta)
             return Results.ValidationProblem(new Dictionary<string, string[]>
@@ -141,7 +145,7 @@ public static class RentabilidadEndpoints
                 { ["estadoFinanciero"] = ["El estado financiero seleccionado no es válido."] });
         var umbral = (await db.Configuraciones.AsNoTracking()
             .SingleAsync(x => x.Clave == "UmbralMuyRentable", ct)).ValorDecimal;
-        var ventas = await FilteredQuery(db, buscar, desde, hasta).OrderByDescending(x => x.FechaVenta)
+        var ventas = await FilteredQuery(db, user, sucursalId, buscar, desde, hasta).OrderByDescending(x => x.FechaVenta)
             .ThenByDescending(x => x.CreatedAt).ToListAsync(ct);
         var rows = await BuildRows(ventas, umbral, db, ct);
         if (!string.IsNullOrWhiteSpace(estadoFinanciero))

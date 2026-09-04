@@ -10,7 +10,7 @@ namespace Api.Features.Auth;
 
 public record LoginRequest(string Usuario, string Password);
 public record CambiarPasswordRequest(string PasswordActual, string PasswordNueva, string Confirmacion);
-public record UsuarioRequest(string Nombre, string NombreUsuario, string? Password, string Rol, string[] Permisos, bool Activo);
+public record UsuarioRequest(string Nombre, string NombreUsuario, string? Password, string Rol, string[] Permisos, bool Activo, Guid? SucursalId);
 
 public static class AuthEndpoints
 {
@@ -43,7 +43,9 @@ public static class AuthEndpoints
         usuario = user.FindFirstValue("usuario"),
         rol = user.FindFirstValue(ClaimTypes.Role),
         permisos = user.FindAll("permiso").Select(x => x.Value),
-        debeCambiarPassword = user.HasClaim("cambiar_password", "true")
+        debeCambiarPassword = user.HasClaim("cambiar_password", "true"),
+        sucursalId = Guid.TryParse(user.FindFirstValue("sucursal_id"), out var parsedSucursalId) ? parsedSucursalId : (Guid?)null,
+        sucursalNombre = user.FindFirstValue("sucursal_nombre")
     };
 
     private static ClaimsPrincipal BuildPrincipal(Usuario user)
@@ -58,6 +60,12 @@ public static class AuthEndpoints
             new(ClaimTypes.Role, user.Rol),
             new("cambiar_password", user.DebeCambiarPassword ? "true" : "false")
         };
+        if (user.Rol != "Administrador" && user.SucursalId.HasValue)
+        {
+            claims.Add(new Claim("sucursal_id", user.SucursalId.Value.ToString()));
+            if (!string.IsNullOrWhiteSpace(user.Sucursal?.Nombre))
+                claims.Add(new Claim("sucursal_nombre", user.Sucursal.Nombre));
+        }
         claims.AddRange(permisos.Select(x => new Claim("permiso", x)));
         return new ClaimsPrincipal(new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme));
     }
@@ -70,7 +78,8 @@ public static class AuthEndpoints
         IPasswordHasher<Usuario> hasher, HttpContext context, CancellationToken ct)
     {
         var name = request.Usuario.Trim();
-        var user = await db.Usuarios.SingleOrDefaultAsync(x => x.NombreUsuario == name && x.Activo, ct);
+        var user = await db.Usuarios.Include(x => x.Sucursal)
+            .SingleOrDefaultAsync(x => x.NombreUsuario == name && x.Activo, ct);
         if (user is null)
         {
             await Task.Delay(200, ct);
@@ -105,7 +114,7 @@ public static class AuthEndpoints
     {
         if (!Guid.TryParse(current.FindFirstValue(ClaimTypes.NameIdentifier), out var id))
             return Results.Unauthorized();
-        var user = await db.Usuarios.FindAsync([id], ct);
+        var user = await db.Usuarios.Include(x => x.Sucursal).SingleOrDefaultAsync(x => x.Id == id, ct);
         if (user is null || !user.Activo) return Results.Unauthorized();
         if (hasher.VerifyHashedPassword(user, user.PasswordHash, request.PasswordActual) == PasswordVerificationResult.Failed)
             return Results.ValidationProblem(new Dictionary<string, string[]> { ["passwordActual"] = ["La contraseña actual no es correcta."] });
@@ -128,13 +137,24 @@ public static class AuthEndpoints
 
     private static async Task<IResult> List(AppDbContext db, CancellationToken ct)
     {
-        var users = await db.Usuarios.AsNoTracking().OrderBy(x => x.Nombre).ToListAsync(ct);
+        var users = await db.Usuarios.AsNoTracking().Include(x => x.Sucursal).OrderBy(x => x.Nombre).ToListAsync(ct);
         return Results.Ok(users.Select(x => new
         {
             x.Id, x.Nombre, x.NombreUsuario, x.Rol,
             permisos = JsonSerializer.Deserialize<string[]>(x.PermisosJson) ?? [],
-            x.Activo, x.DebeCambiarPassword
+            x.Activo, x.DebeCambiarPassword, x.SucursalId,
+            sucursalNombre = x.Sucursal != null ? x.Sucursal.Nombre : null
         }));
+    }
+
+    private static async Task<Dictionary<string, string[]>?> ValidateSucursal(UsuarioRequest request, AppDbContext db, CancellationToken ct)
+    {
+        if (request.Rol == "Administrador") return null;
+        if (!request.SucursalId.HasValue)
+            return new() { ["sucursalId"] = ["La sucursal es obligatoria para usuarios que no son administradores."] };
+        if (!await db.Sucursales.AnyAsync(x => x.Id == request.SucursalId.Value && x.Activo, ct))
+            return new() { ["sucursalId"] = ["Seleccioná una sucursal activa."] };
+        return null;
     }
 
     private static async Task<IResult> Create(UsuarioRequest request, AppDbContext db,
@@ -146,11 +166,14 @@ public static class AuthEndpoints
             return Results.ValidationProblem(new Dictionary<string, string[]> { ["password"] = ["La contraseña debe tener al menos 8 caracteres."] });
         if (await db.Usuarios.AnyAsync(x => x.NombreUsuario == request.NombreUsuario.Trim(), ct))
             return Results.Conflict(new { message = "El usuario ya existe." });
+        var sucursalErrors = await ValidateSucursal(request, db, ct);
+        if (sucursalErrors is not null) return Results.ValidationProblem(sucursalErrors);
         var user = new Usuario
         {
             Nombre = request.Nombre.Trim(), NombreUsuario = request.NombreUsuario.Trim(),
             Rol = request.Rol, PermisosJson = JsonSerializer.Serialize(request.Permisos),
-            Activo = request.Activo, DebeCambiarPassword = true
+            Activo = request.Activo, DebeCambiarPassword = true,
+            SucursalId = request.Rol == "Administrador" ? null : request.SucursalId
         };
         user.PasswordHash = hasher.HashPassword(user, request.Password);
         db.Add(user);
@@ -165,11 +188,14 @@ public static class AuthEndpoints
         if (user is null) return Results.NotFound();
         if (await db.Usuarios.AnyAsync(x => x.Id != id && x.NombreUsuario == request.NombreUsuario.Trim(), ct))
             return Results.Conflict(new { message = "El usuario ya existe." });
+        var sucursalErrors = await ValidateSucursal(request, db, ct);
+        if (sucursalErrors is not null) return Results.ValidationProblem(sucursalErrors);
         user.Nombre = request.Nombre.Trim();
         user.NombreUsuario = request.NombreUsuario.Trim();
         user.Rol = request.Rol;
         user.PermisosJson = JsonSerializer.Serialize(request.Permisos);
         user.Activo = request.Activo;
+        user.SucursalId = request.Rol == "Administrador" ? null : request.SucursalId;
         if (!string.IsNullOrWhiteSpace(request.Password))
         {
             if (request.Password.Length < 8)
@@ -196,5 +222,5 @@ public static class AuthEndpoints
 public static class Permissions
 {
     public static readonly string[] All =
-        ["dashboard", "ventas", "presupuestos", "entregas", "clientes", "cuotas", "caja", "gastos", "rentabilidad", "administracion", "usuarios"];
+        ["dashboard", "ventas", "presupuestos", "entregas", "clientes", "cuotas", "caja", "stock", "gastos", "rentabilidad", "administracion", "usuarios"];
 }

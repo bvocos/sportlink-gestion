@@ -7,8 +7,40 @@ public enum FormaPago { Cuotas, Contado, Transferencia, Cheque, Otros }
 public enum EstadoVenta { Confirmada, Futura, Entregada, Cancelada }
 public enum EstadoCuota { Pendiente, Pagada, PagadaParcial, Vencida }
 public enum TipoMovimiento { Ingreso, Retiro }
+public enum TipoMovimientoStock { Ingreso, Ajuste, SalidaPorVenta }
 public enum EstadoPresupuesto { Borrador, Enviado, Aceptado, Rechazado, Vencido }
-public sealed class Usuario : AuditableEntity { public string Nombre { get; set; }=""; public string NombreUsuario { get; set; }=""; public string PasswordHash { get; set; }=""; public string Rol { get; set; }="Usuario"; public string PermisosJson { get; set; }="[]"; public bool Activo { get; set; }=true; public bool DebeCambiarPassword { get; set; }=true; public int IntentosFallidos { get; set; } public DateTimeOffset? BloqueadoHasta { get; set; } }
+public sealed class Deposito : AuditableEntity
+{
+    public string Nombre { get; set; } = "";
+    public bool Activo { get; set; } = true;
+    public List<Sucursal> Sucursales { get; set; } = [];
+    public List<MovimientoStock> MovimientosStock { get; set; } = [];
+}
+
+public sealed class Sucursal : AuditableEntity
+{
+    public string Nombre { get; set; } = "";
+    public Guid DepositoPropioId { get; set; }
+    public Deposito DepositoPropio { get; set; } = null!;
+    public int? PuntoVentaAfip { get; set; }
+    public bool Activo { get; set; } = true;
+    public List<Usuario> Usuarios { get; set; } = [];
+}
+
+public sealed class Usuario : AuditableEntity
+{
+    public string Nombre { get; set; } = "";
+    public string NombreUsuario { get; set; } = "";
+    public string PasswordHash { get; set; } = "";
+    public string Rol { get; set; } = "Usuario";
+    public string PermisosJson { get; set; } = "[]";
+    public bool Activo { get; set; } = true;
+    public bool DebeCambiarPassword { get; set; } = true;
+    public int IntentosFallidos { get; set; }
+    public DateTimeOffset? BloqueadoHasta { get; set; }
+    public Guid? SucursalId { get; set; }
+    public Sucursal? Sucursal { get; set; }
+}
 public sealed class RegistroAuditoria
 {
     public long Id { get; set; }
@@ -33,8 +65,10 @@ public sealed class Cliente : AuditableEntity
 public sealed class TipoCesped : AuditableEntity { public string Nombre { get; set; } = ""; public string? Descripcion { get; set; } public string? DescripcionPresupuesto { get; set; } public string? EspecificacionesPresupuesto { get; set; } public string? FichaTecnicaUrl { get; set; } public decimal PrecioVentaM2 { get; set; } public decimal PrecioContadoM2 { get; set; } public decimal PrecioFinanciadoM2 { get; set; } public decimal CostoM2 { get; set; } public string ColoresJson { get; set; } = "[]"; public bool Activo { get; set; } = true; }
 public sealed class AlicuotaIva : AuditableEntity { public string Nombre { get; set; } = ""; public decimal Porcentaje { get; set; } }
 public sealed class Configuracion : AuditableEntity { public string Clave { get; set; } = ""; public decimal ValorDecimal { get; set; } }
-public sealed class Venta : AuditableEntity
+public sealed class Venta : AuditableEntity, ISucursalScoped
 {
+    public Guid SucursalId { get; set; } public Sucursal Sucursal { get; set; } = null!;
+    public Guid DepositoId { get; set; } public Deposito Deposito { get; set; } = null!;
     public Guid ClienteId { get; set; } public Cliente Cliente { get; set; } = null!;
     public Guid TipoCespedId { get; set; } public TipoCesped TipoCesped { get; set; } = null!;
     public Guid AlicuotaIvaId { get; set; } public AlicuotaIva AlicuotaIva { get; set; } = null!;
@@ -49,15 +83,17 @@ public sealed class Venta : AuditableEntity
     public FormaPago FormaPago { get; set; } public int? CantidadCuotas { get; set; } public EstadoVenta Estado { get; set; }
     public string? Observaciones { get; set; } public List<Cuota> Cuotas { get; set; } = [];
 }
-public sealed class Cuota : AuditableEntity
+public sealed class Cuota : AuditableEntity, ISucursalScoped
 {
+    public Guid SucursalId { get; set; } public Sucursal Sucursal { get; set; } = null!;
     public Guid VentaId { get; set; } public Venta Venta { get; set; } = null!; public Guid ClienteId { get; set; }
     public int Numero { get; set; } public DateOnly FechaVencimiento { get; set; } public DateOnly? FechaPago { get; set; }
     public decimal ImportePactado { get; set; } public decimal ImportePagado { get; set; } public string? MedioPago { get; set; }
     public EstadoCuota Estado { get; set; }
 }
-public sealed class MovimientoCaja : AuditableEntity
+public sealed class MovimientoCaja : AuditableEntity, ISucursalScoped
 {
+    public Guid SucursalId { get; set; } public Sucursal Sucursal { get; set; } = null!;
     public TipoMovimiento Tipo { get; set; } public DateTimeOffset Fecha { get; set; } public decimal Monto { get; set; }
     public string Concepto { get; set; } = ""; public string Usuario { get; set; } = "sistema"; public Guid? VentaId { get; set; } public Guid? CuotaId { get; set; }
 }
@@ -65,6 +101,18 @@ public sealed class Gasto : AuditableEntity
 {
     public DateOnly Fecha { get; set; } public string Categoria { get; set; } = ""; public string Descripcion { get; set; } = "";
     public decimal Importe { get; set; } public string? Observaciones { get; set; }
+}
+public sealed class MovimientoStock : AuditableEntity
+{
+    public Guid DepositoId { get; set; }
+    public Deposito Deposito { get; set; } = null!;
+    public TipoMovimientoStock Tipo { get; set; }
+    public decimal CantidadM2 { get; set; }
+    public DateTime Fecha { get; set; }
+    public string Usuario { get; set; } = "sistema";
+    public string? Observaciones { get; set; }
+    public Guid? VentaId { get; set; }
+    public Venta? Venta { get; set; }
 }
 public sealed class Presupuesto : AuditableEntity
 {

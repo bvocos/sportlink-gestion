@@ -3,6 +3,8 @@ using Api.Shared.Database;
 using FluentValidation;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using System.Data;
+using System.Security.Claims;
 using System.Text.Json;
 
 namespace Api.Features.Ventas;
@@ -14,9 +16,9 @@ public record RegistrarVentaCommand(Guid ClienteId, DateOnly FechaVenta, Guid Ti
     decimal PrecioUnitario, decimal PrecioTotal, decimal MontoEntrega, FormaPago FormaPago, int? CantidadCuotas, EstadoVenta Estado,
     DateOnly? FechaEntregaEstimada, string? Observaciones, decimal CostoCompraUnitario,
     decimal CostoEnvio, decimal OtrosCostos, Guid AlicuotaIvaId, string? Color = null,
-    List<VentaLineaCommand>? Lineas = null) : IRequest<VentaDto>;
+    List<VentaLineaCommand>? Lineas = null, Guid? SucursalId = null, Guid DepositoId = default) : IRequest<VentaDto>;
 
-public record VentaDto(Guid Id, Guid ClienteId, string Cliente, Guid TipoCespedId, string TipoCesped,
+public record VentaDto(Guid Id, Guid SucursalId, Guid DepositoId, Guid ClienteId, string Cliente, Guid TipoCespedId, string TipoCesped,
     Guid AlicuotaIvaId, DateOnly FechaVenta, decimal CantidadM2, decimal PrecioUnitario, decimal PrecioTotal, decimal MontoEntrega,
     decimal CostoCompraUnitario, decimal CostoEnvio, decimal OtrosCostos, FormaPago FormaPago,
     int? CantidadCuotas, EstadoVenta Estado, decimal GananciaNeta, decimal Margen,
@@ -29,6 +31,7 @@ public sealed class RegistrarVentaValidator : AbstractValidator<RegistrarVentaCo
         RuleFor(x => x.ClienteId).NotEmpty();
         RuleFor(x => x.TipoCespedId).NotEmpty();
         RuleFor(x => x.AlicuotaIvaId).NotEmpty();
+        RuleFor(x => x.DepositoId).NotEmpty().WithMessage("Seleccioná el depósito del que sale el stock.");
         RuleFor(x => x.CantidadM2).GreaterThan(0);
         RuleFor(x => x.PrecioUnitario).GreaterThan(0);
         RuleFor(x => x.PrecioTotal).GreaterThan(0)
@@ -56,19 +59,41 @@ public sealed class RegistrarVentaValidator : AbstractValidator<RegistrarVentaCo
     }
 }
 
-public sealed class RegistrarVentaHandler(AppDbContext db) : IRequestHandler<RegistrarVentaCommand, VentaDto>
+internal sealed class StockInsuficienteException(decimal faltante) : Exception
+{
+    public decimal Faltante { get; } = faltante;
+}
+
+internal sealed class VentaScopeException(string message) : Exception(message);
+
+public sealed class RegistrarVentaHandler(AppDbContext db, IHttpContextAccessor httpContextAccessor) : IRequestHandler<RegistrarVentaCommand, VentaDto>
 {
     public async Task<VentaDto> Handle(RegistrarVentaCommand request, CancellationToken ct)
     {
+        var currentUser = httpContextAccessor.HttpContext?.User ?? new ClaimsPrincipal();
+        var sucursalId = currentUser.IsInRole("Administrador") ? request.SucursalId : currentUser.SucursalId();
+        if (!sucursalId.HasValue)
+            throw new VentaScopeException("Seleccioná la sucursal a la que pertenece la venta.");
+        if (!await db.Sucursales.AnyAsync(x => x.Id == sucursalId.Value && x.Activo, ct))
+            throw new VentaScopeException("La sucursal seleccionada no existe o está inactiva.");
+        if (!await db.Depositos.AnyAsync(x => x.Id == request.DepositoId && x.Activo, ct))
+            throw new VentaScopeException("El depósito seleccionado no existe o está inactivo.");
+        request = request with { SucursalId = sucursalId };
         request = await VentaService.NormalizeLines(db, request, ct);
         var (cliente, tipo, alicuota) = await VentaService.GetReferences(db, request, ct);
         request = VentaService.NormalizeColor(request, tipo);
         var venta = new Venta();
         VentaService.Apply(venta, request, alicuota.Porcentaje);
 
-        await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
+        var stock = await VentaService.StockActual(db, request.DepositoId, ct);
+        var faltante = VentaService.StockShortage(stock, request.CantidadM2);
+        if (faltante > 0)
+            throw new StockInsuficienteException(faltante);
         db.Ventas.Add(venta);
         VentaService.CreateInstallments(venta, request);
+        db.MovimientosStock.Add(VentaService.CreateStockMovement(venta,
+            currentUser.Identity?.Name ?? currentUser.FindFirstValue("usuario") ?? "sistema"));
         await db.SaveChangesAsync(ct); // La venta debe existir antes de referenciarla desde Caja.
 
         if (request.MontoEntrega > 0)
@@ -84,6 +109,12 @@ public sealed class RegistrarVentaHandler(AppDbContext db) : IRequestHandler<Reg
 
 internal static class VentaService
 {
+    public static Task<decimal> StockActual(AppDbContext db, Guid depositoId, CancellationToken ct) =>
+        db.MovimientosStock.Where(x => x.DepositoId == depositoId)
+            .SumAsync(x => x.Tipo == TipoMovimientoStock.SalidaPorVenta ? -x.CantidadM2 : x.CantidadM2, ct);
+
+    internal static decimal StockShortage(decimal stockActual, decimal cantidadSolicitada) =>
+        Math.Max(cantidadSolicitada - stockActual, 0);
     public static async Task<RegistrarVentaCommand> NormalizeLines(AppDbContext db,
         RegistrarVentaCommand request, CancellationToken ct)
     {
@@ -138,6 +169,8 @@ internal static class VentaService
         var iva = FinancialCalculator.CalculateIva(costoOperativo, porcentajeIva);
         var gananciaBruta = total - costoOperativo;
         venta.ClienteId = r.ClienteId; venta.TipoCespedId = r.TipoCespedId; venta.AlicuotaIvaId = r.AlicuotaIvaId; venta.Color = r.Color;
+        venta.SucursalId = r.SucursalId ?? venta.SucursalId;
+        venta.DepositoId = r.DepositoId == Guid.Empty ? venta.DepositoId : r.DepositoId;
         venta.FechaVenta = r.FechaVenta; venta.CantidadM2 = r.CantidadM2; venta.PrecioUnitario = r.PrecioUnitario;
         venta.PrecioTotal = total; venta.MontoEntrega = r.MontoEntrega; venta.CostoCompraUnitario = r.CostoCompraUnitario; venta.CostoCompraTotal = costoCompra;
         venta.CostoEnvio = r.CostoEnvio; venta.OtrosCostos = r.OtrosCostos; venta.Iva = iva;
@@ -156,7 +189,7 @@ internal static class VentaService
         var saldoFinanciado = venta.PrecioTotal - venta.MontoEntrega;
         var amount = Math.Round(saldoFinanciado / count, 2);
         for (var i = 1; i <= count; i++)
-            venta.Cuotas.Add(new Cuota { VentaId = venta.Id, ClienteId = r.ClienteId, Numero = i,
+            venta.Cuotas.Add(new Cuota { VentaId = venta.Id, ClienteId = r.ClienteId, SucursalId = venta.SucursalId, Numero = i,
                 FechaVencimiento = r.FechaVenta.AddMonths(i),
                 ImportePactado = i == count ? saldoFinanciado - amount * (count - 1) : amount,
                 Estado = EstadoCuota.Pendiente });
@@ -165,10 +198,17 @@ internal static class VentaService
     public static MovimientoCaja CreateCashMovement(Venta venta) => new()
     {
         Tipo = TipoMovimiento.Ingreso, Fecha = DateTimeOffset.UtcNow, Monto = venta.MontoEntrega,
-        Concepto = $"Entrega inicial venta {venta.Id}", VentaId = venta.Id
+        Concepto = $"Entrega inicial venta {venta.Id}", VentaId = venta.Id, SucursalId = venta.SucursalId
     };
 
-    public static VentaDto ToDto(Venta v, Cliente c, TipoCesped t) => new(v.Id, v.ClienteId,
+    public static MovimientoStock CreateStockMovement(Venta venta, string usuario) => new()
+    {
+        DepositoId = venta.DepositoId, Tipo = TipoMovimientoStock.SalidaPorVenta,
+        CantidadM2 = venta.CantidadM2, Fecha = DateTime.UtcNow, Usuario = usuario,
+        VentaId = venta.Id, Observaciones = $"Salida por venta {venta.Id}"
+    };
+
+    public static VentaDto ToDto(Venta v, Cliente c, TipoCesped t) => new(v.Id, v.SucursalId, v.DepositoId, v.ClienteId,
         $"{c.Nombre} {c.Apellido}", v.TipoCespedId, t.Nombre, v.AlicuotaIvaId, v.FechaVenta,
         v.CantidadM2, v.PrecioUnitario, v.PrecioTotal, v.MontoEntrega, v.CostoCompraUnitario, v.CostoEnvio,
         v.OtrosCostos, v.FormaPago, v.CantidadCuotas, v.Estado, v.GananciaNeta, v.Margen,
@@ -182,23 +222,36 @@ public static class VentaEndpoints
     {
         var group = app.MapGroup("/api/ventas").WithTags("Ventas").RequireAuthorization("ventas");
         group.MapPost("/", async (RegistrarVentaCommand command, ISender sender, CancellationToken ct) =>
-            Results.Created("/api/ventas", await sender.Send(command, ct)));
+        {
+            try { return Results.Created("/api/ventas", await sender.Send(command, ct)); }
+            catch (StockInsuficienteException exception)
+            {
+                return Results.Conflict(new { message = $"Stock insuficiente. Faltan {exception.Faltante:0.##} m²." });
+            }
+            catch (VentaScopeException exception)
+            {
+                return Results.ValidationProblem(new Dictionary<string, string[]> { ["sucursal"] = [exception.Message] });
+            }
+        });
         group.MapGet("/", List);
         group.MapGet("/{id:guid}", GetById);
         group.MapGet("/filtros", Filters);
         group.MapPut("/{id:guid}", Update);
         group.MapDelete("/{id:guid}", Delete);
-        group.MapPost("/{id:guid}/entregar", (Guid id, AppDbContext db, CancellationToken ct) => ChangeStatus(id, EstadoVenta.Entregada, db, ct));
+        group.MapPost("/{id:guid}/entregar", (Guid id, ClaimsPrincipal user, AppDbContext db, CancellationToken ct) => ChangeStatus(id, EstadoVenta.Entregada, user, db, ct));
         group.MapPost("/{id:guid}/confirmar", ResetDelivery);
-        group.MapPost("/{id:guid}/cancelar", (Guid id, AppDbContext db, CancellationToken ct) => ChangeStatus(id, EstadoVenta.Cancelada, db, ct));
+        group.MapPost("/{id:guid}/cancelar", (Guid id, ClaimsPrincipal user, AppDbContext db, CancellationToken ct) => ChangeStatus(id, EstadoVenta.Cancelada, user, db, ct));
         app.MapGet("/api/ventas/proximas-entregas", UpcomingDeliveries).WithTags("Ventas").RequireAuthorization("entregas");
     }
 
-    private static async Task<PaginatedResponse<VentaDto>> List(AppDbContext db, int page = 1, int pageSize = 20,
+    internal static IQueryable<Venta> VisibleQuery(IQueryable<Venta> query, ClaimsPrincipal user,
+        Guid? sucursalId = null) => query.WhereVisibleParaUsuario(user, sucursalId);
+
+    private static async Task<PaginatedResponse<VentaDto>> List(ClaimsPrincipal user, AppDbContext db, int page = 1, int pageSize = 20,
         string? estado = null, DateOnly? desde = null, DateOnly? hasta = null,
-        Guid? clienteId = null, Guid? tipoCespedId = null, CancellationToken ct = default)
+        Guid? clienteId = null, Guid? tipoCespedId = null, Guid? sucursalId = null, CancellationToken ct = default)
     {
-        var query = db.Ventas.AsNoTracking().Include(x => x.Cliente).Include(x => x.TipoCesped).AsQueryable();
+        var query = VisibleQuery(db.Ventas.AsNoTracking().Include(x => x.Cliente).Include(x => x.TipoCesped), user, sucursalId);
         if (Enum.TryParse<EstadoVenta>(estado, true, out var parsed)) query = query.Where(x => x.Estado == parsed);
         if (desde.HasValue) query = query.Where(x => x.FechaVenta >= desde.Value);
         if (hasta.HasValue) query = query.Where(x => x.FechaVenta <= hasta.Value);
@@ -215,9 +268,9 @@ public static class VentaEndpoints
             (int)Math.Ceiling(total / (double)pageSize));
     }
 
-    private static async Task<IResult> GetById(Guid id, AppDbContext db, CancellationToken ct)
+    private static async Task<IResult> GetById(Guid id, ClaimsPrincipal user, AppDbContext db, CancellationToken ct)
     {
-        var venta = await db.Ventas.AsNoTracking().Include(x => x.Cliente).Include(x => x.TipoCesped)
+        var venta = await VisibleQuery(db.Ventas.AsNoTracking().Include(x => x.Cliente).Include(x => x.TipoCesped), user)
             .SingleOrDefaultAsync(x => x.Id == id, ct);
         return venta is null ? Results.NotFound() : Results.Ok(VentaService.ToDto(venta, venta.Cliente, venta.TipoCesped));
     }
@@ -234,15 +287,26 @@ public static class VentaEndpoints
                 x.Localidad
             }).ToListAsync(ct),
         tiposCesped = await db.TiposCesped.AsNoTracking().OrderBy(x => x.Nombre)
-            .Select(x => new { x.Id, x.Nombre, x.Activo }).ToListAsync(ct)
+            .Select(x => new { x.Id, x.Nombre, x.Activo }).ToListAsync(ct),
+        sucursales = await db.Sucursales.AsNoTracking().Where(x => x.Activo).OrderBy(x => x.Nombre)
+            .Select(x => new { x.Id, x.Nombre }).ToListAsync(ct),
+        depositos = await db.Depositos.AsNoTracking().Where(x => x.Activo).OrderBy(x => x.Nombre)
+            .Select(x => new
+            {
+                x.Id, x.Nombre,
+                stockActual = x.MovimientosStock.Sum(m => m.Tipo == TipoMovimientoStock.SalidaPorVenta ? -m.CantidadM2 : m.CantidadM2)
+            }).ToListAsync(ct)
     };
 
-    private static async Task<IResult> Update(Guid id, RegistrarVentaCommand request, AppDbContext db,
+    private static async Task<IResult> Update(Guid id, RegistrarVentaCommand request, ClaimsPrincipal user, AppDbContext db,
         IValidator<RegistrarVentaCommand> validator, ILoggerFactory loggerFactory, CancellationToken ct)
     {
         var logger = loggerFactory.CreateLogger("Api.Features.Ventas.Update");
-        var venta = await db.Ventas.SingleOrDefaultAsync(x => x.Id == id, ct);
+        var venta = await VisibleQuery(db.Ventas, user).SingleOrDefaultAsync(x => x.Id == id, ct);
         if (venta is null) return Results.NotFound();
+
+        // La sucursal y el depósito no se cambian al editar: mover stock requiere un circuito específico.
+        request = request with { SucursalId = venta.SucursalId, DepositoId = venta.DepositoId };
 
         try { request = await VentaService.NormalizeLines(db, request, ct); }
         catch (KeyNotFoundException exception)
@@ -264,6 +328,17 @@ public static class VentaEndpoints
         {
             await using var transaction = await db.Database.BeginTransactionAsync(ct);
 
+            var hasStockMovement = await db.MovimientosStock.AnyAsync(x => x.VentaId == id &&
+                x.Tipo == TipoMovimientoStock.SalidaPorVenta, ct);
+            var additionalStockRequired = request.CantidadM2 - venta.CantidadM2;
+            if (hasStockMovement && additionalStockRequired > 0)
+            {
+                var availableStock = await VentaService.StockActual(db, venta.DepositoId, ct);
+                var shortage = VentaService.StockShortage(availableStock, additionalStockRequired);
+                if (shortage > 0)
+                    return Results.Conflict(new { message = $"Stock insuficiente. Faltan {shortage:0.##} m²." });
+            }
+
             // ExecuteDelete evita conflictos entre cuotas eliminadas y las nuevas con el mismo número.
             await db.MovimientosCaja.Where(x => x.VentaId == id).ExecuteDeleteAsync(ct);
             await db.Cuotas.Where(x => x.VentaId == id).ExecuteDeleteAsync(ct);
@@ -272,7 +347,7 @@ public static class VentaEndpoints
             var updated = new Venta { Id = id };
             VentaService.Apply(updated, request, alicuota.Porcentaje);
 
-            var affected = await db.Ventas.Where(x => x.Id == id).ExecuteUpdateAsync(setters => setters
+            var affected = await VisibleQuery(db.Ventas.Where(x => x.Id == id), user).ExecuteUpdateAsync(setters => setters
                 .SetProperty(x => x.ClienteId, updated.ClienteId)
                 .SetProperty(x => x.TipoCespedId, updated.TipoCespedId)
                 .SetProperty(x => x.AlicuotaIvaId, updated.AlicuotaIvaId)
@@ -310,6 +385,11 @@ public static class VentaEndpoints
 
             if (request.MontoEntrega > 0)
                 db.MovimientosCaja.Add(VentaService.CreateCashMovement(updated));
+
+            if (hasStockMovement)
+                await db.MovimientosStock.Where(x => x.VentaId == id && x.Tipo == TipoMovimientoStock.SalidaPorVenta)
+                    .ExecuteUpdateAsync(setters => setters.SetProperty(x => x.CantidadM2, updated.CantidadM2)
+                        .SetProperty(x => x.UpdatedAt, DateTimeOffset.UtcNow), ct);
 
             await db.SaveChangesAsync(ct);
 
@@ -383,28 +463,29 @@ public static class VentaEndpoints
         return Results.Ok(VentaService.ToDto(venta, client, product));
     }
 
-    private static async Task<IResult> Delete(Guid id, AppDbContext db, CancellationToken ct)
+    private static async Task<IResult> Delete(Guid id, ClaimsPrincipal user, AppDbContext db, CancellationToken ct)
     {
-        if (!await db.Ventas.AnyAsync(x => x.Id == id, ct)) return Results.NotFound();
+        if (!await VisibleQuery(db.Ventas, user).AnyAsync(x => x.Id == id, ct)) return Results.NotFound();
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        await db.MovimientosStock.Where(x => x.VentaId == id && x.Tipo == TipoMovimientoStock.SalidaPorVenta).ExecuteDeleteAsync(ct);
         await db.MovimientosCaja.Where(x => x.VentaId == id).ExecuteDeleteAsync(ct);
         await db.Cuotas.Where(x => x.VentaId == id).ExecuteDeleteAsync(ct);
-        await db.Ventas.Where(x => x.Id == id).ExecuteDeleteAsync(ct);
+        await VisibleQuery(db.Ventas.Where(x => x.Id == id), user).ExecuteDeleteAsync(ct);
         await transaction.CommitAsync(ct);
         return Results.NoContent();
     }
 
-    private static async Task<IResult> ChangeStatus(Guid id, EstadoVenta status, AppDbContext db, CancellationToken ct)
+    private static async Task<IResult> ChangeStatus(Guid id, EstadoVenta status, ClaimsPrincipal user, AppDbContext db, CancellationToken ct)
     {
-        var venta = await db.Ventas.FindAsync([id], ct);
+        var venta = await VisibleQuery(db.Ventas, user).SingleOrDefaultAsync(x => x.Id == id, ct);
         if (venta is null) return Results.NotFound();
         if (venta.Estado == EstadoVenta.Entregada) return Results.Conflict(new { message = "Una venta entregada no puede modificarse." });
         venta.Estado = status; await db.SaveChangesAsync(ct); return Results.NoContent();
     }
 
-    private static async Task<IResult> ResetDelivery(Guid id, AppDbContext db, CancellationToken ct)
+    private static async Task<IResult> ResetDelivery(Guid id, ClaimsPrincipal user, AppDbContext db, CancellationToken ct)
     {
-        var venta = await db.Ventas.FindAsync([id], ct);
+        var venta = await VisibleQuery(db.Ventas, user).SingleOrDefaultAsync(x => x.Id == id, ct);
         if (venta is null) return Results.NotFound();
         if (venta.Estado != EstadoVenta.Entregada)
             return Results.Conflict(new { message = "Sólo se puede revertir una venta entregada." });
@@ -413,9 +494,9 @@ public static class VentaEndpoints
         return Results.NoContent();
     }
 
-    private static async Task<IResult> UpcomingDeliveries(AppDbContext db, CancellationToken ct)
+    private static async Task<IResult> UpcomingDeliveries(ClaimsPrincipal user, AppDbContext db, CancellationToken ct)
     {
-        var rows = await db.Ventas.AsNoTracking().Include(x => x.Cliente).Include(x => x.TipoCesped)
+        var rows = await VisibleQuery(db.Ventas.AsNoTracking().Include(x => x.Cliente).Include(x => x.TipoCesped), user)
             .Where(x => x.Estado == EstadoVenta.Futura && x.FechaEntregaEstimada != null)
             .OrderBy(x => x.FechaEntregaEstimada).ThenBy(x => x.Cliente.Apellido)
             .Select(x => new { x.Id, Cliente = x.Cliente.Nombre + " " + x.Cliente.Apellido,

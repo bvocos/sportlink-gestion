@@ -4,6 +4,8 @@ import { http, apiErrorMessage } from "@/shared/api/httpClient";
 import { formatCurrency as money } from "@/shared/formatters";
 import { downloadCsv } from "@/shared/csv";
 import { confirmAction, notify } from "@/shared/uiFeedback";
+import { auth } from "@/auth";
+import SucursalFilter from "@/shared/components/SucursalFilter.vue";
 const pendientes = ref<any[]>([]),
   abonadas = ref<any[]>([]),
   tab = ref<"pendientes" | "abonadas">("pendientes"),
@@ -16,6 +18,8 @@ const pendientes = ref<any[]>([]),
   totalPendiente = ref(0),
   cantidadPendiente = ref(0),
   resumenLoading = ref(false);
+const sucursalFiltro = ref("");
+const isAdmin = computed(() => auth.state.user?.rol === "Administrador");
 let resumenTimer: ReturnType<typeof setTimeout> | undefined;
 let resumenRequest = 0;
 const payment = ref({
@@ -44,8 +48,8 @@ const visible = computed(() => {
 });
 async function load() {
   const [p, a] = await Promise.all([
-    http.get("/cuotas/pendientes"),
-    http.get("/cuotas/abonadas"),
+    http.get("/cuotas/pendientes", { params: { sucursalId: sucursalFiltro.value || undefined } }),
+    http.get("/cuotas/abonadas", { params: { sucursalId: sucursalFiltro.value || undefined } }),
   ]);
   pendientes.value = p.data;
   abonadas.value = a.data;
@@ -55,7 +59,7 @@ async function loadPendingSummary() {
   const request = ++resumenRequest;
   resumenLoading.value = true;
   try {
-    const r = await http.get("/cuotas/pendientes/resumen", { params: { buscar: clienteFiltro.value.trim() || undefined } });
+    const r = await http.get("/cuotas/pendientes/resumen", { params: { buscar: clienteFiltro.value.trim() || undefined, sucursalId: sucursalFiltro.value || undefined } });
     if (request === resumenRequest) {
       totalPendiente.value = Number(r.data.totalPendiente ?? 0);
       cantidadPendiente.value = Number(r.data.cantidad ?? 0);
@@ -198,12 +202,10 @@ onBeforeUnmount(() => { if (resumenTimer) clearTimeout(resumenTimer); });
       </button>
     </div>
     <div class="card cuotas-filter">
-      <label>Buscar cliente</label
-      ><input
-        v-model="clienteFiltro"
-        type="search"
-        placeholder="Nombre o apellido"
-      /><small>{{ visible.length }} cuotas</small>
+      <SucursalFilter v-if="isAdmin" v-model="sucursalFiltro" @change="load" />
+      <div class="field"><label>Buscar cliente</label
+        ><input v-model="clienteFiltro" type="search" placeholder="Nombre o apellido" />
+      </div><small>{{ visible.length }} cuotas</small>
     </div>
     <article v-if="tab === 'pendientes'" class="card cuotas-pending-total">
       <div><small>{{ clienteFiltro.trim() ? "Pendiente del cliente buscado" : "Pendiente total por cobrar" }}</small><strong>{{ resumenLoading ? "Calculando…" : money(totalPendiente) }}</strong></div>

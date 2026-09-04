@@ -8,6 +8,8 @@ export interface Session {
   rol: string
   permisos: string[]
   debeCambiarPassword: boolean
+  sucursalId: string | null
+  sucursalNombre: string | null
 }
 
 const state = reactive<{ user: Session | null; checked: boolean }>({ user: null, checked: false })

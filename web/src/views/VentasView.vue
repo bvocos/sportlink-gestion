@@ -5,6 +5,8 @@ import { http } from "@/shared/api/httpClient";
 import ClienteAutocomplete from "@/shared/components/ClienteAutocomplete.vue";
 import { formatCurrency as money } from "@/shared/formatters";
 import { confirmAction, notify } from "@/shared/uiFeedback";
+import { auth } from "@/auth";
+import SucursalFilter from "@/shared/components/SucursalFilter.vue";
 const items = ref<any[]>([]),
   clientes = ref<any[]>([]),
   maestros = ref<any>({ tiposCesped: [], alicuotasIva: [] }),
@@ -16,7 +18,8 @@ const items = ref<any[]>([]),
   loading = ref(false),
   loadError = ref("");
 const dateKey = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-const filters = reactive({ periodo: "all", desde: "", hasta: "", clienteId: "", tipoCespedId: "" });
+const filters = reactive({ periodo: "all", desde: "", hasta: "", clienteId: "", tipoCespedId: "", sucursalId: "" });
+const isAdmin = computed(() => auth.state.user?.rol === "Administrador");
 const blank = () => ({
   clienteId: "",
   fechaVenta: new Date().toISOString().slice(0, 10),
@@ -79,13 +82,13 @@ function applyPeriod() {
 }
 function customDates() { filters.periodo = "custom"; }
 function resetFilters() {
-  filters.periodo = "all"; filters.desde = ""; filters.hasta = ""; filters.clienteId = ""; filters.tipoCespedId = "";
+  filters.periodo = "all"; filters.desde = ""; filters.hasta = ""; filters.clienteId = ""; filters.tipoCespedId = ""; filters.sucursalId = "";
   loadSales();
 }
 async function loadSales() {
   loading.value = true; loadError.value = "";
   try {
-    const response = await http.get("/ventas", { params: { pageSize: 100, desde: filters.desde || undefined, hasta: filters.hasta || undefined, clienteId: filters.clienteId || undefined, tipoCespedId: filters.tipoCespedId || undefined } });
+    const response = await http.get("/ventas", { params: { pageSize: 100, desde: filters.desde || undefined, hasta: filters.hasta || undefined, clienteId: filters.clienteId || undefined, tipoCespedId: filters.tipoCespedId || undefined, sucursalId: filters.sucursalId || undefined } });
     items.value = response.data.items;
     total.value = response.data.total;
   } catch { loadError.value = "No se pudieron cargar las ventas."; }
@@ -180,6 +183,7 @@ onMounted(load);
       <div class="field"><label>Hasta</label><input v-model="filters.hasta" type="date" @change="customDates"></div>
       <div class="field"><label>Cliente</label><select v-model="filters.clienteId"><option value="">Todos los clientes</option><option v-for="client in clientes" :key="client.id" :value="client.id">{{ client.nombreCompleto || client.nombre }}</option></select></div>
       <div class="field"><label>Tipo de césped</label><select v-model="filters.tipoCespedId"><option value="">Todos los tipos</option><option v-for="type in maestros.tiposCespedFiltro || []" :key="type.id" :value="type.id">{{ type.nombre }}{{ type.activo === false ? " (inactivo)" : "" }}</option></select></div>
+      <SucursalFilter v-if="isAdmin" v-model="filters.sucursalId" />
       <div class="filter-actions"><button class="btn" :disabled="loading">{{ loading ? "Buscando…" : "Aplicar filtros" }}</button><button type="button" class="btn secondary" @click="resetFilters">Restablecer</button></div>
     </form>
     <div v-if="loadError" class="error load-state">{{ loadError }} <button class="btn secondary compact" @click="loadSales">Reintentar</button></div>

@@ -4,6 +4,7 @@ import { http } from '@/shared/api/httpClient'
 import { formatCurrency as money, pluralize } from '@/shared/formatters'
 import { auth } from '@/auth'
 import MiniSparkline from '@/shared/components/MiniSparkline.vue'
+import SucursalFilter from '@/shared/components/SucursalFilter.vue'
 
 type Summary = { cantidad: number; facturacion: number }
 type SeriesPoint = { fecha: string; facturacion: number; finalizadas: number; enCurso: number; gananciaNeta: number }
@@ -25,10 +26,12 @@ const emptyData = (): DashboardData => ({
 })
 const data = ref<DashboardData>(emptyData())
 const loading = ref(false), loadError = ref('')
+const sucursalId = ref('')
+const isAdmin = computed(() => auth.state.user?.rol === 'Administrador')
 async function load() {
   loading.value = true; loadError.value = ''
   try {
-    const response = await http.get('/dashboard')
+    const response = await http.get('/dashboard', { params: { sucursalId: sucursalId.value || undefined } })
     data.value = response.data
   } catch (error: any) {
     loadError.value = error?.response?.data?.errors?.fechas?.[0] || 'No se pudo cargar el inicio del sistema.'
@@ -49,6 +52,10 @@ onMounted(load)
         <div><h2>Inicio</h2><p>Hola, {{ auth.state.user?.nombre || 'bienvenido' }}. Este es el avance del mes en curso.</p></div>
         <RouterLink v-if="auth.can('ventas')" class="btn" to="/ventas/nueva">+ Nueva venta</RouterLink>
       </div>
+    </div>
+
+    <div v-if="isAdmin" class="panel client-filters dashboard-branch-filter">
+      <SucursalFilter v-model="sucursalId" @change="load" />
     </div>
 
     <div v-if="loadError" class="error load-state">{{ loadError }} <button class="btn secondary compact" @click="load">Reintentar</button></div>

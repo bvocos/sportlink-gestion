@@ -4,6 +4,7 @@ import { http, apiErrorMessage } from "@/shared/api/httpClient";
 import { formatCurrency as money } from "@/shared/formatters";
 import { downloadCsv } from "@/shared/csv";
 import { auth } from "@/auth";
+import SucursalFilter from "@/shared/components/SucursalFilter.vue";
 const data = ref<any>({ saldo: 0, movimientos: [] }),
   show = ref(false),
   error = ref(""),
@@ -12,12 +13,14 @@ const data = ref<any>({ saldo: 0, movimientos: [] }),
   editingMovement = ref<any | null>(null),
   observation = ref(""),
   observationError = ref("");
-const form = ref({ tipo: "Ingreso", monto: 0, concepto: "" });
+const form = ref({ tipo: "Ingreso", monto: 0, concepto: "", sucursalId: null as string|null });
+const isAdmin = auth.state.user?.rol === "Administrador";
+const sucursalFiltro = ref("");
 async function load() {
   loading.value = true;
   loadError.value = "";
   try {
-    data.value = (await http.get("/caja")).data;
+    data.value = (await http.get("/caja", { params: { sucursalId: sucursalFiltro.value || undefined } })).data;
   } catch (e: any) {
     loadError.value = apiErrorMessage(e, "No se pudo cargar la caja.");
   } finally {
@@ -25,7 +28,7 @@ async function load() {
   }
 }
 function openForm(tipo: "Ingreso" | "Retiro") {
-  form.value = { tipo, monto: 0, concepto: "" };
+  form.value = { tipo, monto: 0, concepto: "", sucursalId: isAdmin ? (sucursalFiltro.value || data.value.sucursales?.[0]?.id || null) : auth.state.user?.sucursalId??null };
   error.value = "";
   show.value = true;
 }
@@ -102,6 +105,9 @@ onMounted(load);
       {{ loadError }}
       <button class="btn secondary compact" @click="load">Reintentar</button>
     </div>
+    <div v-if="isAdmin" class="panel client-filters">
+      <SucursalFilter v-model="sucursalFiltro" @change="load" />
+    </div>
     <template v-else
       ><div class="grid">
         <article class="card metric">
@@ -161,6 +167,12 @@ onMounted(load);
           >.
         </p>
         <p v-if="error" class="error">{{ error }}</p>
+        <div v-if="isAdmin" class="field">
+          <label>Sucursal</label><select v-model="form.sucursalId" required>
+            <option :value="null" disabled>Seleccionar sucursal</option>
+            <option v-for="s in data.sucursales" :key="s.id" :value="s.id">{{ s.nombre }}</option>
+          </select>
+        </div>
         <div class="field">
           <label>Monto</label
           ><input

@@ -1,11 +1,16 @@
 using Api.Shared.Database;
 using Api.Features.Rentabilidad;
 using Microsoft.EntityFrameworkCore;
+using Api.Shared.Common;
+using System.Security.Claims;
 
 namespace Api.Features.Dashboard;
 
 public static class DashboardEndpoints
 {
+    internal static IQueryable<Venta> VisibleQuery(IQueryable<Venta> query, ClaimsPrincipal user,
+        Guid? sucursalId = null) => query.WhereVisibleParaUsuario(user, sucursalId);
+
     public static void MapDashboardEndpoints(this IEndpointRouteBuilder app) =>
         app.MapGet("/api/dashboard", Get).WithTags("Dashboard").RequireAuthorization("dashboard");
 
@@ -16,6 +21,8 @@ public static class DashboardEndpoints
         Guid? clienteId,
         Guid? tipoCespedId,
         string? estadoFinanciero,
+        Guid? sucursalId,
+        ClaimsPrincipal user,
         CancellationToken ct)
     {
         var today = DateOnly.FromDateTime(DateTime.Today);
@@ -32,7 +39,7 @@ public static class DashboardEndpoints
             return Results.ValidationProblem(new Dictionary<string, string[]>
                 { ["estadoFinanciero"] = ["El estado financiero seleccionado no es válido."] });
 
-        var filtered = db.Ventas.AsNoTracking()
+        var filtered = VisibleQuery(db.Ventas.AsNoTracking(), user, sucursalId)
             .Where(x => x.Estado != EstadoVenta.Cancelada && x.FechaVenta >= start && x.FechaVenta <= end);
         if (clienteId.HasValue) filtered = filtered.Where(x => x.ClienteId == clienteId.Value);
         if (tipoCespedId.HasValue)
@@ -94,8 +101,9 @@ public static class DashboardEndpoints
                 x.Estado
             }).ToListAsync(ct);
 
-        var saldo = await db.MovimientosCaja.SumAsync(x => x.Tipo == TipoMovimiento.Ingreso ? x.Monto : -x.Monto, ct);
-        var cuotasQuery = db.Cuotas.AsNoTracking()
+        var saldo = await db.MovimientosCaja.WhereVisibleParaUsuario(user, sucursalId)
+            .SumAsync(x => x.Tipo == TipoMovimiento.Ingreso ? x.Monto : -x.Monto, ct);
+        var cuotasQuery = db.Cuotas.AsNoTracking().WhereVisibleParaUsuario(user, sucursalId)
             .Where(x => x.ImportePagado < x.ImportePactado)
             .Where(x => x.Venta.Estado != EstadoVenta.Cancelada && x.Venta.FechaVenta >= start && x.Venta.FechaVenta <= end)
             .Where(x => !clienteId.HasValue || x.Venta.ClienteId == clienteId.Value)
@@ -103,7 +111,7 @@ public static class DashboardEndpoints
         if (financialStateIds is not null)
             cuotasQuery = cuotasQuery.Where(x => financialStateIds.Contains(x.VentaId));
         var cuotasPendientes = await cuotasQuery.CountAsync(ct);
-        var entregasPendientes = await db.Ventas.AsNoTracking()
+        var entregasPendientes = await VisibleQuery(db.Ventas.AsNoTracking(), user, sucursalId)
             .CountAsync(x => x.Estado == EstadoVenta.Futura, ct);
 
         var clientes = await db.Clientes.AsNoTracking().OrderBy(x => x.Apellido).ThenBy(x => x.Nombre)

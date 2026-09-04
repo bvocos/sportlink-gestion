@@ -11,17 +11,28 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, IHttpCo
     public DbSet<MovimientoCaja> MovimientosCaja => Set<MovimientoCaja>(); public DbSet<TipoCesped> TiposCesped => Set<TipoCesped>();
     public DbSet<AlicuotaIva> AlicuotasIva => Set<AlicuotaIva>(); public DbSet<Configuracion> Configuraciones => Set<Configuracion>();
     public DbSet<Usuario> Usuarios => Set<Usuario>();
+    public DbSet<Deposito> Depositos => Set<Deposito>();
+    public DbSet<Sucursal> Sucursales => Set<Sucursal>();
+    public DbSet<MovimientoStock> MovimientosStock => Set<MovimientoStock>();
     public DbSet<RegistroAuditoria> RegistrosAuditoria => Set<RegistroAuditoria>();
     public DbSet<Gasto> Gastos => Set<Gasto>();
     public DbSet<Presupuesto> Presupuestos => Set<Presupuesto>(); public DbSet<PresupuestoLinea> PresupuestoLineas => Set<PresupuestoLinea>();
     protected override void OnModelCreating(ModelBuilder b)
     {
-        foreach (var t in new[] { typeof(Venta), typeof(Cuota), typeof(MovimientoCaja), typeof(Gasto), typeof(TipoCesped), typeof(AlicuotaIva), typeof(Configuracion), typeof(Presupuesto), typeof(PresupuestoLinea) })
+        foreach (var t in new[] { typeof(Venta), typeof(Cuota), typeof(MovimientoCaja), typeof(MovimientoStock), typeof(Gasto), typeof(TipoCesped), typeof(AlicuotaIva), typeof(Configuracion), typeof(Presupuesto), typeof(PresupuestoLinea) })
             foreach (var p in b.Entity(t).Metadata.GetProperties().Where(p => p.ClrType == typeof(decimal))) p.SetColumnType("decimal(18,2)");
         b.Entity<Cliente>().Property(x => x.Tipo).HasConversion<string>(); b.Entity<Venta>().Property(x => x.Estado).HasConversion<string>();
         b.Entity<Venta>().Property(x => x.FormaPago).HasConversion<string>(); b.Entity<Cuota>().Property(x => x.Estado).HasConversion<string>();
         b.Entity<MovimientoCaja>().Property(x => x.Tipo).HasConversion<string>(); b.Entity<Configuracion>().HasIndex(x => x.Clave).IsUnique();
+        b.Entity<Deposito>().Property(x => x.Nombre).HasMaxLength(150);
+        b.Entity<Deposito>().HasIndex(x => x.Nombre).IsUnique();
+        b.Entity<Sucursal>().Property(x => x.Nombre).HasMaxLength(150);
+        b.Entity<Sucursal>().HasIndex(x => x.Nombre).IsUnique();
+        b.Entity<Sucursal>().HasOne(x => x.DepositoPropio).WithMany(x => x.Sucursales)
+            .HasForeignKey(x => x.DepositoPropioId).OnDelete(DeleteBehavior.Restrict);
         b.Entity<Usuario>().HasIndex(x=>x.NombreUsuario).IsUnique();
+        b.Entity<Usuario>().HasOne(x => x.Sucursal).WithMany(x => x.Usuarios)
+            .HasForeignKey(x => x.SucursalId).OnDelete(DeleteBehavior.Restrict);
         b.Entity<RegistroAuditoria>().HasIndex(x => x.FechaHora); b.Entity<RegistroAuditoria>().HasIndex(x => x.Modulo);
         b.Entity<Gasto>().HasIndex(x => x.Fecha);
         b.Entity<Presupuesto>().Property(x => x.Estado).HasConversion<string>();
@@ -30,10 +41,26 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, IHttpCo
         b.Entity<Presupuesto>().HasMany(x => x.Lineas).WithOne(x => x.Presupuesto).HasForeignKey(x => x.PresupuestoId).OnDelete(DeleteBehavior.Cascade);
         b.Entity<Venta>().Property(x => x.Margen).HasColumnType("decimal(18,6)");
         b.Entity<Venta>().HasOne(x => x.Cliente).WithMany().HasForeignKey(x => x.ClienteId).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<Venta>().HasOne(x => x.Sucursal).WithMany().HasForeignKey(x => x.SucursalId).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<Venta>().HasOne(x => x.Deposito).WithMany().HasForeignKey(x => x.DepositoId).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<Venta>().HasIndex(x => new { x.SucursalId, x.FechaVenta });
         b.Entity<Venta>().HasMany(x => x.Cuotas).WithOne(x => x.Venta).HasForeignKey(x => x.VentaId).OnDelete(DeleteBehavior.Cascade);
         b.Entity<Cuota>().HasOne<Cliente>().WithMany().HasForeignKey(x => x.ClienteId).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<Cuota>().HasOne(x => x.Sucursal).WithMany().HasForeignKey(x => x.SucursalId).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<Cuota>().HasIndex(x => new { x.SucursalId, x.FechaVencimiento });
         b.Entity<MovimientoCaja>().HasOne<Venta>().WithMany().HasForeignKey(x => x.VentaId).OnDelete(DeleteBehavior.Restrict);
         b.Entity<MovimientoCaja>().HasOne<Cuota>().WithMany().HasForeignKey(x => x.CuotaId).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<MovimientoCaja>().HasOne(x => x.Sucursal).WithMany().HasForeignKey(x => x.SucursalId).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<MovimientoCaja>().HasIndex(x => new { x.SucursalId, x.Fecha });
+        b.Entity<MovimientoStock>().Property(x => x.Tipo).HasConversion<string>();
+        b.Entity<MovimientoStock>().Property(x => x.Usuario).HasMaxLength(150);
+        b.Entity<MovimientoStock>().Property(x => x.Observaciones).HasMaxLength(500);
+        b.Entity<MovimientoStock>().HasIndex(x => new { x.DepositoId, x.Fecha });
+        b.Entity<MovimientoStock>().HasIndex(x => x.VentaId);
+        b.Entity<MovimientoStock>().HasOne(x => x.Deposito).WithMany(x => x.MovimientosStock)
+            .HasForeignKey(x => x.DepositoId).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<MovimientoStock>().HasOne(x => x.Venta).WithMany()
+            .HasForeignKey(x => x.VentaId).OnDelete(DeleteBehavior.Restrict);
     }
     public override async Task<int> SaveChangesAsync(CancellationToken ct = default)
     {
@@ -68,7 +95,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, IHttpCo
 
     private static bool IsSensitive(string name) => name.Contains("Password", StringComparison.OrdinalIgnoreCase) || name.Contains("Hash", StringComparison.OrdinalIgnoreCase);
     private static object? Printable(object? value) => value is DateOnly date ? date.ToString("yyyy-MM-dd") : value;
-    private static string ModuleFor(string entity) => entity switch { "Venta" => "Ventas", "Cuota" => "Cuotas", "MovimientoCaja" => "Caja", "Gasto" => "Gastos", "Presupuesto" or "PresupuestoLinea" => "Presupuestos", "Cliente" => "Clientes", "Usuario" => "Usuarios", "TipoCesped" or "AlicuotaIva" or "Configuracion" => "Administración", _ => entity };
+    private static string ModuleFor(string entity) => entity switch { "Venta" => "Ventas", "Cuota" => "Cuotas", "MovimientoCaja" => "Caja", "MovimientoStock" => "Stock", "Gasto" => "Gastos", "Presupuesto" or "PresupuestoLinea" => "Presupuestos", "Cliente" => "Clientes", "Usuario" => "Usuarios", "Deposito" or "Sucursal" or "TipoCesped" or "AlicuotaIva" or "Configuracion" => "Administración", _ => entity };
 }
 
 public static class SeedData
@@ -77,6 +104,118 @@ public static class SeedData
     {
         using var scope = services.CreateScope(); var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         await db.Database.EnsureCreatedAsync();
+        await db.Database.ExecuteSqlRawAsync("""
+            IF OBJECT_ID(N'dbo.Depositos', N'U') IS NULL
+            BEGIN
+                CREATE TABLE dbo.Depositos(
+                    Id UNIQUEIDENTIFIER NOT NULL,
+                    Nombre NVARCHAR(150) NOT NULL,
+                    Activo BIT NOT NULL CONSTRAINT DF_Depositos_Activo DEFAULT 1,
+                    CreatedAt DATETIMEOFFSET(7) NOT NULL,
+                    UpdatedAt DATETIMEOFFSET(7) NULL,
+                    CONSTRAINT PK_Depositos PRIMARY KEY (Id));
+                CREATE UNIQUE INDEX IX_Depositos_Nombre ON dbo.Depositos(Nombre);
+            END;
+
+            IF NOT EXISTS (SELECT 1 FROM dbo.Depositos WHERE Nombre = N'San Francisco')
+                INSERT dbo.Depositos(Id, Nombre, Activo, CreatedAt)
+                VALUES ('7a100000-0000-0000-0000-000000000001', N'San Francisco', 1, SYSDATETIMEOFFSET());
+            IF NOT EXISTS (SELECT 1 FROM dbo.Depositos WHERE Nombre = N'Buenos Aires')
+                INSERT dbo.Depositos(Id, Nombre, Activo, CreatedAt)
+                VALUES ('7a100000-0000-0000-0000-000000000002', N'Buenos Aires', 1, SYSDATETIMEOFFSET());
+
+            IF OBJECT_ID(N'dbo.Sucursales', N'U') IS NULL
+            BEGIN
+                CREATE TABLE dbo.Sucursales(
+                    Id UNIQUEIDENTIFIER NOT NULL,
+                    Nombre NVARCHAR(150) NOT NULL,
+                    DepositoPropioId UNIQUEIDENTIFIER NOT NULL,
+                    PuntoVentaAfip INT NULL,
+                    Activo BIT NOT NULL CONSTRAINT DF_Sucursales_Activo DEFAULT 1,
+                    CreatedAt DATETIMEOFFSET(7) NOT NULL,
+                    UpdatedAt DATETIMEOFFSET(7) NULL,
+                    CONSTRAINT PK_Sucursales PRIMARY KEY (Id),
+                    CONSTRAINT FK_Sucursales_Depositos_DepositoPropioId FOREIGN KEY (DepositoPropioId) REFERENCES dbo.Depositos(Id));
+                CREATE UNIQUE INDEX IX_Sucursales_Nombre ON dbo.Sucursales(Nombre);
+                CREATE INDEX IX_Sucursales_DepositoPropioId ON dbo.Sucursales(DepositoPropioId);
+            END;
+
+            IF NOT EXISTS (SELECT 1 FROM dbo.Sucursales WHERE Nombre = N'San Francisco')
+                INSERT dbo.Sucursales(Id, Nombre, DepositoPropioId, PuntoVentaAfip, Activo, CreatedAt)
+                SELECT '7b100000-0000-0000-0000-000000000001', N'San Francisco', Id, NULL, 1, SYSDATETIMEOFFSET()
+                FROM dbo.Depositos WHERE Nombre = N'San Francisco';
+            IF NOT EXISTS (SELECT 1 FROM dbo.Sucursales WHERE Nombre = N'Buenos Aires')
+                INSERT dbo.Sucursales(Id, Nombre, DepositoPropioId, PuntoVentaAfip, Activo, CreatedAt)
+                SELECT '7b100000-0000-0000-0000-000000000002', N'Buenos Aires', Id, NULL, 1, SYSDATETIMEOFFSET()
+                FROM dbo.Depositos WHERE Nombre = N'Buenos Aires';
+
+            IF COL_LENGTH('dbo.Usuarios', 'SucursalId') IS NULL
+                ALTER TABLE dbo.Usuarios ADD SucursalId UNIQUEIDENTIFIER NULL;
+            IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'dbo.Usuarios') AND name = N'IX_Usuarios_SucursalId')
+                CREATE INDEX IX_Usuarios_SucursalId ON dbo.Usuarios(SucursalId);
+            IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = N'FK_Usuarios_Sucursales_SucursalId')
+                ALTER TABLE dbo.Usuarios ADD CONSTRAINT FK_Usuarios_Sucursales_SucursalId
+                    FOREIGN KEY (SucursalId) REFERENCES dbo.Sucursales(Id);
+            """);
+        await db.Database.ExecuteSqlRawAsync("""
+            IF OBJECT_ID(N'dbo.MovimientosStock', N'U') IS NULL
+            BEGIN
+                CREATE TABLE dbo.MovimientosStock(
+                    Id UNIQUEIDENTIFIER NOT NULL,
+                    DepositoId UNIQUEIDENTIFIER NOT NULL,
+                    Tipo NVARCHAR(30) NOT NULL,
+                    CantidadM2 DECIMAL(18,2) NOT NULL,
+                    Fecha DATETIME2(7) NOT NULL,
+                    Usuario NVARCHAR(150) NOT NULL,
+                    Observaciones NVARCHAR(500) NULL,
+                    VentaId UNIQUEIDENTIFIER NULL,
+                    CreatedAt DATETIMEOFFSET(7) NOT NULL,
+                    UpdatedAt DATETIMEOFFSET(7) NULL,
+                    CONSTRAINT PK_MovimientosStock PRIMARY KEY (Id),
+                    CONSTRAINT CK_MovimientosStock_CantidadM2 CHECK (CantidadM2 > 0),
+                    CONSTRAINT FK_MovimientosStock_Depositos_DepositoId FOREIGN KEY (DepositoId) REFERENCES dbo.Depositos(Id),
+                    CONSTRAINT FK_MovimientosStock_Ventas_VentaId FOREIGN KEY (VentaId) REFERENCES dbo.Ventas(Id));
+                CREATE INDEX IX_MovimientosStock_DepositoId_Fecha ON dbo.MovimientosStock(DepositoId, Fecha DESC);
+                CREATE INDEX IX_MovimientosStock_VentaId ON dbo.MovimientosStock(VentaId);
+            END;
+            """);
+        await db.Database.ExecuteSqlRawAsync("""
+            IF NOT EXISTS (SELECT 1 FROM dbo.Depositos WHERE Id = '7A100000-0000-0000-0000-FFFFFFFFFFFF')
+                INSERT dbo.Depositos(Id, Nombre, Activo, CreatedAt)
+                VALUES ('7A100000-0000-0000-0000-FFFFFFFFFFFF', N'Sin asignar (datos históricos)', 0, SYSDATETIMEOFFSET());
+            IF NOT EXISTS (SELECT 1 FROM dbo.Sucursales WHERE Id = '7B100000-0000-0000-0000-FFFFFFFFFFFF')
+                INSERT dbo.Sucursales(Id, Nombre, DepositoPropioId, PuntoVentaAfip, Activo, CreatedAt)
+                VALUES ('7B100000-0000-0000-0000-FFFFFFFFFFFF', N'Sin asignar (datos históricos)',
+                    '7A100000-0000-0000-0000-FFFFFFFFFFFF', NULL, 0, SYSDATETIMEOFFSET());
+
+            IF COL_LENGTH('dbo.Ventas','SucursalId') IS NULL
+            BEGIN
+                ALTER TABLE dbo.Ventas ADD SucursalId UNIQUEIDENTIFIER NULL, DepositoId UNIQUEIDENTIFIER NULL;
+                UPDATE dbo.Ventas SET SucursalId='7B100000-0000-0000-0000-FFFFFFFFFFFF', DepositoId='7A100000-0000-0000-0000-FFFFFFFFFFFF';
+                ALTER TABLE dbo.Ventas ALTER COLUMN SucursalId UNIQUEIDENTIFIER NOT NULL;
+                ALTER TABLE dbo.Ventas ALTER COLUMN DepositoId UNIQUEIDENTIFIER NOT NULL;
+                CREATE INDEX IX_Ventas_DepositoId ON dbo.Ventas(DepositoId);
+                CREATE INDEX IX_Ventas_SucursalId_FechaVenta ON dbo.Ventas(SucursalId, FechaVenta);
+                ALTER TABLE dbo.Ventas ADD CONSTRAINT FK_Ventas_Sucursales_SucursalId FOREIGN KEY(SucursalId) REFERENCES dbo.Sucursales(Id);
+                ALTER TABLE dbo.Ventas ADD CONSTRAINT FK_Ventas_Depositos_DepositoId FOREIGN KEY(DepositoId) REFERENCES dbo.Depositos(Id);
+            END;
+            IF COL_LENGTH('dbo.Cuotas','SucursalId') IS NULL
+            BEGIN
+                ALTER TABLE dbo.Cuotas ADD SucursalId UNIQUEIDENTIFIER NULL;
+                UPDATE dbo.Cuotas SET SucursalId='7B100000-0000-0000-0000-FFFFFFFFFFFF';
+                ALTER TABLE dbo.Cuotas ALTER COLUMN SucursalId UNIQUEIDENTIFIER NOT NULL;
+                CREATE INDEX IX_Cuotas_SucursalId_FechaVencimiento ON dbo.Cuotas(SucursalId, FechaVencimiento);
+                ALTER TABLE dbo.Cuotas ADD CONSTRAINT FK_Cuotas_Sucursales_SucursalId FOREIGN KEY(SucursalId) REFERENCES dbo.Sucursales(Id);
+            END;
+            IF COL_LENGTH('dbo.MovimientosCaja','SucursalId') IS NULL
+            BEGIN
+                ALTER TABLE dbo.MovimientosCaja ADD SucursalId UNIQUEIDENTIFIER NULL;
+                UPDATE dbo.MovimientosCaja SET SucursalId='7B100000-0000-0000-0000-FFFFFFFFFFFF';
+                ALTER TABLE dbo.MovimientosCaja ALTER COLUMN SucursalId UNIQUEIDENTIFIER NOT NULL;
+                CREATE INDEX IX_MovimientosCaja_SucursalId_Fecha ON dbo.MovimientosCaja(SucursalId, Fecha);
+                ALTER TABLE dbo.MovimientosCaja ADD CONSTRAINT FK_MovimientosCaja_Sucursales_SucursalId FOREIGN KEY(SucursalId) REFERENCES dbo.Sucursales(Id);
+            END;
+            """);
         await db.Database.ExecuteSqlRawAsync("""
             IF COL_LENGTH('dbo.Usuarios','DebeCambiarPassword') IS NULL
             BEGIN
