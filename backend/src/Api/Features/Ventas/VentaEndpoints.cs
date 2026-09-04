@@ -59,8 +59,9 @@ public sealed class RegistrarVentaValidator : AbstractValidator<RegistrarVentaCo
     }
 }
 
-internal sealed class StockInsuficienteException(decimal faltante) : Exception
+internal sealed class StockInsuficienteException(string producto, decimal faltante) : Exception
 {
+    public string Producto { get; } = producto;
     public decimal Faltante { get; } = faltante;
 }
 
@@ -86,13 +87,11 @@ public sealed class RegistrarVentaHandler(AppDbContext db, IHttpContextAccessor 
         VentaService.Apply(venta, request, alicuota.Porcentaje);
 
         await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
-        var stock = await VentaService.StockActual(db, request.DepositoId, ct);
-        var faltante = VentaService.StockShortage(stock, request.CantidadM2);
-        if (faltante > 0)
-            throw new StockInsuficienteException(faltante);
+        var stockLines = VentaService.StockLines(request);
+        await VentaService.ValidateStock(db, request.DepositoId, stockLines, ct);
         db.Ventas.Add(venta);
         VentaService.CreateInstallments(venta, request);
-        db.MovimientosStock.Add(VentaService.CreateStockMovement(venta,
+        db.MovimientosStock.AddRange(VentaService.CreateStockMovements(venta, stockLines,
             currentUser.Identity?.Name ?? currentUser.FindFirstValue("usuario") ?? "sistema"));
         await db.SaveChangesAsync(ct); // La venta debe existir antes de referenciarla desde Caja.
 
@@ -109,12 +108,32 @@ public sealed class RegistrarVentaHandler(AppDbContext db, IHttpContextAccessor 
 
 internal static class VentaService
 {
-    public static Task<decimal> StockActual(AppDbContext db, Guid depositoId, CancellationToken ct) =>
-        db.MovimientosStock.Where(x => x.DepositoId == depositoId)
+    public static Task<decimal> StockActual(AppDbContext db, Guid depositoId, Guid tipoCespedId, CancellationToken ct) =>
+        db.MovimientosStock.Where(x => x.DepositoId == depositoId && x.TipoCespedId == tipoCespedId)
             .SumAsync(x => x.Tipo == TipoMovimientoStock.SalidaPorVenta ? -x.CantidadM2 : x.CantidadM2, ct);
 
     internal static decimal StockShortage(decimal stockActual, decimal cantidadSolicitada) =>
         Math.Max(cantidadSolicitada - stockActual, 0);
+
+    internal static IReadOnlyList<VentaLineaCommand> StockLines(RegistrarVentaCommand request) =>
+        request.Lineas is { Count: > 0 } ? request.Lineas :
+        [new VentaLineaCommand(request.TipoCespedId, request.Color, request.CantidadM2,
+            request.CostoCompraUnitario, request.PrecioUnitario, request.PrecioTotal)];
+
+    public static async Task ValidateStock(AppDbContext db, Guid depositoId,
+        IReadOnlyList<VentaLineaCommand> lines, CancellationToken ct)
+    {
+        foreach (var group in lines.GroupBy(x => x.TipoCespedId))
+        {
+            var requested = group.Sum(x => x.CantidadM2);
+            var available = await StockActual(db, depositoId, group.Key, ct);
+            var shortage = StockShortage(available, requested);
+            if (shortage <= 0) continue;
+            var product = await db.TiposCesped.Where(x => x.Id == group.Key).Select(x => x.Nombre)
+                .SingleOrDefaultAsync(ct) ?? group.Key.ToString();
+            throw new StockInsuficienteException(product, shortage);
+        }
+    }
     public static async Task<RegistrarVentaCommand> NormalizeLines(AppDbContext db,
         RegistrarVentaCommand request, CancellationToken ct)
     {
@@ -201,12 +220,14 @@ internal static class VentaService
         Concepto = $"Entrega inicial venta {venta.Id}", VentaId = venta.Id, SucursalId = venta.SucursalId
     };
 
-    public static MovimientoStock CreateStockMovement(Venta venta, string usuario) => new()
-    {
-        DepositoId = venta.DepositoId, Tipo = TipoMovimientoStock.SalidaPorVenta,
-        CantidadM2 = venta.CantidadM2, Fecha = DateTime.UtcNow, Usuario = usuario,
-        VentaId = venta.Id, Observaciones = $"Salida por venta {venta.Id}"
-    };
+    public static IReadOnlyList<MovimientoStock> CreateStockMovements(Venta venta,
+        IReadOnlyList<VentaLineaCommand> lines, string usuario) => lines.Select(line => new MovimientoStock
+        {
+            DepositoId = venta.DepositoId, TipoCespedId = line.TipoCespedId,
+            Tipo = TipoMovimientoStock.SalidaPorVenta, CantidadM2 = line.CantidadM2,
+            Fecha = DateTime.UtcNow, Usuario = usuario, VentaId = venta.Id,
+            Observaciones = $"Salida por venta {venta.Id}"
+        }).ToList();
 
     public static VentaDto ToDto(Venta v, Cliente c, TipoCesped t) => new(v.Id, v.SucursalId, v.DepositoId, v.ClienteId,
         $"{c.Nombre} {c.Apellido}", v.TipoCespedId, t.Nombre, v.AlicuotaIvaId, v.FechaVenta,
@@ -226,7 +247,7 @@ public static class VentaEndpoints
             try { return Results.Created("/api/ventas", await sender.Send(command, ct)); }
             catch (StockInsuficienteException exception)
             {
-                return Results.Conflict(new { message = $"Stock insuficiente. Faltan {exception.Faltante:0.##} m²." });
+                return Results.Conflict(new { message = $"Stock insuficiente de {exception.Producto}. Faltan {exception.Faltante:0.##} m²." });
             }
             catch (VentaScopeException exception)
             {
@@ -294,7 +315,12 @@ public static class VentaEndpoints
             .Select(x => new
             {
                 x.Id, x.Nombre,
-                stockActual = x.MovimientosStock.Sum(m => m.Tipo == TipoMovimientoStock.SalidaPorVenta ? -m.CantidadM2 : m.CantidadM2)
+                productos = db.TiposCesped.AsNoTracking().Where(p => p.Activo).Select(p => new
+                {
+                    tipoCespedId = p.Id, nombre = p.Nombre,
+                    stockActualM2 = db.MovimientosStock.Where(m => m.DepositoId == x.Id && m.TipoCespedId == p.Id)
+                        .Sum(m => (decimal?)(m.Tipo == TipoMovimientoStock.SalidaPorVenta ? -m.CantidadM2 : m.CantidadM2)) ?? 0m
+                }).ToList()
             }).ToListAsync(ct)
     };
 
@@ -326,17 +352,18 @@ public static class VentaEndpoints
         request = VentaService.NormalizeColor(request, tipo);
         try
         {
-            await using var transaction = await db.Database.BeginTransactionAsync(ct);
+            await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
 
-            var hasStockMovement = await db.MovimientosStock.AnyAsync(x => x.VentaId == id &&
-                x.Tipo == TipoMovimientoStock.SalidaPorVenta, ct);
-            var additionalStockRequired = request.CantidadM2 - venta.CantidadM2;
-            if (hasStockMovement && additionalStockRequired > 0)
+            await db.MovimientosStock.Where(x => x.VentaId == id &&
+                x.Tipo == TipoMovimientoStock.SalidaPorVenta).ExecuteDeleteAsync(ct);
+            var stockLines = VentaService.StockLines(request);
+            try { await VentaService.ValidateStock(db, venta.DepositoId, stockLines, ct); }
+            catch (StockInsuficienteException exception)
             {
-                var availableStock = await VentaService.StockActual(db, venta.DepositoId, ct);
-                var shortage = VentaService.StockShortage(availableStock, additionalStockRequired);
-                if (shortage > 0)
-                    return Results.Conflict(new { message = $"Stock insuficiente. Faltan {shortage:0.##} m²." });
+                return Results.Conflict(new
+                {
+                    message = $"Stock insuficiente de {exception.Producto}. Faltan {exception.Faltante:0.##} m²."
+                });
             }
 
             // ExecuteDelete evita conflictos entre cuotas eliminadas y las nuevas con el mismo número.
@@ -386,10 +413,8 @@ public static class VentaEndpoints
             if (request.MontoEntrega > 0)
                 db.MovimientosCaja.Add(VentaService.CreateCashMovement(updated));
 
-            if (hasStockMovement)
-                await db.MovimientosStock.Where(x => x.VentaId == id && x.Tipo == TipoMovimientoStock.SalidaPorVenta)
-                    .ExecuteUpdateAsync(setters => setters.SetProperty(x => x.CantidadM2, updated.CantidadM2)
-                        .SetProperty(x => x.UpdatedAt, DateTimeOffset.UtcNow), ct);
+            db.MovimientosStock.AddRange(VentaService.CreateStockMovements(updated, stockLines,
+                user.Identity?.Name ?? user.FindFirstValue("usuario") ?? "sistema"));
 
             await db.SaveChangesAsync(ct);
 

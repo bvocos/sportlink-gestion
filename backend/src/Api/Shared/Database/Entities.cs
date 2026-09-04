@@ -106,6 +106,8 @@ public sealed class MovimientoStock : AuditableEntity
 {
     public Guid DepositoId { get; set; }
     public Deposito Deposito { get; set; } = null!;
+    public Guid TipoCespedId { get; set; }
+    public TipoCesped TipoCesped { get; set; } = null!;
     public TipoMovimientoStock Tipo { get; set; }
     public decimal CantidadM2 { get; set; }
     public DateTime Fecha { get; set; }

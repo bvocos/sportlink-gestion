@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using Api.Features.Stock;
+using Api.Features.Ventas;
 using Api.Shared.Database;
 
 namespace Api.Tests;
@@ -47,5 +48,38 @@ public sealed class StockRulesTests
     [InlineData(100, 100, 0)]
     [InlineData(80, 100, 20)]
     public void Venta_calcula_el_faltante_sin_permitir_stock_negativo(decimal stock, decimal solicitado, decimal faltante) =>
-        Assert.Equal(faltante, Api.Features.Ventas.VentaService.StockShortage(stock, solicitado));
+        Assert.Equal(faltante, VentaService.StockShortage(stock, solicitado));
+
+    [Fact]
+    public void Venta_con_dos_productos_genera_dos_salidas_de_stock_independientes()
+    {
+        var depositoId = Guid.NewGuid();
+        var venta = new Venta { Id = Guid.NewGuid(), DepositoId = depositoId };
+        var productoUno = Guid.NewGuid();
+        var productoDos = Guid.NewGuid();
+        VentaLineaCommand[] lineas =
+        [
+            new(productoUno, "Verde", 120m, 8m, 12m, 1440m),
+            new(productoDos, "Rojo", 35m, 10m, 15m, 525m)
+        ];
+
+        var movimientos = VentaService.CreateStockMovements(venta, lineas, "tester");
+
+        Assert.Collection(movimientos,
+            movimiento =>
+            {
+                Assert.Equal(productoUno, movimiento.TipoCespedId);
+                Assert.Equal(120m, movimiento.CantidadM2);
+                Assert.Equal(TipoMovimientoStock.SalidaPorVenta, movimiento.Tipo);
+                Assert.Equal(venta.Id, movimiento.VentaId);
+            },
+            movimiento =>
+            {
+                Assert.Equal(productoDos, movimiento.TipoCespedId);
+                Assert.Equal(35m, movimiento.CantidadM2);
+                Assert.Equal(TipoMovimientoStock.SalidaPorVenta, movimiento.Tipo);
+                Assert.Equal(venta.Id, movimiento.VentaId);
+            });
+        Assert.All(movimientos, movimiento => Assert.Equal(depositoId, movimiento.DepositoId));
+    }
 }

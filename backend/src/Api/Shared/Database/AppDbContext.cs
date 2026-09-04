@@ -56,9 +56,12 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, IHttpCo
         b.Entity<MovimientoStock>().Property(x => x.Usuario).HasMaxLength(150);
         b.Entity<MovimientoStock>().Property(x => x.Observaciones).HasMaxLength(500);
         b.Entity<MovimientoStock>().HasIndex(x => new { x.DepositoId, x.Fecha });
+        b.Entity<MovimientoStock>().HasIndex(x => new { x.DepositoId, x.TipoCespedId });
         b.Entity<MovimientoStock>().HasIndex(x => x.VentaId);
         b.Entity<MovimientoStock>().HasOne(x => x.Deposito).WithMany(x => x.MovimientosStock)
             .HasForeignKey(x => x.DepositoId).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<MovimientoStock>().HasOne(x => x.TipoCesped).WithMany()
+            .HasForeignKey(x => x.TipoCespedId).OnDelete(DeleteBehavior.Restrict);
         b.Entity<MovimientoStock>().HasOne(x => x.Venta).WithMany()
             .HasForeignKey(x => x.VentaId).OnDelete(DeleteBehavior.Restrict);
     }
@@ -177,6 +180,22 @@ public static class SeedData
                     CONSTRAINT FK_MovimientosStock_Ventas_VentaId FOREIGN KEY (VentaId) REFERENCES dbo.Ventas(Id));
                 CREATE INDEX IX_MovimientosStock_DepositoId_Fecha ON dbo.MovimientosStock(DepositoId, Fecha DESC);
                 CREATE INDEX IX_MovimientosStock_VentaId ON dbo.MovimientosStock(VentaId);
+            END;
+            """);
+        await db.Database.ExecuteSqlRawAsync("""
+            IF COL_LENGTH('dbo.MovimientosStock','TipoCespedId') IS NULL
+            BEGIN
+                IF NOT EXISTS (SELECT 1 FROM dbo.TiposCesped WHERE Id='7C100000-0000-0000-0000-FFFFFFFFFFFF')
+                    INSERT dbo.TiposCesped(Id,Nombre,Descripcion,PrecioVentaM2,CostoM2,ColoresJson,Activo,CreatedAt)
+                    VALUES('7C100000-0000-0000-0000-FFFFFFFFFFFF',N'Sin asignar (stock histórico)',
+                        N'Movimientos anteriores a la gestión de stock por producto.',0,0,N'[]',0,SYSDATETIMEOFFSET());
+                ALTER TABLE dbo.MovimientosStock ADD TipoCespedId UNIQUEIDENTIFIER NULL;
+                UPDATE dbo.MovimientosStock SET TipoCespedId='7C100000-0000-0000-0000-FFFFFFFFFFFF';
+                ALTER TABLE dbo.MovimientosStock ALTER COLUMN TipoCespedId UNIQUEIDENTIFIER NOT NULL;
+                CREATE INDEX IX_MovimientosStock_DepositoId_TipoCespedId ON dbo.MovimientosStock(DepositoId,TipoCespedId);
+                CREATE INDEX IX_MovimientosStock_TipoCespedId ON dbo.MovimientosStock(TipoCespedId);
+                ALTER TABLE dbo.MovimientosStock ADD CONSTRAINT FK_MovimientosStock_TiposCesped_TipoCespedId
+                    FOREIGN KEY(TipoCespedId) REFERENCES dbo.TiposCesped(Id);
             END;
             """);
         await db.Database.ExecuteSqlRawAsync("""

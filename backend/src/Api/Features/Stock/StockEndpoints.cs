@@ -4,7 +4,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Api.Features.Stock;
 
-public record IngresoStockRequest(Guid DepositoId, decimal CantidadM2, string? Observaciones);
+public record IngresoStockRequest(Guid DepositoId, Guid TipoCespedId, decimal CantidadM2, string? Observaciones);
 internal record StockAuthorizationFailure(int StatusCode, string Message);
 
 public static class StockEndpoints
@@ -50,21 +50,27 @@ public static class StockEndpoints
             {
                 x.Id,
                 x.Nombre,
-                stockActualM2 = x.MovimientosStock
-                    .Sum(m => (decimal?)(m.Tipo == TipoMovimientoStock.SalidaPorVenta ? -m.CantidadM2 : m.CantidadM2)) ?? 0m
+                productos = db.TiposCesped.AsNoTracking().Where(p => p.Activo).OrderBy(p => p.Nombre)
+                    .Select(p => new
+                    {
+                        tipoCespedId = p.Id,
+                        nombre = p.Nombre,
+                        stockActualM2 = db.MovimientosStock.Where(m => m.DepositoId == x.Id && m.TipoCespedId == p.Id)
+                            .Sum(m => (decimal?)(m.Tipo == TipoMovimientoStock.SalidaPorVenta ? -m.CantidadM2 : m.CantidadM2)) ?? 0m
+                    }).ToList()
             }).ToListAsync(ct);
 
         return Results.Ok(deposits.Select(x => new
         {
             x.Id,
             x.Nombre,
-            x.stockActualM2,
+            x.productos,
             permiteRegistrarIngreso = isAdmin || ownDepositId == x.Id
         }));
     }
 
     private static async Task<IResult> GetMovimientos(
-        Guid? depositoId, DateTime? desde, DateTime? hasta, int page, int pageSize,
+        Guid? depositoId, Guid? tipoCespedId, DateTime? desde, DateTime? hasta, int page, int pageSize,
         AppDbContext db, CancellationToken ct)
     {
         if (desde.HasValue && hasta.HasValue && desde.Value.Date > hasta.Value.Date)
@@ -72,8 +78,9 @@ public static class StockEndpoints
         page = Math.Max(1, page);
         pageSize = Math.Clamp(pageSize == 0 ? 50 : pageSize, 1, 200);
 
-        var query = db.MovimientosStock.AsNoTracking().Include(x => x.Deposito).AsQueryable();
+        var query = db.MovimientosStock.AsNoTracking().Include(x => x.Deposito).Include(x => x.TipoCesped).AsQueryable();
         if (depositoId.HasValue) query = query.Where(x => x.DepositoId == depositoId.Value);
+        if (tipoCespedId.HasValue) query = query.Where(x => x.TipoCespedId == tipoCespedId.Value);
         if (desde.HasValue) query = query.Where(x => x.Fecha >= desde.Value.Date);
         if (hasta.HasValue)
         {
@@ -89,6 +96,8 @@ public static class StockEndpoints
                 x.Id,
                 x.DepositoId,
                 depositoNombre = x.Deposito.Nombre,
+                x.TipoCespedId,
+                tipoCespedNombre = x.TipoCesped.Nombre,
                 x.Tipo,
                 x.CantidadM2,
                 cantidadConSigno = x.Tipo == TipoMovimientoStock.SalidaPorVenta ? -x.CantidadM2 : x.CantidadM2,
@@ -120,6 +129,9 @@ public static class StockEndpoints
         var deposit = await db.Depositos.SingleOrDefaultAsync(x => x.Id == request.DepositoId && x.Activo, ct);
         if (deposit is null)
             return Results.ValidationProblem(new Dictionary<string, string[]> { ["depositoId"] = ["Seleccioná un depósito activo."] });
+        var product = await db.TiposCesped.SingleOrDefaultAsync(x => x.Id == request.TipoCespedId && x.Activo, ct);
+        if (product is null)
+            return Results.ValidationProblem(new Dictionary<string, string[]> { ["tipoCespedId"] = ["Seleccioná un producto activo."] });
 
         var ownDepositId = await GetOwnDepositId(currentUser, db, ct);
         var authorizationFailure = ValidateIngresoScope(currentUser, request.DepositoId, ownDepositId);
@@ -132,6 +144,7 @@ public static class StockEndpoints
         var movement = new MovimientoStock
         {
             DepositoId = deposit.Id,
+            TipoCespedId = product.Id,
             Tipo = TipoMovimientoStock.Ingreso,
             CantidadM2 = request.CantidadM2,
             Fecha = DateTime.UtcNow,
@@ -145,6 +158,7 @@ public static class StockEndpoints
         {
             movement.Id,
             movement.DepositoId,
+            movement.TipoCespedId,
             movement.Tipo,
             movement.CantidadM2,
             movement.Fecha,
