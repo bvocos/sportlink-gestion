@@ -8,6 +8,7 @@ public enum EstadoVenta { Confirmada, Futura, Entregada, Cancelada }
 public enum EstadoCuota { Pendiente, Pagada, PagadaParcial, Vencida }
 public enum TipoMovimiento { Ingreso, Retiro }
 public enum TipoMovimientoStock { Ingreso, Ajuste, SalidaPorVenta }
+public enum EstadoLoteStock { Disponible, Vendido }
 public enum EstadoPresupuesto { Borrador, Enviado, Aceptado, Rechazado, Vencido }
 public sealed class Deposito : AuditableEntity
 {
@@ -62,7 +63,7 @@ public sealed class Cliente : AuditableEntity
     public string? LocalidadId { get; set; } public string? ProvinciaId { get; set; }
     public TipoCliente Tipo { get; set; } public DateOnly FechaPrimerContacto { get; set; } public string? Observaciones { get; set; }
 }
-public sealed class TipoCesped : AuditableEntity { public string Nombre { get; set; } = ""; public string? Descripcion { get; set; } public string? DescripcionPresupuesto { get; set; } public string? EspecificacionesPresupuesto { get; set; } public string? FichaTecnicaUrl { get; set; } public decimal PrecioVentaM2 { get; set; } public decimal PrecioContadoM2 { get; set; } public decimal PrecioFinanciadoM2 { get; set; } public decimal CostoM2 { get; set; } public string ColoresJson { get; set; } = "[]"; public bool Activo { get; set; } = true; }
+public sealed class TipoCesped : AuditableEntity { public string Nombre { get; set; } = ""; public string? Descripcion { get; set; } public string? DescripcionPresupuesto { get; set; } public string? EspecificacionesPresupuesto { get; set; } public string? FichaTecnicaUrl { get; set; } public decimal PrecioVentaM2 { get; set; } public decimal PrecioContadoM2 { get; set; } public decimal PrecioFinanciadoM2 { get; set; } public decimal CostoM2 { get; set; } public string ColoresJson { get; set; } = "[]"; public bool ControlPorLotes { get; set; } public bool Activo { get; set; } = true; }
 public sealed class AlicuotaIva : AuditableEntity { public string Nombre { get; set; } = ""; public decimal Porcentaje { get; set; } }
 public sealed class Configuracion : AuditableEntity { public string Clave { get; set; } = ""; public decimal ValorDecimal { get; set; } }
 public sealed class Venta : AuditableEntity, ISucursalScoped
@@ -115,6 +116,29 @@ public sealed class MovimientoStock : AuditableEntity
     public string? Observaciones { get; set; }
     public Guid? VentaId { get; set; }
     public Venta? Venta { get; set; }
+}
+public sealed class LoteStock : AuditableEntity
+{
+    public Guid TipoCespedId { get; set; }
+    public TipoCesped TipoCesped { get; set; } = null!;
+    public Guid DepositoId { get; set; }
+    public Deposito Deposito { get; set; } = null!;
+    public string? Color { get; set; }
+    public DateTime FechaIngreso { get; set; }
+    public string Usuario { get; set; } = "sistema";
+    public string? Observaciones { get; set; }
+    public Guid? VentaId { get; set; }
+    public Venta? Venta { get; set; }
+    public EstadoLoteStock Estado { get; set; } = EstadoLoteStock.Disponible;
+    public List<Rollo> Rollos { get; set; } = [];
+}
+public sealed class Rollo : AuditableEntity
+{
+    public Guid LoteStockId { get; set; }
+    public LoteStock LoteStock { get; set; } = null!;
+    public char Posicion { get; set; }
+    public string CodigoBarra { get; set; } = "";
+    public decimal CantidadM2 { get; set; }
 }
 public sealed class Presupuesto : AuditableEntity
 {

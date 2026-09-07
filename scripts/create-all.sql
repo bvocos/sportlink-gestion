@@ -18,6 +18,7 @@
 :r .\16-add-movimientos-stock.sql
 :r .\17-add-sucursal-operaciones-y-deposito-venta.sql
 :r .\18-add-producto-movimientos-stock.sql
+:r .\19-add-trazabilidad-lotes.sql
 
 PRINT N'Base CespedVentas creada correctamente.';
 GO

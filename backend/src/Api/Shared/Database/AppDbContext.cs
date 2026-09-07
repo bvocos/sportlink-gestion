@@ -14,12 +14,14 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, IHttpCo
     public DbSet<Deposito> Depositos => Set<Deposito>();
     public DbSet<Sucursal> Sucursales => Set<Sucursal>();
     public DbSet<MovimientoStock> MovimientosStock => Set<MovimientoStock>();
+    public DbSet<LoteStock> LotesStock => Set<LoteStock>();
+    public DbSet<Rollo> Rollos => Set<Rollo>();
     public DbSet<RegistroAuditoria> RegistrosAuditoria => Set<RegistroAuditoria>();
     public DbSet<Gasto> Gastos => Set<Gasto>();
     public DbSet<Presupuesto> Presupuestos => Set<Presupuesto>(); public DbSet<PresupuestoLinea> PresupuestoLineas => Set<PresupuestoLinea>();
     protected override void OnModelCreating(ModelBuilder b)
     {
-        foreach (var t in new[] { typeof(Venta), typeof(Cuota), typeof(MovimientoCaja), typeof(MovimientoStock), typeof(Gasto), typeof(TipoCesped), typeof(AlicuotaIva), typeof(Configuracion), typeof(Presupuesto), typeof(PresupuestoLinea) })
+        foreach (var t in new[] { typeof(Venta), typeof(Cuota), typeof(MovimientoCaja), typeof(MovimientoStock), typeof(LoteStock), typeof(Rollo), typeof(Gasto), typeof(TipoCesped), typeof(AlicuotaIva), typeof(Configuracion), typeof(Presupuesto), typeof(PresupuestoLinea) })
             foreach (var p in b.Entity(t).Metadata.GetProperties().Where(p => p.ClrType == typeof(decimal))) p.SetColumnType("decimal(18,2)");
         b.Entity<Cliente>().Property(x => x.Tipo).HasConversion<string>(); b.Entity<Venta>().Property(x => x.Estado).HasConversion<string>();
         b.Entity<Venta>().Property(x => x.FormaPago).HasConversion<string>(); b.Entity<Cuota>().Property(x => x.Estado).HasConversion<string>();
@@ -64,6 +66,23 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, IHttpCo
             .HasForeignKey(x => x.TipoCespedId).OnDelete(DeleteBehavior.Restrict);
         b.Entity<MovimientoStock>().HasOne(x => x.Venta).WithMany()
             .HasForeignKey(x => x.VentaId).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<LoteStock>().Property(x => x.Estado).HasConversion<string>();
+        b.Entity<LoteStock>().Property(x => x.Color).HasMaxLength(100);
+        b.Entity<LoteStock>().Property(x => x.Usuario).HasMaxLength(150);
+        b.Entity<LoteStock>().Property(x => x.Observaciones).HasMaxLength(500);
+        b.Entity<LoteStock>().HasIndex(x => new { x.DepositoId, x.TipoCespedId, x.Estado });
+        b.Entity<LoteStock>().HasOne(x => x.Deposito).WithMany().HasForeignKey(x => x.DepositoId).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<LoteStock>().HasOne(x => x.TipoCesped).WithMany().HasForeignKey(x => x.TipoCespedId).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<LoteStock>().HasOne(x => x.Venta).WithMany().HasForeignKey(x => x.VentaId).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<LoteStock>().HasMany(x => x.Rollos).WithOne(x => x.LoteStock).HasForeignKey(x => x.LoteStockId).OnDelete(DeleteBehavior.Cascade);
+        b.Entity<Rollo>().Property(x => x.Posicion).HasColumnType("char(1)");
+        b.Entity<Rollo>().Property(x => x.CodigoBarra).HasMaxLength(150);
+        b.Entity<Rollo>().HasIndex(x => x.CodigoBarra).IsUnique();
+        b.Entity<Rollo>().ToTable(t =>
+        {
+            t.HasCheckConstraint("CK_Rollos_Posicion", "[Posicion] IN ('A','B','C')");
+            t.HasCheckConstraint("CK_Rollos_CantidadM2", "[CantidadM2] > 0");
+        });
     }
     public override async Task<int> SaveChangesAsync(CancellationToken ct = default)
     {
@@ -98,7 +117,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, IHttpCo
 
     private static bool IsSensitive(string name) => name.Contains("Password", StringComparison.OrdinalIgnoreCase) || name.Contains("Hash", StringComparison.OrdinalIgnoreCase);
     private static object? Printable(object? value) => value is DateOnly date ? date.ToString("yyyy-MM-dd") : value;
-    private static string ModuleFor(string entity) => entity switch { "Venta" => "Ventas", "Cuota" => "Cuotas", "MovimientoCaja" => "Caja", "MovimientoStock" => "Stock", "Gasto" => "Gastos", "Presupuesto" or "PresupuestoLinea" => "Presupuestos", "Cliente" => "Clientes", "Usuario" => "Usuarios", "Deposito" or "Sucursal" or "TipoCesped" or "AlicuotaIva" or "Configuracion" => "Administración", _ => entity };
+    private static string ModuleFor(string entity) => entity switch { "Venta" => "Ventas", "Cuota" => "Cuotas", "MovimientoCaja" => "Caja", "MovimientoStock" or "LoteStock" or "Rollo" => "Stock", "Gasto" => "Gastos", "Presupuesto" or "PresupuestoLinea" => "Presupuestos", "Cliente" => "Clientes", "Usuario" => "Usuarios", "Deposito" or "Sucursal" or "TipoCesped" or "AlicuotaIva" or "Configuracion" => "Administración", _ => entity };
 }
 
 public static class SeedData

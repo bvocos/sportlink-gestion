@@ -10,7 +10,7 @@ using System.Text.Json;
 namespace Api.Features.Ventas;
 
 public record VentaLineaCommand(Guid TipoCespedId, string? Color, decimal CantidadM2,
-    decimal PrecioCompraM2, decimal PrecioVentaM2, decimal Total);
+    decimal PrecioCompraM2, decimal PrecioVentaM2, decimal Total, Guid? LoteStockId = null);
 
 public record RegistrarVentaCommand(Guid ClienteId, DateOnly FechaVenta, Guid TipoCespedId, decimal CantidadM2,
     decimal PrecioUnitario, decimal PrecioTotal, decimal MontoEntrega, FormaPago FormaPago, int? CantidadCuotas, EstadoVenta Estado,
@@ -66,6 +66,7 @@ internal sealed class StockInsuficienteException(string producto, decimal faltan
 }
 
 internal sealed class VentaScopeException(string message) : Exception(message);
+internal sealed class LoteNoDisponibleException(string message) : Exception(message);
 
 public sealed class RegistrarVentaHandler(AppDbContext db, IHttpContextAccessor httpContextAccessor) : IRequestHandler<RegistrarVentaCommand, VentaDto>
 {
@@ -83,10 +84,10 @@ public sealed class RegistrarVentaHandler(AppDbContext db, IHttpContextAccessor 
         request = await VentaService.NormalizeLines(db, request, ct);
         var (cliente, tipo, alicuota) = await VentaService.GetReferences(db, request, ct);
         request = VentaService.NormalizeColor(request, tipo);
-        var venta = new Venta();
-        VentaService.Apply(venta, request, alicuota.Porcentaje);
-
         await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
+        var venta = new Venta();
+        request = await VentaService.ResolveControlledLots(db, request, null, venta.Id, ct);
+        VentaService.Apply(venta, request, alicuota.Porcentaje);
         var stockLines = VentaService.StockLines(request);
         await VentaService.ValidateStock(db, request.DepositoId, stockLines, ct);
         db.Ventas.Add(venta);
@@ -114,6 +115,52 @@ internal static class VentaService
 
     internal static decimal StockShortage(decimal stockActual, decimal cantidadSolicitada) =>
         Math.Max(cantidadSolicitada - stockActual, 0);
+
+    internal static void ValidateLotSelection(LoteStock? lot, VentaLineaCommand line, Guid depositId, Guid? currentSaleId)
+    {
+        if (lot is null || (lot.Estado != EstadoLoteStock.Disponible && lot.VentaId != currentSaleId))
+            throw new LoteNoDisponibleException("Ese lote ya fue vendido o no existe.");
+        if (lot.DepositoId != depositId || lot.TipoCespedId != line.TipoCespedId ||
+            !string.Equals(lot.Color ?? "", line.Color?.Trim() ?? "", StringComparison.OrdinalIgnoreCase))
+            throw new LoteNoDisponibleException("El lote seleccionado no corresponde al depósito, producto o color de la línea.");
+    }
+
+    internal static void MarkLotSold(LoteStock lot, Guid saleId)
+    {
+        lot.Estado = EstadoLoteStock.Vendido;
+        lot.VentaId = saleId;
+    }
+
+    internal static void ReleaseLot(LoteStock lot)
+    {
+        lot.Estado = EstadoLoteStock.Disponible;
+        lot.VentaId = null;
+    }
+
+    public static async Task<RegistrarVentaCommand> ResolveControlledLots(AppDbContext db, RegistrarVentaCommand request,
+        Guid? currentSaleId, Guid targetSaleId, CancellationToken ct)
+    {
+        var lines = StockLines(request).ToList();
+        var productIds = lines.Select(x => x.TipoCespedId).Distinct().ToArray();
+        var controlled = await db.TiposCesped.Where(x => productIds.Contains(x.Id)).ToDictionaryAsync(x => x.Id, x => x.ControlPorLotes, ct);
+        var selectedLots = new HashSet<Guid>();
+        for (var index = 0; index < lines.Count; index++)
+        {
+            var line = lines[index];
+            if (!controlled.GetValueOrDefault(line.TipoCespedId)) continue;
+            if (!line.LoteStockId.HasValue || !selectedLots.Add(line.LoteStockId.Value))
+                throw new LoteNoDisponibleException(line.LoteStockId.HasValue ? "No podés usar el mismo lote en más de una línea." : "Seleccioná un lote disponible para el producto controlado por lotes.");
+            var lot = await db.LotesStock.Include(x => x.Rollos).SingleOrDefaultAsync(x => x.Id == line.LoteStockId.Value, ct);
+            ValidateLotSelection(lot, line, request.DepositoId, currentSaleId);
+            var quantity = lot!.Rollos.Sum(x => x.CantidadM2);
+            if (lot.Rollos.Count != 3 || quantity <= 0) throw new LoteNoDisponibleException("El lote no tiene sus tres rollos correctamente registrados.");
+            MarkLotSold(lot, targetSaleId);
+            lines[index] = line with { CantidadM2 = quantity, Color = lot.Color, Total = Math.Round(quantity * line.PrecioVentaM2, 2) };
+        }
+        var first = lines[0];
+        return request with { Lineas = lines, TipoCespedId = first.TipoCespedId, Color = first.Color, CantidadM2 = lines.Sum(x => x.CantidadM2), PrecioUnitario = lines.Sum(x => x.Total) / lines.Sum(x => x.CantidadM2), PrecioTotal = lines.Sum(x => x.Total), CostoCompraUnitario = lines.Sum(x => x.PrecioCompraM2 * x.CantidadM2) / lines.Sum(x => x.CantidadM2) };
+    }
+
 
     internal static IReadOnlyList<VentaLineaCommand> StockLines(RegistrarVentaCommand request) =>
         request.Lineas is { Count: > 0 } ? request.Lineas :
@@ -249,6 +296,10 @@ public static class VentaEndpoints
             {
                 return Results.Conflict(new { message = $"Stock insuficiente de {exception.Producto}. Faltan {exception.Faltante:0.##} m²." });
             }
+            catch (LoteNoDisponibleException exception)
+            {
+                return Results.Conflict(new { message = exception.Message });
+            }
             catch (VentaScopeException exception)
             {
                 return Results.ValidationProblem(new Dictionary<string, string[]> { ["sucursal"] = [exception.Message] });
@@ -354,8 +405,13 @@ public static class VentaEndpoints
         {
             await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
 
+            await db.LotesStock.Where(x => x.VentaId == id).ExecuteUpdateAsync(setters => setters
+                .SetProperty(x => x.Estado, EstadoLoteStock.Disponible)
+                .SetProperty(x => x.VentaId, (Guid?)null), ct);
             await db.MovimientosStock.Where(x => x.VentaId == id &&
                 x.Tipo == TipoMovimientoStock.SalidaPorVenta).ExecuteDeleteAsync(ct);
+            db.ChangeTracker.Clear();
+            request = await VentaService.ResolveControlledLots(db, request, id, id, ct);
             var stockLines = VentaService.StockLines(request);
             try { await VentaService.ValidateStock(db, venta.DepositoId, stockLines, ct); }
             catch (StockInsuficienteException exception)
@@ -370,7 +426,6 @@ public static class VentaEndpoints
             await db.MovimientosCaja.Where(x => x.VentaId == id).ExecuteDeleteAsync(ct);
             await db.Cuotas.Where(x => x.VentaId == id).ExecuteDeleteAsync(ct);
 
-            db.ChangeTracker.Clear();
             var updated = new Venta { Id = id };
             VentaService.Apply(updated, request, alicuota.Porcentaje);
 
@@ -420,6 +475,10 @@ public static class VentaEndpoints
 
             await transaction.CommitAsync(ct);
             return Results.Ok(VentaService.ToDto(updated, cliente, tipo));
+        }
+        catch (LoteNoDisponibleException exception)
+        {
+            return Results.Conflict(new { message = exception.Message });
         }
         catch (DbUpdateException exception)
         {
@@ -492,6 +551,9 @@ public static class VentaEndpoints
     {
         if (!await VisibleQuery(db.Ventas, user).AnyAsync(x => x.Id == id, ct)) return Results.NotFound();
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        await db.LotesStock.Where(x => x.VentaId == id).ExecuteUpdateAsync(setters => setters
+            .SetProperty(x => x.Estado, EstadoLoteStock.Disponible)
+            .SetProperty(x => x.VentaId, (Guid?)null), ct);
         await db.MovimientosStock.Where(x => x.VentaId == id && x.Tipo == TipoMovimientoStock.SalidaPorVenta).ExecuteDeleteAsync(ct);
         await db.MovimientosCaja.Where(x => x.VentaId == id).ExecuteDeleteAsync(ct);
         await db.Cuotas.Where(x => x.VentaId == id).ExecuteDeleteAsync(ct);

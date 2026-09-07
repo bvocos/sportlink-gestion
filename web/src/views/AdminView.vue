@@ -21,6 +21,7 @@ const items = ref<any[]>([]),
     precioFinanciadoM2: 0,
     costoM2: 0,
     colores: [] as string[],
+    controlPorLotes: false,
     activo: true,
   });
 const depositos = ref<any[]>([])
@@ -59,6 +60,7 @@ function create() {
     precioFinanciadoM2: 0,
     costoM2: 0,
     colores: [],
+    controlPorLotes: false,
     activo: true,
   };
   error.value = "";
@@ -78,6 +80,7 @@ function edit(x: any) {
     precioFinanciadoM2: x.precioFinanciadoM2 ?? x.precioVentaM2,
     costoM2: x.costoM2,
     colores: [...(x.colores ?? [])],
+    controlPorLotes: Boolean(x.controlPorLotes),
     activo: x.activo,
   };
   error.value = "";
@@ -116,6 +119,7 @@ async function toggle(x: any) {
     precioFinanciadoM2: x.precioFinanciadoM2,
     costoM2: x.costoM2,
     colores: x.colores ?? [],
+    controlPorLotes: Boolean(x.controlPorLotes),
     activo: !x.activo,
   });
   await load();
@@ -365,6 +369,9 @@ onMounted(() => isAdmin.value ? Promise.all([load(), loadSucursales()]) : load()
           <div class="field"><label>Precio contado por m²</label><input v-model.number="form.precioContadoM2" type="number" min="0" step="0.01" required /></div>
           <div class="field"><label>Precio financiado por m²</label><input v-model.number="form.precioFinanciadoM2" type="number" min="0" step="0.01" required /></div>
         </div>
+        <label class="check"
+          ><input v-model="form.controlPorLotes" type="checkbox" /> Este producto se controla por lotes de rollos con código de barra</label
+        >
         <label class="check"
           ><input v-model="form.activo" type="checkbox" /> Disponible para
           nuevas ventas</label

@@ -82,4 +82,86 @@ public sealed class StockRulesTests
             });
         Assert.All(movimientos, movimiento => Assert.Equal(depositoId, movimiento.DepositoId));
     }
+
+    [Fact]
+    public void Lote_con_dos_rollos_es_invalido()
+    {
+        var errors = StockEndpoints.ValidateRolls([
+            new('A', "COD-A", 50m),
+            new('B', "COD-B", 49.5m)
+        ]);
+
+        Assert.Contains("rollos", errors.Keys);
+    }
+
+    [Fact]
+    public void Lote_con_codigo_usado_en_otro_lote_es_invalido()
+    {
+        string[] nuevos = ["COD-A", "COD-YA-USADO", "COD-C"];
+        string[] existentes = ["COD-ANTERIOR", "cod-ya-usado"];
+
+        Assert.True(StockEndpoints.HasPreviouslyUsedBarcode(nuevos, existentes));
+    }
+
+    [Fact]
+    public void Lote_valido_crea_tres_rollos_y_movimiento_por_la_suma()
+    {
+        var depositoId = Guid.NewGuid();
+        var productoId = Guid.NewGuid();
+        var request = new IngresoLoteRequest(depositoId, productoId, "Azul", [
+            new('A', "LOTE-001-A", 49.5m),
+            new('B', "LOTE-001-B", 50m),
+            new('C', "LOTE-001-C", 50.75m)
+        ], "Ingreso de prueba");
+
+        Assert.Empty(StockEndpoints.ValidateRolls(request.Rollos));
+        var (lote, movimiento) = StockEndpoints.CreateLotRegistration(request, "tester", DateTime.UtcNow);
+
+        Assert.Equal(3, lote.Rollos.Count);
+        Assert.Equal(['A', 'B', 'C'], lote.Rollos.Select(x => x.Posicion).ToArray());
+        Assert.Equal(150.25m, movimiento.CantidadM2);
+        Assert.Equal(TipoMovimientoStock.Ingreso, movimiento.Tipo);
+        Assert.Equal(depositoId, movimiento.DepositoId);
+        Assert.Equal(productoId, movimiento.TipoCespedId);
+    }
+
+    [Fact]
+    public void Venta_rechaza_un_lote_ya_vendido()
+    {
+        var depositoId = Guid.NewGuid();
+        var productoId = Guid.NewGuid();
+        var lote = new LoteStock { DepositoId = depositoId, TipoCespedId = productoId, Color = "Azul", Estado = EstadoLoteStock.Vendido, VentaId = Guid.NewGuid() };
+        var linea = new VentaLineaCommand(productoId, "Azul", 150m, 10m, 15m, 2250m, lote.Id);
+
+        var exception = Assert.Throws<LoteNoDisponibleException>(() => VentaService.ValidateLotSelection(lote, linea, depositoId, null));
+
+        Assert.Equal("Ese lote ya fue vendido o no existe.", exception.Message);
+    }
+
+    [Fact]
+    public void Venta_exitosa_marca_el_lote_como_vendido()
+    {
+        var depositoId = Guid.NewGuid();
+        var productoId = Guid.NewGuid();
+        var ventaId = Guid.NewGuid();
+        var lote = new LoteStock { DepositoId = depositoId, TipoCespedId = productoId, Color = "Rojo", Estado = EstadoLoteStock.Disponible };
+        var linea = new VentaLineaCommand(productoId, "Rojo", 150m, 10m, 15m, 2250m, lote.Id);
+
+        VentaService.ValidateLotSelection(lote, linea, depositoId, null);
+        VentaService.MarkLotSold(lote, ventaId);
+
+        Assert.Equal(EstadoLoteStock.Vendido, lote.Estado);
+        Assert.Equal(ventaId, lote.VentaId);
+    }
+
+    [Fact]
+    public void Eliminar_venta_devuelve_el_lote_a_disponible()
+    {
+        var lote = new LoteStock { Estado = EstadoLoteStock.Vendido, VentaId = Guid.NewGuid() };
+
+        VentaService.ReleaseLot(lote);
+
+        Assert.Equal(EstadoLoteStock.Disponible, lote.Estado);
+        Assert.Null(lote.VentaId);
+    }
 }
