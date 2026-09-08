@@ -1,5 +1,6 @@
 using Api.Shared.Database;
 using Microsoft.EntityFrameworkCore;
+using Api.Features.Auth;
 
 namespace Api.Features.Sucursales;
 
@@ -11,21 +12,19 @@ public static class SucursalEndpoints
 {
     public static void MapSucursalEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/sucursales")
-            .WithTags("Administración - Sucursales")
-            .RequireAuthorization("Administrador");
+        var group = app.MapGroup("/api/sucursales").WithTags("Administración - Sucursales");
 
-        group.MapGet("/depositos", ListDepositos);
-        group.MapPost("/depositos", CreateDeposito);
-        group.MapPut("/depositos/{id:guid}", UpdateDeposito);
-        group.MapPatch("/depositos/{id:guid}/estado", SetDepositoEstado);
-        group.MapDelete("/depositos/{id:guid}", DeleteDeposito);
+        group.MapGet("/depositos", ListDepositos).RequirePermiso("administracion", "ver");
+        group.MapPost("/depositos", CreateDeposito).RequirePermiso("administracion", "crear");
+        group.MapPut("/depositos/{id:guid}", UpdateDeposito).RequirePermiso("administracion", "editar");
+        group.MapPatch("/depositos/{id:guid}/estado", SetDepositoEstado).RequirePermiso("administracion", "editar");
+        group.MapDelete("/depositos/{id:guid}", DeleteDeposito).RequirePermiso("administracion", "editar");
 
-        group.MapGet("/", ListSucursales);
-        group.MapPost("/", CreateSucursal);
-        group.MapPut("/{id:guid}", UpdateSucursal);
-        group.MapPatch("/{id:guid}/estado", SetSucursalEstado);
-        group.MapDelete("/{id:guid}", DeleteSucursal);
+        group.MapGet("/", ListSucursales).RequirePermiso("administracion", "ver");
+        group.MapPost("/", CreateSucursal).RequirePermiso("administracion", "crear");
+        group.MapPut("/{id:guid}", UpdateSucursal).RequirePermiso("administracion", "editar");
+        group.MapPatch("/{id:guid}/estado", SetSucursalEstado).RequirePermiso("administracion", "editar");
+        group.MapDelete("/{id:guid}", DeleteSucursal).RequirePermiso("administracion", "editar");
     }
 
     private static object DepositoDto(Deposito deposito) => new

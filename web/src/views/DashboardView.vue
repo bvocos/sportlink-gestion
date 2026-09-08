@@ -50,7 +50,7 @@ onMounted(load)
     <div class="dashboard-brand">
       <div class="page-title">
         <div><h2>Inicio</h2><p>Hola, {{ auth.state.user?.nombre || 'bienvenido' }}. Este es el avance del mes en curso.</p></div>
-        <RouterLink v-if="auth.can('ventas')" class="btn" to="/ventas/nueva">+ Nueva venta</RouterLink>
+        <RouterLink v-if="auth.can('ventas','crear')" class="btn" to="/ventas/nueva">+ Nueva venta</RouterLink>
       </div>
     </div>
 
@@ -68,11 +68,11 @@ onMounted(load)
         <article class="card metric chart-metric active"><small>Ventas en curso</small><strong>{{ money(data.enCurso.facturacion) }}</strong><em>{{ pluralize(data.enCurso.cantidad, 'operación pendiente', 'operaciones pendientes') }}</em><MiniSparkline :values="activeSeries" color="#c27a22" /></article>
         <article class="card metric chart-metric profit"><small>Ganancia neta estimada</small><strong :class="{ negative: data.total.gananciaNeta < 0 }">{{ money(data.total.gananciaNeta) }}</strong><em>Sobre las ventas del mes</em><MiniSparkline :values="profitSeries" color="#5372c8" /></article>
         <article class="card metric"><small>Metros vendidos</small><strong>{{ data.total.metros.toLocaleString('es-AR') }} m²</strong><em>Acumulados durante el mes</em></article>
-        <RouterLink v-if="auth.can('cuotas')" class="card metric metric-link" to="/cuotas"><small>Cuotas pendientes</small><strong>{{ data.cuotasPendientes }}</strong><em>Ver cuotas pendientes →</em></RouterLink>
+        <RouterLink v-if="auth.can('cuotas','ver')" class="card metric metric-link" to="/cuotas"><small>Cuotas pendientes</small><strong>{{ data.cuotasPendientes }}</strong><em>Ver cuotas pendientes →</em></RouterLink>
         <article v-else class="card metric"><small>Cuotas pendientes</small><strong>{{ data.cuotasPendientes }}</strong><em>De las ventas del mes</em></article>
-        <RouterLink v-if="auth.can('entregas')" class="card metric metric-link" to="/entregas"><small>Próximas entregas</small><strong>{{ data.entregasPendientes }}</strong><em>No se filtra por período · Ver detalle →</em></RouterLink>
+        <RouterLink v-if="auth.can('entregas','ver')" class="card metric metric-link" to="/entregas"><small>Próximas entregas</small><strong>{{ data.entregasPendientes }}</strong><em>No se filtra por período · Ver detalle →</em></RouterLink>
         <article v-else class="card metric"><small>Próximas entregas</small><strong>{{ data.entregasPendientes }}</strong><em>Entregas pendientes (todas)</em></article>
-        <RouterLink v-if="auth.can('caja')" class="card metric metric-link" to="/caja"><small>Saldo de caja</small><strong>{{ money(data.saldo) }}</strong><em>Actualizado al momento · Ver caja →</em></RouterLink>
+        <RouterLink v-if="auth.can('caja','ver')" class="card metric metric-link" to="/caja"><small>Saldo de caja</small><strong>{{ money(data.saldo) }}</strong><em>Actualizado al momento · Ver caja →</em></RouterLink>
         <article v-else class="card metric"><small>Saldo de caja</small><strong>{{ money(data.saldo) }}</strong><em>Actualizado al momento</em></article>
       </div>
     </template>

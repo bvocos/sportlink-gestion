@@ -2,6 +2,7 @@ using System.Security.Claims;
 using System.Text.Json;
 using Api.Shared.Common;
 using Api.Shared.Database;
+using Api.Features.Auth;
 using Microsoft.EntityFrameworkCore;
 
 namespace Api.Features.Stock;
@@ -17,13 +18,13 @@ public static class StockEndpoints
 
     public static void MapStockEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/stock").WithTags("Stock").RequireAuthorization("stock");
-        group.MapGet("/", GetStock);
-        group.MapGet("/movimientos", GetMovimientos);
-        group.MapPost("/ingresos", RegisterIngreso);
-        group.MapPost("/lotes", RegisterLote);
-        group.MapGet("/lotes", GetLotes);
-        group.MapGet("/lotes/buscar-por-codigo", SearchByBarcode);
+        var group = app.MapGroup("/api/stock").WithTags("Stock");
+        group.MapGet("/", GetStock).RequirePermiso("stock", "ver");
+        group.MapGet("/movimientos", GetMovimientos).RequirePermiso("stock", "ver");
+        group.MapPost("/ingresos", RegisterIngreso).RequirePermiso("stock", "crear");
+        group.MapPost("/lotes", RegisterLote).RequirePermiso("stock", "crear");
+        group.MapGet("/lotes", GetLotes).RequirePermiso("stock", "ver");
+        group.MapGet("/lotes/buscar-por-codigo", SearchByBarcode).RequirePermiso("stock", "ver");
     }
 
     internal static StockAuthorizationFailure? ValidateIngresoScope(ClaimsPrincipal currentUser, Guid depositoId, Guid? depositoPropioId)

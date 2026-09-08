@@ -7,6 +7,7 @@ import { formatCurrency as money } from "@/shared/formatters";
 import { confirmAction, notify } from "@/shared/uiFeedback";
 import { auth } from "@/auth";
 import SucursalFilter from "@/shared/components/SucursalFilter.vue";
+const moneyOrDash = (value: number | null | undefined) => value == null ? "—" : money(value);
 const items = ref<any[]>([]),
   clientes = ref<any[]>([]),
   maestros = ref<any>({ tiposCesped: [], alicuotasIva: [] }),
@@ -175,7 +176,7 @@ onMounted(load);
         <h2>Ventas</h2>
         <p>Operaciones, costos y margen en un solo lugar.</p>
       </div>
-      <RouterLink class="btn" to="/ventas/nueva">+ Registrar venta</RouterLink>
+      <RouterLink v-if="auth.can('ventas','crear')" class="btn" to="/ventas/nueva">+ Registrar venta</RouterLink>
     </div>
     <form class="panel sales-filters" @submit.prevent="loadSales">
       <div class="field"><label>Período</label><select v-model="filters.periodo" @change="applyPeriod"><option value="all">Todo el historial</option><option value="week">Última semana</option><option value="month">Último mes</option><option value="sixMonths">Últimos 6 meses</option><option value="custom">Personalizado</option></select></div>
@@ -208,21 +209,21 @@ onMounted(load);
               ><br /><small><template v-if="v.lineas?.length > 1">{{v.lineas.length}} productos</template><template v-else>{{ v.tipoCesped }}<template v-if="v.color"> · {{ v.color }}</template></template> · {{ v.cantidadM2 }} m²</small>
             </td>
             <td>{{ v.fechaVenta }}</td>
-            <td>{{ money(v.precioTotal) }}</td>
-            <td>{{ money(v.montoEntrega) }}</td>
+            <td>{{ moneyOrDash(v.precioTotal) }}</td>
+            <td>{{ moneyOrDash(v.montoEntrega) }}</td>
             <td>
               <span class="badge" :class="saleStatusClass(v.estado)">{{ v.estado }}</span>
             </td>
             <td>
               <div class="row-actions">
                 <button
-                  v-if="!['Entregada', 'Cancelada'].includes(v.estado)"
+                  v-if="auth.can('ventas','editar') && !['Entregada', 'Cancelada'].includes(v.estado)"
                   class="btn secondary compact"
                   @click="deliver(v.id)"
                 >
                   Entregar</button
-                ><RouterLink class="icon-btn" :to="`/ventas/${v.id}/editar`" title="Editar venta"><Pencil /></RouterLink
-                ><button class="icon-btn danger" @click="remove(v)">
+                ><RouterLink v-if="auth.can('ventas','editar')" class="icon-btn" :to="`/ventas/${v.id}/editar`" title="Editar venta"><Pencil /></RouterLink
+                ><button v-if="auth.can('ventas','eliminar')" class="icon-btn danger" @click="remove(v)">
                   <Trash2 />
                 </button>
               </div>

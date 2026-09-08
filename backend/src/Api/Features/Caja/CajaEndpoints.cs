@@ -1,5 +1,6 @@
 using Api.Shared.Common;
 using Api.Shared.Database;
+using Api.Features.Auth;
 using Microsoft.EntityFrameworkCore;
 using System.Data;
 using System.Security.Claims;
@@ -17,7 +18,7 @@ public static class CajaEndpoints
             : null;
     public static void MapCajaEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/caja").WithTags("Caja").RequireAuthorization("caja");
+        var group = app.MapGroup("/api/caja").WithTags("Caja");
         group.MapGet("/", async (Guid? sucursalId, ClaimsPrincipal user, AppDbContext db, CancellationToken ct) => new
         {
             saldo = await VisibleQuery(db.MovimientosCaja, user, sucursalId).SumAsync(x => x.Tipo == TipoMovimiento.Ingreso ? x.Monto : -x.Monto, ct),
@@ -26,9 +27,9 @@ public static class CajaEndpoints
                 ? await db.Sucursales.AsNoTracking().Where(x => x.Activo).OrderBy(x => x.Nombre)
                     .Select(x => new { x.Id, x.Nombre }).ToListAsync(ct)
                 : []
-        });
-        group.MapPost("/movimientos", RegistrarMovimiento);
-        group.MapPut("/movimientos/{id:guid}/observacion", ActualizarObservacion);
+        }).RequirePermiso("caja", "ver");
+        group.MapPost("/movimientos", RegistrarMovimiento).RequirePermiso("caja", "crear");
+        group.MapPut("/movimientos/{id:guid}/observacion", ActualizarObservacion).RequirePermiso("caja", "editar");
     }
 
     internal static IQueryable<MovimientoCaja> VisibleQuery(IQueryable<MovimientoCaja> query, ClaimsPrincipal user,

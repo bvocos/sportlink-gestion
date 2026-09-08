@@ -209,7 +209,7 @@ onMounted(() => isAdmin.value ? Promise.all([load(), loadSucursales()]) : load()
         <h2>Administración</h2>
         <p>Productos, precios y costos maestros.</p>
       </div>
-      <button class="btn" @click="create">+ Tipo de césped</button>
+      <button v-if="auth.can('administracion','crear')" class="btn" @click="create">+ Tipo de césped</button>
     </div>
     <div class="panel">
       <table>
@@ -243,7 +243,7 @@ onMounted(() => isAdmin.value ? Promise.all([load(), loadSucursales()]) : load()
               }}</span>
             </td>
             <td>
-              <div class="row-actions product-actions">
+              <div v-if="auth.can('administracion','editar')" class="row-actions product-actions">
                 <button class="icon-btn tooltip" type="button" title="Editar producto" aria-label="Editar producto" data-tooltip="Editar producto" @click="edit(x)"><Pencil /></button
                 ><button class="icon-btn tooltip" type="button" :title="x.activo ? 'Desactivar producto' : 'Activar producto'" :aria-label="x.activo ? 'Desactivar producto' : 'Activar producto'" :data-tooltip="x.activo ? 'Desactivar producto' : 'Activar producto'" @click="toggle(x)"><Power /></button
                 ><button class="icon-btn danger tooltip" type="button" title="Eliminar producto" aria-label="Eliminar producto" data-tooltip="Eliminar producto" @click="remove(x)">
@@ -255,11 +255,11 @@ onMounted(() => isAdmin.value ? Promise.all([load(), loadSucursales()]) : load()
         </tbody>
       </table>
     </div>
-    <div v-if="isAdmin" class="admin-master-grid">
+    <div v-if="auth.can('administracion','ver')" class="admin-master-grid">
       <div class="panel">
         <div class="panel-head">
           <div><h3>Depósitos</h3><small>Ubicaciones habilitadas para recibir ingresos de stock.</small></div>
-          <button class="btn secondary compact" type="button" @click="createDeposito">+ Depósito</button>
+          <button v-if="auth.can('administracion','crear')" class="btn secondary compact" type="button" @click="createDeposito">+ Depósito</button>
         </div>
         <table>
           <thead><tr><th>Nombre</th><th>Estado</th><th></th></tr></thead>
@@ -267,7 +267,7 @@ onMounted(() => isAdmin.value ? Promise.all([load(), loadSucursales()]) : load()
             <tr v-for="deposito in depositos" :key="deposito.id">
               <td><b>{{ deposito.nombre }}</b></td>
               <td><span class="badge" :class="{ warn: !deposito.activo }">{{ deposito.activo ? 'Activo' : 'Inactivo' }}</span></td>
-              <td><div class="row-actions"><button class="icon-btn tooltip" type="button" title="Editar depósito" aria-label="Editar depósito" data-tooltip="Editar depósito" @click="editDeposito(deposito)"><Pencil /></button><button class="icon-btn tooltip" type="button" :title="deposito.activo ? 'Desactivar depósito' : 'Activar depósito'" :aria-label="deposito.activo ? 'Desactivar depósito' : 'Activar depósito'" :data-tooltip="deposito.activo ? 'Desactivar depósito' : 'Activar depósito'" @click="toggleDeposito(deposito)"><Power /></button></div></td>
+              <td><div v-if="auth.can('administracion','editar')" class="row-actions"><button class="icon-btn tooltip" type="button" title="Editar depósito" aria-label="Editar depósito" data-tooltip="Editar depósito" @click="editDeposito(deposito)"><Pencil /></button><button class="icon-btn tooltip" type="button" :title="deposito.activo ? 'Desactivar depósito' : 'Activar depósito'" :aria-label="deposito.activo ? 'Desactivar depósito' : 'Activar depósito'" :data-tooltip="deposito.activo ? 'Desactivar depósito' : 'Activar depósito'" @click="toggleDeposito(deposito)"><Power /></button></div></td>
             </tr>
           </tbody>
         </table>
@@ -275,7 +275,7 @@ onMounted(() => isAdmin.value ? Promise.all([load(), loadSucursales()]) : load()
       <div class="panel">
         <div class="panel-head">
           <div><h3>Sucursales</h3><small>Cada sucursal opera con un depósito propio.</small></div>
-          <button class="btn secondary compact" type="button" @click="createSucursal">+ Sucursal</button>
+          <button v-if="auth.can('administracion','crear')" class="btn secondary compact" type="button" @click="createSucursal">+ Sucursal</button>
         </div>
         <table>
           <thead><tr><th>Nombre</th><th>Depósito propio</th><th>Estado</th><th></th></tr></thead>
@@ -283,7 +283,7 @@ onMounted(() => isAdmin.value ? Promise.all([load(), loadSucursales()]) : load()
             <tr v-for="sucursal in sucursales" :key="sucursal.id">
               <td><b>{{ sucursal.nombre }}</b></td><td>{{ sucursal.depositoPropioNombre }}</td>
               <td><span class="badge" :class="{ warn: !sucursal.activo }">{{ sucursal.activo ? 'Activa' : 'Inactiva' }}</span></td>
-              <td><div class="row-actions"><button class="icon-btn tooltip" type="button" title="Editar sucursal" aria-label="Editar sucursal" data-tooltip="Editar sucursal" @click="editSucursal(sucursal)"><Pencil /></button><button class="icon-btn tooltip" type="button" :title="sucursal.activo ? 'Desactivar sucursal' : 'Activar sucursal'" :aria-label="sucursal.activo ? 'Desactivar sucursal' : 'Activar sucursal'" :data-tooltip="sucursal.activo ? 'Desactivar sucursal' : 'Activar sucursal'" @click="toggleSucursal(sucursal)"><Power /></button></div></td>
+              <td><div v-if="auth.can('administracion','editar')" class="row-actions"><button class="icon-btn tooltip" type="button" title="Editar sucursal" aria-label="Editar sucursal" data-tooltip="Editar sucursal" @click="editSucursal(sucursal)"><Pencil /></button><button class="icon-btn tooltip" type="button" :title="sucursal.activo ? 'Desactivar sucursal' : 'Activar sucursal'" :aria-label="sucursal.activo ? 'Desactivar sucursal' : 'Activar sucursal'" :data-tooltip="sucursal.activo ? 'Desactivar sucursal' : 'Activar sucursal'" @click="toggleSucursal(sucursal)"><Power /></button></div></td>
             </tr>
           </tbody>
         </table>

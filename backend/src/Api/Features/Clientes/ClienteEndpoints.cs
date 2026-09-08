@@ -1,5 +1,6 @@
 using Api.Shared.Common;
 using Api.Shared.Database;
+using Api.Features.Auth;
 using FluentValidation;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
@@ -52,7 +53,7 @@ public sealed class CrearClienteHandler(AppDbContext db) : IRequestHandler<Crear
 }
 public static class ClienteEndpoints
 {
-    public static void MapClienteEndpoints(this IEndpointRouteBuilder app){var g=app.MapGroup("/api/clientes").WithTags("Clientes").RequireAuthorization("clientes");g.MapPost("/",Create);g.MapGet("/",List);g.MapPut("/{id:guid}",Update);g.MapDelete("/{id:guid}",Delete);}
+    public static void MapClienteEndpoints(this IEndpointRouteBuilder app){var g=app.MapGroup("/api/clientes").WithTags("Clientes");g.MapPost("/",Create).RequirePermiso("clientes","crear");g.MapGet("/",List).RequirePermiso("clientes","ver");g.MapPut("/{id:guid}",Update).RequirePermiso("clientes","editar");g.MapDelete("/{id:guid}",Delete).RequirePermiso("clientes","eliminar");}
     static async Task<IResult> Create(CrearClienteCommand request,ISender sender,IValidator<CrearClienteCommand> validator,CancellationToken ct){var validation=await validator.ValidateAsync(request,ct);if(!validation.IsValid)return Results.ValidationProblem(validation.Errors.GroupBy(x=>x.PropertyName).ToDictionary(x=>x.Key,x=>x.Select(e=>e.ErrorMessage).ToArray()));var cliente=await sender.Send(request,ct);return Results.Created($"/api/clientes/{cliente.Id}",cliente);}
     static async Task<PaginatedResponse<ClienteDto>> List(AppDbContext db,int page=1,int pageSize=20,string? buscar=null,CancellationToken ct=default){var q=db.Clientes.AsNoTracking();if(!string.IsNullOrWhiteSpace(buscar))q=q.Where(x=>(x.Nombre+" "+x.Apellido).Contains(buscar));var total=await q.CountAsync(ct);var rows=await q.OrderBy(x=>x.Apellido).Skip((page-1)*pageSize).Take(pageSize).ToListAsync(ct);return new(rows.Select(CrearClienteHandler.ToDto).ToList(),page,pageSize,total,(int)Math.Ceiling(total/(double)pageSize));}
     static async Task<IResult> Update(Guid id,CrearClienteCommand request,AppDbContext db,IValidator<CrearClienteCommand> validator,CancellationToken ct){var validation=await validator.ValidateAsync(request,ct);if(!validation.IsValid)return Results.ValidationProblem(validation.Errors.GroupBy(x=>x.PropertyName).ToDictionary(x=>x.Key,x=>x.Select(e=>e.ErrorMessage).ToArray()));var cliente=await db.Clientes.FindAsync([id],ct);if(cliente is null)return Results.NotFound();CrearClienteHandler.Apply(cliente,request);await db.SaveChangesAsync(ct);return Results.Ok(CrearClienteHandler.ToDto(cliente));}

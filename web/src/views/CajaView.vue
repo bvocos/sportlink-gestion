@@ -94,9 +94,9 @@ onMounted(load);
           @click="exportCsv"
         >
           Exportar a CSV</button
-        ><button class="btn" @click="openForm('Ingreso')">
+        ><button v-if="auth.can('caja','crear')" class="btn" @click="openForm('Ingreso')">
           + Ingresar dinero</button
-        ><button class="btn danger-btn" @click="openForm('Retiro')">
+        ><button v-if="auth.can('caja','crear')" class="btn danger-btn" @click="openForm('Retiro')">
           − Retirar dinero
         </button>
       </div>
@@ -145,7 +145,7 @@ onMounted(load);
                 >
               </td>
               <td>
-                <button class="btn secondary compact" @click="openObservation(m)">
+                <button v-if="auth.can('caja','editar')" class="btn secondary compact" @click="openObservation(m)">
                   Editar observación
                 </button>
               </td>

@@ -291,7 +291,7 @@ onMounted(() => load());
         </template>
         <template v-else>
           <p>Todavía no hay ventas para analizar.</p>
-          <RouterLink class="btn" to="/ventas/nueva">+ Nueva venta</RouterLink>
+          <RouterLink v-if="auth.can('ventas','crear')" class="btn" to="/ventas/nueva">+ Nueva venta</RouterLink>
         </template>
       </div>
       <div v-if="totalPages > 1" class="actions">

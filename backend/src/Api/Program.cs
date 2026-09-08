@@ -22,6 +22,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.AspNetCore.Authorization;
 using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -67,9 +68,9 @@ builder.Services.AddAuthorization(o=>
 {
     o.FallbackPolicy=new Microsoft.AspNetCore.Authorization.AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build();
     o.AddPolicy("Administrador",p=>p.RequireRole("Administrador"));
-    foreach(var permiso in Permissions.All)
-        o.AddPolicy(permiso,p=>p.RequireAssertion(context=>context.User.IsInRole("Administrador")||context.User.HasClaim("permiso",permiso)));
 });
+builder.Services.AddSingleton<IAuthorizationHandler, PermisoHandler>();
+builder.Services.AddSingleton<IAuthorizationPolicyProvider, PermisoPolicyProvider>();
 builder.Services.AddCors(o => o.AddDefaultPolicy(p => p.WithOrigins(builder.Configuration.GetSection("AllowedOrigins").Get<string[]>() ?? ["http://localhost:5173"]).AllowAnyHeader().AllowAnyMethod()));
 
 var app = builder.Build();

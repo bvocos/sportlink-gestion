@@ -1,6 +1,7 @@
 using Api.Shared.Database;
 using Microsoft.EntityFrameworkCore;
 using System.Text.Json;
+using Api.Features.Auth;
 
 namespace Api.Features.Maestros;
 
@@ -11,12 +12,12 @@ public static class MaestroEndpoints
 {
     public static void MapMaestroEndpoints(this IEndpointRouteBuilder app)
     {
-        app.MapGet("/api/maestros", GetAll).WithTags("Maestros").RequireAuthorization("ventas");
-        var types = app.MapGroup("/api/maestros/tipos-cesped").WithTags("Maestros - Tipos de césped").RequireAuthorization("administracion");
-        types.MapGet("/", GetTypes);
-        types.MapPost("/", CreateType);
-        types.MapPut("/{id:guid}", UpdateType);
-        types.MapDelete("/{id:guid}", DeleteType);
+        app.MapGet("/api/maestros", GetAll).WithTags("Maestros").RequirePermiso("ventas", "ver");
+        var types = app.MapGroup("/api/maestros/tipos-cesped").WithTags("Maestros - Tipos de césped");
+        types.MapGet("/", GetTypes).RequirePermiso("administracion", "ver");
+        types.MapPost("/", CreateType).RequirePermiso("administracion", "crear");
+        types.MapPut("/{id:guid}", UpdateType).RequirePermiso("administracion", "editar");
+        types.MapDelete("/{id:guid}", DeleteType).RequirePermiso("administracion", "editar");
     }
 
     private static string[] Colors(TipoCesped type) =>

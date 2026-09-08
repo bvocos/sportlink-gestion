@@ -2,6 +2,7 @@ using System.Data;
 using System.Security.Claims;
 using Api.Shared.Common;
 using Api.Shared.Database;
+using Api.Features.Auth;
 using Microsoft.EntityFrameworkCore;
 
 namespace Api.Features.Cuotas;
@@ -27,16 +28,17 @@ public static class CuotaEndpoints
         fechaVencimiento == default ? "Ingresá una fecha de vencimiento válida." : null;
     internal static IQueryable<Cuota> VisibleQuery(IQueryable<Cuota> query, ClaimsPrincipal user,
         Guid? sucursalId = null) => query.WhereVisibleParaUsuario(user, sucursalId);
+    internal static bool PuedeVerMontos(ClaimsPrincipal user) => user.IsInRole("Administrador") || PermisosMatriz.DesdeClaims(user).PuedeVerMontos("cuotas");
 
     public static void MapCuotaEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/cuotas").WithTags("Cuotas").RequireAuthorization("cuotas");
-        group.MapGet("/pendientes", (Guid? sucursalId, ClaimsPrincipal user, AppDbContext db, CancellationToken ct) => List(user, db, false, sucursalId, ct));
-        group.MapGet("/pendientes/resumen", ResumenPendiente);
-        group.MapGet("/abonadas", (Guid? sucursalId, ClaimsPrincipal user, AppDbContext db, CancellationToken ct) => List(user, db, true, sucursalId, ct));
-        group.MapPut("/{id:guid}/vencimiento", ActualizarVencimiento);
-        group.MapPost("/{id:guid}/pagos", RegistrarPago);
-        group.MapPost("/{id:guid}/anular-pago", AnularPago);
+        var group = app.MapGroup("/api/cuotas").WithTags("Cuotas");
+        group.MapGet("/pendientes", (Guid? sucursalId, ClaimsPrincipal user, AppDbContext db, CancellationToken ct) => List(user, db, false, sucursalId, ct)).RequirePermiso("cuotas", "ver");
+        group.MapGet("/pendientes/resumen", ResumenPendiente).RequirePermiso("cuotas", "ver");
+        group.MapGet("/abonadas", (Guid? sucursalId, ClaimsPrincipal user, AppDbContext db, CancellationToken ct) => List(user, db, true, sucursalId, ct)).RequirePermiso("cuotas", "ver");
+        group.MapPut("/{id:guid}/vencimiento", ActualizarVencimiento).RequirePermiso("cuotas", "editar");
+        group.MapPost("/{id:guid}/pagos", RegistrarPago).RequirePermiso("cuotas", "registrarPago");
+        group.MapPost("/{id:guid}/anular-pago", AnularPago).RequirePermiso("cuotas", "anularPago");
     }
 
     private static async Task<IResult> List(ClaimsPrincipal user, AppDbContext db, bool abonadas, Guid? sucursalId, CancellationToken ct)
@@ -52,7 +54,17 @@ public static class CuotaEndpoints
                 x.ImportePactado, x.ImportePagado,
                 estado = abonadas ? EstadoCuota.Pagada : x.FechaVencimiento < DateOnly.FromDateTime(DateTime.Today) && x.Estado != EstadoCuota.Pagada ? EstadoCuota.Vencida : x.Estado })
             .ToListAsync(ct);
-        return Results.Ok(rows);
+        var verMontos = PuedeVerMontos(user);
+        return Results.Ok(rows.Select(x => new
+        {
+            x.Id, x.VentaId, x.cliente, x.fechaVenta, x.tipoCesped,
+            totalVenta = verMontos ? (decimal?)x.totalVenta : null,
+            x.Numero, x.FechaVencimiento, x.FechaPago, x.fechaImpacto, x.MedioPago,
+            importePactado = verMontos ? (decimal?)x.ImportePactado : null,
+            importePagado = verMontos ? (decimal?)x.ImportePagado : null,
+            saldoPendiente = verMontos ? (decimal?)(x.ImportePactado - x.ImportePagado) : null,
+            x.estado
+        }));
     }
 
     private static async Task<IResult> ResumenPendiente(string? buscar, Guid? sucursalId, ClaimsPrincipal user, AppDbContext db, CancellationToken ct)
@@ -64,7 +76,8 @@ public static class CuotaEndpoints
         var resumen = await query.GroupBy(_ => 1)
             .Select(g => new { cantidad = g.Count(), totalPendiente = g.Sum(x => x.ImportePactado - x.ImportePagado) })
             .SingleOrDefaultAsync(ct);
-        return Results.Ok(resumen ?? new { cantidad = 0, totalPendiente = 0m });
+        if (!PuedeVerMontos(user)) return Results.Ok(new { cantidad = resumen?.cantidad ?? 0, totalPendiente = (decimal?)null });
+        return Results.Ok(new { cantidad = resumen?.cantidad ?? 0, totalPendiente = (decimal?)(resumen?.totalPendiente ?? 0m) });
     }
 
     private static async Task<IResult> RegistrarPago(Guid id, PagoRequest request, ClaimsPrincipal user, AppDbContext db, CancellationToken ct)

@@ -2,6 +2,7 @@ using Api.Shared.Common;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
 using System.Text.Json;
+using Api.Features.Auth;
 
 namespace Api.Shared.Database;
 
@@ -413,5 +414,15 @@ public static class SeedData
         if (!await db.Configuraciones.AnyAsync()) db.Configuraciones.Add(new Configuracion { Clave="UmbralMuyRentable", ValorDecimal=.30m });
         if (!await db.Usuarios.AnyAsync()) { var admin=new Usuario{Nombre="Administrador",NombreUsuario="admin",Rol="Administrador",PermisosJson="[]",DebeCambiarPassword=true}; var hasher=scope.ServiceProvider.GetRequiredService<Microsoft.AspNetCore.Identity.IPasswordHasher<Usuario>>(); admin.PasswordHash=hasher.HashPassword(admin,"Admin123!"); db.Usuarios.Add(admin); }
         await db.SaveChangesAsync();
+        var usuarios = await db.Usuarios.ToListAsync();
+        var permisosActualizados = false;
+        foreach (var usuario in usuarios)
+        {
+            using var permisosJson = JsonDocument.Parse(string.IsNullOrWhiteSpace(usuario.PermisosJson) ? "[]" : usuario.PermisosJson);
+            if (permisosJson.RootElement.ValueKind != JsonValueKind.Array) continue;
+            usuario.PermisosJson = JsonSerializer.Serialize(PermisosMatriz.DesdeJson(usuario.PermisosJson));
+            permisosActualizados = true;
+        }
+        if (permisosActualizados) await db.SaveChangesAsync();
     }
 }

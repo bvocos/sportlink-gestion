@@ -6,10 +6,17 @@ export interface Session {
   nombre: string
   usuario: string
   rol: string
-  permisos: string[]
+  permisos: PermissionMatrix
   debeCambiarPassword: boolean
   sucursalId: string | null
   sucursalNombre: string | null
+}
+
+export type PermissionMatrix = Record<string, Record<string, boolean> | boolean>
+export function canInMatrix(matrix: PermissionMatrix | string[] | undefined, module: string, action = 'ver') {
+  if (Array.isArray(matrix)) return matrix.includes(module)
+  const permissions = matrix?.[module]
+  return typeof permissions === 'object' && permissions !== null && permissions[action] === true
 }
 
 const state = reactive<{ user: Session | null; checked: boolean }>({ user: null, checked: false })
@@ -64,8 +71,11 @@ export const auth = {
     await http.post('/auth/logout')
     state.user = null
   },
-  can(permission: string) {
+  can(module: string, action = 'ver') {
     return !!state.user &&
-      (state.user.rol === 'Administrador' || state.user.permisos.includes(permission))
+      (state.user.rol === 'Administrador' || canInMatrix(state.user.permisos, module, action))
+  },
+  canVerMontos(module: 'ventas' | 'cuotas') {
+    return !!state.user && (state.user.rol === 'Administrador' || state.user.permisos?.[`${module}.verMontos`] === true)
   }
 }

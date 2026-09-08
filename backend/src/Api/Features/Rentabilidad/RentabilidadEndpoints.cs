@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text;
 using Api.Shared.Common;
 using Api.Shared.Database;
+using Api.Features.Auth;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
 
@@ -24,10 +25,9 @@ public static class RentabilidadEndpoints
 
     public static void MapRentabilidadEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/rentabilidad").WithTags("Rentabilidad")
-            .RequireAuthorization("rentabilidad");
-        group.MapGet("/", GetReport);
-        group.MapGet("/exportar", ExportAll);
+        var group = app.MapGroup("/api/rentabilidad").WithTags("Rentabilidad");
+        group.MapGet("/", GetReport).RequirePermiso("rentabilidad", "ver");
+        group.MapGet("/exportar", ExportAll).RequirePermiso("rentabilidad", "ver");
     }
 
     internal static IQueryable<Venta> ApplyFilters(IQueryable<Venta> query, string? buscar,

@@ -6,6 +6,7 @@ import { downloadCsv } from "@/shared/csv";
 import { confirmAction, notify } from "@/shared/uiFeedback";
 import { auth } from "@/auth";
 import SucursalFilter from "@/shared/components/SucursalFilter.vue";
+const moneyOrDash = (value: number | null | undefined) => value == null ? "—" : money(value);
 const pendientes = ref<any[]>([]),
   abonadas = ref<any[]>([]),
   tab = ref<"pendientes" | "abonadas">("pendientes"),
@@ -15,7 +16,7 @@ const pendientes = ref<any[]>([]),
   editingDueDate = ref<any | null>(null),
   dueDate = ref(""),
   dueDateError = ref(""),
-  totalPendiente = ref(0),
+  totalPendiente = ref<number | null>(0),
   cantidadPendiente = ref(0),
   resumenLoading = ref(false);
 const sucursalFiltro = ref("");
@@ -61,7 +62,7 @@ async function loadPendingSummary() {
   try {
     const r = await http.get("/cuotas/pendientes/resumen", { params: { buscar: clienteFiltro.value.trim() || undefined, sucursalId: sucursalFiltro.value || undefined } });
     if (request === resumenRequest) {
-      totalPendiente.value = Number(r.data.totalPendiente ?? 0);
+      totalPendiente.value = r.data.totalPendiente == null ? null : Number(r.data.totalPendiente);
       cantidadPendiente.value = Number(r.data.cantidad ?? 0);
     }
   } catch (e) {
@@ -208,7 +209,7 @@ onBeforeUnmount(() => { if (resumenTimer) clearTimeout(resumenTimer); });
       </div><small>{{ visible.length }} cuotas</small>
     </div>
     <article v-if="tab === 'pendientes'" class="card cuotas-pending-total">
-      <div><small>{{ clienteFiltro.trim() ? "Pendiente del cliente buscado" : "Pendiente total por cobrar" }}</small><strong>{{ resumenLoading ? "Calculando…" : money(totalPendiente) }}</strong></div>
+      <div><small>{{ clienteFiltro.trim() ? "Pendiente del cliente buscado" : "Pendiente total por cobrar" }}</small><strong>{{ resumenLoading ? "Calculando…" : moneyOrDash(totalPendiente) }}</strong></div>
       <span>{{ cantidadPendiente }} {{ cantidadPendiente === 1 ? "cuota pendiente" : "cuotas pendientes" }}</span>
     </article>
     <div class="panel">
@@ -235,7 +236,7 @@ onBeforeUnmount(() => { if (resumenTimer) clearTimeout(resumenTimer); });
             <td>
               <b>{{ c.tipoCesped }}</b
               ><br /><small
-                >{{ c.fechaVenta }} · {{ money(c.totalVenta) }}<br />Venta
+                >{{ c.fechaVenta }} · {{ moneyOrDash(c.totalVenta) }}<br />Venta
                 {{ c.ventaId.slice(0, 8).toUpperCase() }}</small
               >
             </td>
@@ -245,7 +246,7 @@ onBeforeUnmount(() => { if (resumenTimer) clearTimeout(resumenTimer); });
             </td>
             <td class="num">
               {{
-                money(tab === "pendientes" ? c.importePactado : c.importePagado)
+                moneyOrDash(tab === "pendientes" ? c.importePactado : c.importePagado)
               }}
             </td>
             <td v-if="tab === 'abonadas'">
@@ -260,20 +261,20 @@ onBeforeUnmount(() => { if (resumenTimer) clearTimeout(resumenTimer); });
             <td>
               <div class="row-actions">
                 <button
-                  v-if="tab === 'pendientes'"
+                  v-if="tab === 'pendientes' && auth.can('cuotas','registrarPago')"
                   class="btn compact"
                   @click="openPayment(c)"
                 >
                   Registrar pago
                 </button>
                 <button
-                  v-else
+                  v-else-if="auth.can('cuotas','anularPago')"
                   class="btn danger-btn compact"
                   @click="cancelPayment(c)"
                 >
                   Anular cobro
                 </button>
-                <button class="btn secondary compact" @click="openDueDate(c)">
+                <button v-if="auth.can('cuotas','editar')" class="btn secondary compact" @click="openDueDate(c)">
                   Editar vencimiento
                 </button>
               </div>
@@ -304,7 +305,7 @@ onBeforeUnmount(() => { if (resumenTimer) clearTimeout(resumenTimer); });
             required
           /><small
             >Saldo pendiente:
-            {{ money(selected.importePactado - selected.importePagado) }}</small
+            {{ selected.saldoPendiente == null ? '—' : money(selected.saldoPendiente) }}</small
           >
         </div>
         <div class="field">

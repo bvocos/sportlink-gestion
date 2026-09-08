@@ -3,6 +3,7 @@ import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { Download, Eye, Pencil, Trash2, X } from 'lucide-vue-next'
 import { http, apiErrorMessage } from '@/shared/api/httpClient'
 import { confirmAction, notify } from '@/shared/uiFeedback'
+import { auth } from '@/auth'
 
 const items=ref<any[]>([]),loading=ref(true),error=ref(''),previewUrl=ref(''),previewTitle=ref(''),previewLoading=ref(false)
 const usd=(v:number)=>new Intl.NumberFormat('es-AR',{style:'currency',currency:'USD'}).format(v)
@@ -17,15 +18,15 @@ onBeforeUnmount(closePreview)
 
 <template>
   <section class="page">
-    <div class="page-title"><div><h2>Presupuestos</h2><p>Propuestas comerciales en USD listas para enviar.</p></div><RouterLink class="btn" to="/presupuestos/nuevo">+ Nuevo presupuesto</RouterLink></div>
+    <div class="page-title"><div><h2>Presupuestos</h2><p>Propuestas comerciales en USD listas para enviar.</p></div><RouterLink v-if="auth.can('presupuestos','crear')" class="btn" to="/presupuestos/nuevo">+ Nuevo presupuesto</RouterLink></div>
     <div v-if="error" class="error">{{error}}</div>
     <div v-else-if="loading" class="panel loading">Cargando…</div>
     <div v-else class="panel">
       <table>
         <thead><tr><th>N.º</th><th>Fecha</th><th>Cliente</th><th class="num">Contado</th><th class="num">Financiado</th><th>Vigencia</th><th></th></tr></thead>
-        <tbody><tr v-for="x in items" :key="x.id"><td><b>#{{String(x.numero).padStart(5,'0')}}</b></td><td>{{new Date(x.fecha+'T00:00:00').toLocaleDateString('es-AR')}}</td><td>{{x.cliente}}</td><td class="num">{{usd(x.totalContado)}}</td><td class="num">{{usd(x.totalFinanciado)}}</td><td>24 horas</td><td><div class="row-actions"><button class="icon-btn" title="Visualizar presupuesto" aria-label="Visualizar presupuesto" @click="preview(x)"><Eye/></button><button class="icon-btn" title="Descargar PDF" aria-label="Descargar PDF" @click="pdf(x)"><Download/></button><RouterLink class="icon-btn" title="Editar" aria-label="Editar presupuesto" :to="`/presupuestos/${x.id}/editar`"><Pencil/></RouterLink><button class="icon-btn danger" title="Eliminar" aria-label="Eliminar presupuesto" @click="remove(x)"><Trash2/></button></div></td></tr></tbody>
+        <tbody><tr v-for="x in items" :key="x.id"><td><b>#{{String(x.numero).padStart(5,'0')}}</b></td><td>{{new Date(x.fecha+'T00:00:00').toLocaleDateString('es-AR')}}</td><td>{{x.cliente}}</td><td class="num">{{usd(x.totalContado)}}</td><td class="num">{{usd(x.totalFinanciado)}}</td><td>24 horas</td><td><div class="row-actions"><button class="icon-btn" title="Visualizar presupuesto" aria-label="Visualizar presupuesto" @click="preview(x)"><Eye/></button><button class="icon-btn" title="Descargar PDF" aria-label="Descargar PDF" @click="pdf(x)"><Download/></button><RouterLink v-if="auth.can('presupuestos','editar')" class="icon-btn" title="Editar" aria-label="Editar presupuesto" :to="`/presupuestos/${x.id}/editar`"><Pencil/></RouterLink><button v-if="auth.can('presupuestos','eliminar')" class="icon-btn danger" title="Eliminar" aria-label="Eliminar presupuesto" @click="remove(x)"><Trash2/></button></div></td></tr></tbody>
       </table>
-      <div v-if="!items.length" class="empty"><p>Todavía no cargaste ningún presupuesto.</p><RouterLink class="btn" to="/presupuestos/nuevo">+ Nuevo presupuesto</RouterLink></div>
+      <div v-if="!items.length" class="empty"><p>Todavía no cargaste ningún presupuesto.</p><RouterLink v-if="auth.can('presupuestos','crear')" class="btn" to="/presupuestos/nuevo">+ Nuevo presupuesto</RouterLink></div>
     </div>
     <div v-if="previewTitle" class="modal-bg pdf-preview-bg" @click.self="closePreview">
       <section class="modal pdf-preview-modal" role="dialog" aria-modal="true" :aria-label="previewTitle">

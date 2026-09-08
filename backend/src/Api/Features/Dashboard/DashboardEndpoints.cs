@@ -1,4 +1,5 @@
 using Api.Shared.Database;
+using Api.Features.Auth;
 using Api.Features.Rentabilidad;
 using Microsoft.EntityFrameworkCore;
 using Api.Shared.Common;
@@ -12,7 +13,7 @@ public static class DashboardEndpoints
         Guid? sucursalId = null) => query.WhereVisibleParaUsuario(user, sucursalId);
 
     public static void MapDashboardEndpoints(this IEndpointRouteBuilder app) =>
-        app.MapGet("/api/dashboard", Get).WithTags("Dashboard").RequireAuthorization("dashboard");
+        app.MapGet("/api/dashboard", Get).WithTags("Dashboard").RequirePermiso("dashboard", "ver");
 
     private static async Task<IResult> Get(
         AppDbContext db,

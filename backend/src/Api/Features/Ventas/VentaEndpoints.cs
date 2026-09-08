@@ -1,5 +1,6 @@
 using Api.Shared.Common;
 using Api.Shared.Database;
+using Api.Features.Auth;
 using FluentValidation;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
@@ -11,6 +12,8 @@ namespace Api.Features.Ventas;
 
 public record VentaLineaCommand(Guid TipoCespedId, string? Color, decimal CantidadM2,
     decimal PrecioCompraM2, decimal PrecioVentaM2, decimal Total, Guid? LoteStockId = null);
+public record VentaLineaDto(Guid TipoCespedId, string? Color, decimal CantidadM2,
+    decimal? PrecioCompraM2, decimal? PrecioVentaM2, decimal? Total, Guid? LoteStockId);
 
 public record RegistrarVentaCommand(Guid ClienteId, DateOnly FechaVenta, Guid TipoCespedId, decimal CantidadM2,
     decimal PrecioUnitario, decimal PrecioTotal, decimal MontoEntrega, FormaPago FormaPago, int? CantidadCuotas, EstadoVenta Estado,
@@ -19,10 +22,10 @@ public record RegistrarVentaCommand(Guid ClienteId, DateOnly FechaVenta, Guid Ti
     List<VentaLineaCommand>? Lineas = null, Guid? SucursalId = null, Guid DepositoId = default) : IRequest<VentaDto>;
 
 public record VentaDto(Guid Id, Guid SucursalId, Guid DepositoId, Guid ClienteId, string Cliente, Guid TipoCespedId, string TipoCesped,
-    Guid AlicuotaIvaId, DateOnly FechaVenta, decimal CantidadM2, decimal PrecioUnitario, decimal PrecioTotal, decimal MontoEntrega,
-    decimal CostoCompraUnitario, decimal CostoEnvio, decimal OtrosCostos, FormaPago FormaPago,
-    int? CantidadCuotas, EstadoVenta Estado, decimal GananciaNeta, decimal Margen,
-    DateOnly? FechaEntregaEstimada, string? Observaciones, string? Color, List<VentaLineaCommand> Lineas);
+    Guid AlicuotaIvaId, DateOnly FechaVenta, decimal CantidadM2, decimal? PrecioUnitario, decimal? PrecioTotal, decimal? MontoEntrega,
+    decimal? CostoCompraUnitario, decimal? CostoEnvio, decimal? OtrosCostos, FormaPago FormaPago,
+    int? CantidadCuotas, EstadoVenta Estado, decimal? GananciaBruta, decimal? GananciaNeta, decimal? Margen,
+    DateOnly? FechaEntregaEstimada, string? Observaciones, string? Color, List<VentaLineaDto> Lineas);
 
 public sealed class RegistrarVentaValidator : AbstractValidator<RegistrarVentaCommand>
 {
@@ -276,19 +279,26 @@ internal static class VentaService
             Observaciones = $"Salida por venta {venta.Id}"
         }).ToList();
 
-    public static VentaDto ToDto(Venta v, Cliente c, TipoCesped t) => new(v.Id, v.SucursalId, v.DepositoId, v.ClienteId,
-        $"{c.Nombre} {c.Apellido}", v.TipoCespedId, t.Nombre, v.AlicuotaIvaId, v.FechaVenta,
-        v.CantidadM2, v.PrecioUnitario, v.PrecioTotal, v.MontoEntrega, v.CostoCompraUnitario, v.CostoEnvio,
-        v.OtrosCostos, v.FormaPago, v.CantidadCuotas, v.Estado, v.GananciaNeta, v.Margen,
-        v.FechaEntregaEstimada, v.Observaciones, v.Color,
-        JsonSerializer.Deserialize<List<VentaLineaCommand>>(v.LineasJson ?? "[]") ?? []);
+    public static VentaDto ToDto(Venta v, Cliente c, TipoCesped t, bool verMontos = true)
+    {
+        var lines = JsonSerializer.Deserialize<List<VentaLineaCommand>>(v.LineasJson ?? "[]") ?? [];
+        return new(v.Id, v.SucursalId, v.DepositoId, v.ClienteId, $"{c.Nombre} {c.Apellido}", v.TipoCespedId, t.Nombre,
+            v.AlicuotaIvaId, v.FechaVenta, v.CantidadM2, verMontos ? v.PrecioUnitario : null,
+            verMontos ? v.PrecioTotal : null, verMontos ? v.MontoEntrega : null, verMontos ? v.CostoCompraUnitario : null,
+            verMontos ? v.CostoEnvio : null, verMontos ? v.OtrosCostos : null, v.FormaPago, v.CantidadCuotas, v.Estado,
+            verMontos ? v.GananciaBruta : null, verMontos ? v.GananciaNeta : null, verMontos ? v.Margen : null,
+            v.FechaEntregaEstimada, v.Observaciones, v.Color,
+            lines.Select(x => new VentaLineaDto(x.TipoCespedId, x.Color, x.CantidadM2,
+                verMontos ? x.PrecioCompraM2 : null, verMontos ? x.PrecioVentaM2 : null,
+                verMontos ? x.Total : null, x.LoteStockId)).ToList());
+    }
 }
 
 public static class VentaEndpoints
 {
     public static void MapVentaEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/ventas").WithTags("Ventas").RequireAuthorization("ventas");
+        var group = app.MapGroup("/api/ventas").WithTags("Ventas");
         group.MapPost("/", async (RegistrarVentaCommand command, ISender sender, CancellationToken ct) =>
         {
             try { return Results.Created("/api/ventas", await sender.Send(command, ct)); }
@@ -304,20 +314,23 @@ public static class VentaEndpoints
             {
                 return Results.ValidationProblem(new Dictionary<string, string[]> { ["sucursal"] = [exception.Message] });
             }
-        });
-        group.MapGet("/", List);
-        group.MapGet("/{id:guid}", GetById);
-        group.MapGet("/filtros", Filters);
-        group.MapPut("/{id:guid}", Update);
-        group.MapDelete("/{id:guid}", Delete);
-        group.MapPost("/{id:guid}/entregar", (Guid id, ClaimsPrincipal user, AppDbContext db, CancellationToken ct) => ChangeStatus(id, EstadoVenta.Entregada, user, db, ct));
-        group.MapPost("/{id:guid}/confirmar", ResetDelivery);
-        group.MapPost("/{id:guid}/cancelar", (Guid id, ClaimsPrincipal user, AppDbContext db, CancellationToken ct) => ChangeStatus(id, EstadoVenta.Cancelada, user, db, ct));
-        app.MapGet("/api/ventas/proximas-entregas", UpcomingDeliveries).WithTags("Ventas").RequireAuthorization("entregas");
+        }).RequirePermiso("ventas", "crear");
+        group.MapGet("/", List).RequirePermiso("ventas", "ver");
+        group.MapGet("/{id:guid}", GetById).RequirePermiso("ventas", "ver");
+        group.MapGet("/filtros", Filters).RequirePermiso("ventas", "ver");
+        group.MapPut("/{id:guid}", Update).RequirePermiso("ventas", "editar");
+        group.MapDelete("/{id:guid}", Delete).RequirePermiso("ventas", "eliminar");
+        group.MapPost("/{id:guid}/entregar", (Guid id, ClaimsPrincipal user, AppDbContext db, CancellationToken ct) => ChangeStatus(id, EstadoVenta.Entregada, user, db, ct)).RequirePermiso("ventas", "editar");
+        group.MapPost("/{id:guid}/confirmar", ResetDelivery).RequirePermiso("ventas", "editar");
+        group.MapPost("/{id:guid}/cancelar", (Guid id, ClaimsPrincipal user, AppDbContext db, CancellationToken ct) => ChangeStatus(id, EstadoVenta.Cancelada, user, db, ct)).RequirePermiso("ventas", "editar");
+        app.MapGet("/api/ventas/proximas-entregas", UpcomingDeliveries).WithTags("Ventas").RequirePermiso("entregas", "ver");
     }
 
     internal static IQueryable<Venta> VisibleQuery(IQueryable<Venta> query, ClaimsPrincipal user,
         Guid? sucursalId = null) => query.WhereVisibleParaUsuario(user, sucursalId);
+    internal static bool PuedeVerMontos(ClaimsPrincipal user) => user.IsInRole("Administrador") || PermisosMatriz.DesdeClaims(user).PuedeVerMontos("ventas");
+    internal static VentaDto ToVisibleDto(Venta venta, ClaimsPrincipal user) =>
+        VentaService.ToDto(venta, venta.Cliente, venta.TipoCesped, PuedeVerMontos(user));
 
     private static async Task<PaginatedResponse<VentaDto>> List(ClaimsPrincipal user, AppDbContext db, int page = 1, int pageSize = 20,
         string? estado = null, DateOnly? desde = null, DateOnly? hasta = null,
@@ -336,7 +349,7 @@ public static class VentaEndpoints
         }
         var total = await query.CountAsync(ct);
         var rows = await query.OrderByDescending(x => x.FechaVenta).Skip((page - 1) * pageSize).Take(pageSize).ToListAsync(ct);
-        return new(rows.Select(v => VentaService.ToDto(v, v.Cliente, v.TipoCesped)).ToList(), page, pageSize, total,
+        return new(rows.Select(v => ToVisibleDto(v, user)).ToList(), page, pageSize, total,
             (int)Math.Ceiling(total / (double)pageSize));
     }
 
@@ -344,7 +357,7 @@ public static class VentaEndpoints
     {
         var venta = await VisibleQuery(db.Ventas.AsNoTracking().Include(x => x.Cliente).Include(x => x.TipoCesped), user)
             .SingleOrDefaultAsync(x => x.Id == id, ct);
-        return venta is null ? Results.NotFound() : Results.Ok(VentaService.ToDto(venta, venta.Cliente, venta.TipoCesped));
+        return venta is null ? Results.NotFound() : Results.Ok(ToVisibleDto(venta, user));
     }
 
     private static async Task<object> Filters(ClaimsPrincipal user, AppDbContext db, CancellationToken ct)

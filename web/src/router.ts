@@ -21,11 +21,11 @@ const routes = [
   { path: '/sin-acceso', name: 'sin-acceso', component: () => import('./views/NoAccessView.vue') },
   { path: '/', component: () => import('./views/DashboardView.vue'), meta: { permission: 'dashboard' } },
   { path: '/ventas', component: () => import('./views/VentasView.vue'), meta: { permission: 'ventas' } },
-  { path: '/ventas/nueva', component: () => import('./views/NuevaVentaView.vue'), meta: { permission: 'ventas' } },
-  { path: '/ventas/:id/editar', component: () => import('./views/NuevaVentaView.vue'), meta: { permission: 'ventas' } },
+  { path: '/ventas/nueva', component: () => import('./views/NuevaVentaView.vue'), meta: { permission: 'ventas', action: 'crear' } },
+  { path: '/ventas/:id/editar', component: () => import('./views/NuevaVentaView.vue'), meta: { permission: 'ventas', action: 'editar' } },
   { path: '/presupuestos', component: () => import('./views/PresupuestosView.vue'), meta: { permission: 'presupuestos' } },
-  { path: '/presupuestos/nuevo', component: () => import('./views/NuevoPresupuestoView.vue'), meta: { permission: 'presupuestos' } },
-  { path: '/presupuestos/:id/editar', component: () => import('./views/NuevoPresupuestoView.vue'), meta: { permission: 'presupuestos' } },
+  { path: '/presupuestos/nuevo', component: () => import('./views/NuevoPresupuestoView.vue'), meta: { permission: 'presupuestos', action: 'crear' } },
+  { path: '/presupuestos/:id/editar', component: () => import('./views/NuevoPresupuestoView.vue'), meta: { permission: 'presupuestos', action: 'editar' } },
   { path: '/entregas', component: () => import('./views/EntregasView.vue'), meta: { permission: 'entregas' } },
   { path: '/clientes', component: () => import('./views/ClientesView.vue'), meta: { permission: 'clientes' } },
   { path: '/cuotas', component: () => import('./views/CuotasView.vue'), meta: { permission: 'cuotas' } },
@@ -43,7 +43,7 @@ function landingPage() {
   if (!user) return '/login'
   if (user.debeCambiarPassword) return '/cambiar-password'
   if (user.rol === 'Administrador') return '/'
-  const permission = Object.keys(permissionRoutes).find(value => user.permisos.includes(value))
+  const permission = Object.keys(permissionRoutes).find(value => auth.can(value, 'ver'))
   return permission ? permissionRoutes[permission] : '/sin-acceso'
 }
 
@@ -63,7 +63,10 @@ router.beforeEach(async to => {
     return landingPage()
 
   const permission = to.meta.permission as string | undefined
-  if (permission && !auth.can(permission))
+  if (permission && !auth.can(permission, 'ver'))
+    return landingPage()
+  const action = to.meta.action as string | undefined
+  if (permission && action && !auth.can(permission, action))
     return landingPage()
   return true
 })

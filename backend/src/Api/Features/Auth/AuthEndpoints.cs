@@ -10,7 +10,7 @@ namespace Api.Features.Auth;
 
 public record LoginRequest(string Usuario, string Password);
 public record CambiarPasswordRequest(string PasswordActual, string PasswordNueva, string Confirmacion);
-public record UsuarioRequest(string Nombre, string NombreUsuario, string? Password, string Rol, string[] Permisos, bool Activo, Guid? SucursalId);
+public record UsuarioRequest(string Nombre, string NombreUsuario, string? Password, string Rol, PermisosMatriz Permisos, bool Activo, Guid? SucursalId);
 
 public static class AuthEndpoints
 {
@@ -42,7 +42,7 @@ public static class AuthEndpoints
         nombre = user.Identity?.Name,
         usuario = user.FindFirstValue("usuario"),
         rol = user.FindFirstValue(ClaimTypes.Role),
-        permisos = user.FindAll("permiso").Select(x => x.Value),
+        permisos = PermisosMatriz.DesdeClaims(user),
         debeCambiarPassword = user.HasClaim("cambiar_password", "true"),
         sucursalId = Guid.TryParse(user.FindFirstValue("sucursal_id"), out var parsedSucursalId) ? parsedSucursalId : (Guid?)null,
         sucursalNombre = user.FindFirstValue("sucursal_nombre")
@@ -50,8 +50,7 @@ public static class AuthEndpoints
 
     private static ClaimsPrincipal BuildPrincipal(Usuario user)
     {
-        var permisos = user.Rol == "Administrador" ? Permissions.All :
-            JsonSerializer.Deserialize<string[]>(user.PermisosJson) ?? [];
+        var permisos = user.Rol == "Administrador" ? PermisosMatriz.Todos() : PermisosMatriz.DesdeJson(user.PermisosJson);
         var claims = new List<Claim>
         {
             new(ClaimTypes.NameIdentifier, user.Id.ToString()),
@@ -66,7 +65,7 @@ public static class AuthEndpoints
             if (!string.IsNullOrWhiteSpace(user.Sucursal?.Nombre))
                 claims.Add(new Claim("sucursal_nombre", user.Sucursal.Nombre));
         }
-        claims.AddRange(permisos.Select(x => new Claim("permiso", x)));
+        claims.AddRange(permisos.PermisosActivos().Select(x => new Claim("permiso", x)));
         return new ClaimsPrincipal(new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme));
     }
 
@@ -141,7 +140,7 @@ public static class AuthEndpoints
         return Results.Ok(users.Select(x => new
         {
             x.Id, x.Nombre, x.NombreUsuario, x.Rol,
-            permisos = JsonSerializer.Deserialize<string[]>(x.PermisosJson) ?? [],
+            permisos = PermisosMatriz.DesdeJson(x.PermisosJson),
             x.Activo, x.DebeCambiarPassword, x.SucursalId,
             sucursalNombre = x.Sucursal != null ? x.Sucursal.Nombre : null
         }));
@@ -166,6 +165,8 @@ public static class AuthEndpoints
             return Results.ValidationProblem(new Dictionary<string, string[]> { ["password"] = ["La contraseña debe tener al menos 8 caracteres."] });
         if (await db.Usuarios.AnyAsync(x => x.NombreUsuario == request.NombreUsuario.Trim(), ct))
             return Results.Conflict(new { message = "El usuario ya existe." });
+        var permissionErrors = request.Permisos?.Validar() ?? new() { ["permisos"] = ["La matriz de permisos es obligatoria."] };
+        if (permissionErrors.Count > 0) return Results.ValidationProblem(permissionErrors);
         var sucursalErrors = await ValidateSucursal(request, db, ct);
         if (sucursalErrors is not null) return Results.ValidationProblem(sucursalErrors);
         var user = new Usuario
@@ -188,6 +189,8 @@ public static class AuthEndpoints
         if (user is null) return Results.NotFound();
         if (await db.Usuarios.AnyAsync(x => x.Id != id && x.NombreUsuario == request.NombreUsuario.Trim(), ct))
             return Results.Conflict(new { message = "El usuario ya existe." });
+        var permissionErrors = request.Permisos?.Validar() ?? new() { ["permisos"] = ["La matriz de permisos es obligatoria."] };
+        if (permissionErrors.Count > 0) return Results.ValidationProblem(permissionErrors);
         var sucursalErrors = await ValidateSucursal(request, db, ct);
         if (sucursalErrors is not null) return Results.ValidationProblem(sucursalErrors);
         user.Nombre = request.Nombre.Trim();
@@ -217,10 +220,4 @@ public static class AuthEndpoints
         await db.SaveChangesAsync(ct);
         return Results.NoContent();
     }
-}
-
-public static class Permissions
-{
-    public static readonly string[] All =
-        ["dashboard", "ventas", "presupuestos", "entregas", "clientes", "cuotas", "caja", "stock", "gastos", "rentabilidad", "administracion", "usuarios"];
 }
