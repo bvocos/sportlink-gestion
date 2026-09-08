@@ -347,8 +347,12 @@ public static class VentaEndpoints
         return venta is null ? Results.NotFound() : Results.Ok(VentaService.ToDto(venta, venta.Cliente, venta.TipoCesped));
     }
 
-    private static async Task<object> Filters(AppDbContext db, CancellationToken ct) => new
+    private static async Task<object> Filters(ClaimsPrincipal user, AppDbContext db, CancellationToken ct)
     {
+        var ownDepositId = await SucursalDepositoService.GetOwnDepositId(user, db, ct);
+        var depositQuery = SucursalDepositoService.VisibleDeposits(db.Depositos.AsNoTracking().Where(x => x.Activo), user, ownDepositId);
+        return new
+        {
         clientes = await db.Clientes.AsNoTracking().OrderBy(x => x.Apellido).ThenBy(x => x.Nombre)
             .Select(x => new
             {
@@ -362,7 +366,7 @@ public static class VentaEndpoints
             .Select(x => new { x.Id, x.Nombre, x.Activo }).ToListAsync(ct),
         sucursales = await db.Sucursales.AsNoTracking().Where(x => x.Activo).OrderBy(x => x.Nombre)
             .Select(x => new { x.Id, x.Nombre }).ToListAsync(ct),
-        depositos = await db.Depositos.AsNoTracking().Where(x => x.Activo).OrderBy(x => x.Nombre)
+        depositos = await depositQuery.OrderBy(x => x.Nombre)
             .Select(x => new
             {
                 x.Id, x.Nombre,
@@ -373,7 +377,8 @@ public static class VentaEndpoints
                         .Sum(m => (decimal?)(m.Tipo == TipoMovimientoStock.SalidaPorVenta ? -m.CantidadM2 : m.CantidadM2)) ?? 0m
                 }).ToList()
             }).ToListAsync(ct)
-    };
+        };
+    }
 
     private static async Task<IResult> Update(Guid id, RegistrarVentaCommand request, ClaimsPrincipal user, AppDbContext db,
         IValidator<RegistrarVentaCommand> validator, ILoggerFactory loggerFactory, CancellationToken ct)

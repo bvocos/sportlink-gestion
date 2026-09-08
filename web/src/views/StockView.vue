@@ -92,7 +92,7 @@ onMounted(load)
 
 <template>
   <section class="page">
-    <div class="page-title"><div><h2>Stock</h2><p>Disponibilidad de césped y trazabilidad por lote en todos los depósitos.</p></div><button class="btn" :disabled="!depositosIngreso.length" @click="openIngreso">+ Registrar ingreso</button></div>
+    <div class="page-title"><div><h2>Stock</h2><p>Disponibilidad de césped y trazabilidad de los depósitos habilitados.</p></div><button class="btn" :disabled="!depositosIngreso.length" @click="openIngreso">+ Registrar ingreso</button></div>
     <div v-if="loadError" class="error load-state">{{ loadError }} <button class="btn secondary compact" @click="load">Reintentar</button></div>
     <template v-else>
       <div class="grid stock-cards">

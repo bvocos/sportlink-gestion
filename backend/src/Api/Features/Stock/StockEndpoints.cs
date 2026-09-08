@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using System.Text.Json;
+using Api.Shared.Common;
 using Api.Shared.Database;
 using Microsoft.EntityFrameworkCore;
 
@@ -64,18 +65,30 @@ public static class StockEndpoints
         return requestedCodes.Any(x => existing.Contains(x.Trim()));
     }
 
-    private static async Task<Guid?> GetOwnDepositId(ClaimsPrincipal currentUser, AppDbContext db, CancellationToken ct)
+    internal static IQueryable<Deposito> VisibleDepositQuery(IQueryable<Deposito> query, ClaimsPrincipal user, Guid? ownDepositId) =>
+        SucursalDepositoService.VisibleDeposits(query, user, ownDepositId);
+
+    internal static IQueryable<MovimientoStock> VisibleMovementQuery(IQueryable<MovimientoStock> query, ClaimsPrincipal user, Guid? ownDepositId, Guid? requestedDepositId)
     {
-        if (currentUser.IsInRole("Administrador")) return null;
-        if (!Guid.TryParse(currentUser.FindFirstValue(ClaimTypes.NameIdentifier), out var userId)) return null;
-        return await db.Usuarios.AsNoTracking().Where(x => x.Id == userId).Select(x => x.SucursalId.HasValue ? (Guid?)x.Sucursal!.DepositoPropioId : null).SingleOrDefaultAsync(ct);
+        if (user.IsInRole("Administrador")) return requestedDepositId.HasValue ? query.Where(x => x.DepositoId == requestedDepositId.Value) : query;
+        return ownDepositId.HasValue ? query.Where(x => x.DepositoId == ownDepositId.Value) : query.Where(_ => false);
     }
+
+    internal static IQueryable<LoteStock> VisibleLotQuery(IQueryable<LoteStock> query, ClaimsPrincipal user, Guid? ownDepositId, Guid? requestedDepositId)
+    {
+        if (user.IsInRole("Administrador")) return requestedDepositId.HasValue ? query.Where(x => x.DepositoId == requestedDepositId.Value) : query;
+        return ownDepositId.HasValue ? query.Where(x => x.DepositoId == ownDepositId.Value) : query.Where(_ => false);
+    }
+
+    internal static bool CanSeeBarcodeDeposit(ClaimsPrincipal user, Guid? ownDepositId, Guid depositId) =>
+        SucursalDepositoService.CanSeeDeposit(user, ownDepositId, depositId);
 
     private static async Task<IResult> GetStock(ClaimsPrincipal currentUser, AppDbContext db, CancellationToken ct)
     {
-        var ownDepositId = await GetOwnDepositId(currentUser, db, ct);
+        var ownDepositId = await SucursalDepositoService.GetOwnDepositId(currentUser, db, ct);
         var isAdmin = currentUser.IsInRole("Administrador");
-        var deposits = await db.Depositos.AsNoTracking().Where(x => x.Activo).OrderBy(x => x.Nombre).Select(x => new
+        var depositQuery = VisibleDepositQuery(db.Depositos.AsNoTracking().Where(x => x.Activo), currentUser, ownDepositId);
+        var deposits = await depositQuery.OrderBy(x => x.Nombre).Select(x => new
         {
             x.Id, x.Nombre,
             productos = db.TiposCesped.AsNoTracking().Where(p => p.Activo).OrderBy(p => p.Nombre).Select(p => new
@@ -87,12 +100,12 @@ public static class StockEndpoints
         return Results.Ok(deposits.Select(x => new { x.Id, x.Nombre, productos = x.productos.Select(p => new { p.tipoCespedId, p.nombre, p.ControlPorLotes, colores = DeserializeColors(p.ColoresJson), p.stockActualM2 }), permiteRegistrarIngreso = isAdmin || ownDepositId == x.Id }));
     }
 
-    private static async Task<IResult> GetMovimientos(Guid? depositoId, Guid? tipoCespedId, DateTime? desde, DateTime? hasta, int page, int pageSize, AppDbContext db, CancellationToken ct)
+    private static async Task<IResult> GetMovimientos(Guid? depositoId, Guid? tipoCespedId, DateTime? desde, DateTime? hasta, int page, int pageSize, ClaimsPrincipal currentUser, AppDbContext db, CancellationToken ct)
     {
         if (desde.HasValue && hasta.HasValue && desde.Value.Date > hasta.Value.Date) return Results.ValidationProblem(new Dictionary<string, string[]> { ["desde"] = ["La fecha desde no puede ser posterior a la fecha hasta."] });
         page = Math.Max(1, page); pageSize = Math.Clamp(pageSize == 0 ? 50 : pageSize, 1, 200);
-        var query = db.MovimientosStock.AsNoTracking().Include(x => x.Deposito).Include(x => x.TipoCesped).AsQueryable();
-        if (depositoId.HasValue) query = query.Where(x => x.DepositoId == depositoId.Value);
+        var ownDepositId = await SucursalDepositoService.GetOwnDepositId(currentUser, db, ct);
+        var query = VisibleMovementQuery(db.MovimientosStock.AsNoTracking().Include(x => x.Deposito).Include(x => x.TipoCesped), currentUser, ownDepositId, depositoId);
         if (tipoCespedId.HasValue) query = query.Where(x => x.TipoCespedId == tipoCespedId.Value);
         if (desde.HasValue) query = query.Where(x => x.Fecha >= desde.Value.Date);
         if (hasta.HasValue) { var end = hasta.Value.Date.AddDays(1); query = query.Where(x => x.Fecha < end); }
@@ -112,7 +125,7 @@ public static class StockEndpoints
         var product = await db.TiposCesped.SingleOrDefaultAsync(x => x.Id == request.TipoCespedId && x.Activo, ct);
         if (product is null) return Results.ValidationProblem(new Dictionary<string, string[]> { ["tipoCespedId"] = ["Seleccioná un producto activo."] });
         if (product.ControlPorLotes) return Results.ValidationProblem(new Dictionary<string, string[]> { ["tipoCespedId"] = ["Este producto se controla por lotes. Usá el ingreso por lote con sus tres rollos."] });
-        var failure = ValidateIngresoScope(currentUser, request.DepositoId, await GetOwnDepositId(currentUser, db, ct));
+        var failure = ValidateIngresoScope(currentUser, request.DepositoId, await SucursalDepositoService.GetOwnDepositId(currentUser, db, ct));
         if (failure is not null) return Results.Problem(statusCode: failure.StatusCode, title: "Acceso denegado", detail: failure.Message);
         var movement = new MovimientoStock { DepositoId = deposit.Id, TipoCespedId = product.Id, Tipo = TipoMovimientoStock.Ingreso, CantidadM2 = request.CantidadM2, Fecha = DateTime.UtcNow, Usuario = UserName(currentUser), Observaciones = string.IsNullOrWhiteSpace(observations) ? null : observations };
         db.MovimientosStock.Add(movement); await db.SaveChangesAsync(ct);
@@ -131,7 +144,7 @@ public static class StockEndpoints
         if (!product.ControlPorLotes) return Results.ValidationProblem(new Dictionary<string, string[]> { ["tipoCespedId"] = ["Este producto no se controla por lotes. Usá el ingreso normal de stock."] });
         var colors = DeserializeColors(product.ColoresJson); var color = request.Color?.Trim();
         if (colors.Length > 0 && (string.IsNullOrWhiteSpace(color) || !colors.Contains(color, StringComparer.OrdinalIgnoreCase))) return Results.ValidationProblem(new Dictionary<string, string[]> { ["color"] = ["Seleccioná uno de los colores configurados para el producto."] });
-        var failure = ValidateIngresoScope(currentUser, request.DepositoId, await GetOwnDepositId(currentUser, db, ct));
+        var failure = ValidateIngresoScope(currentUser, request.DepositoId, await SucursalDepositoService.GetOwnDepositId(currentUser, db, ct));
         if (failure is not null) return Results.Problem(statusCode: failure.StatusCode, title: "Acceso denegado", detail: failure.Message);
         var codes = request.Rollos!.Select(x => x.CodigoBarra.Trim()).ToArray();
         var existingCodes = await db.Rollos.Where(x => codes.Contains(x.CodigoBarra)).Select(x => x.CodigoBarra).ToListAsync(ct);
@@ -144,22 +157,25 @@ public static class StockEndpoints
         return Results.Created($"/api/stock/lotes/{registration.Lote.Id}", LotDto(registration.Lote, deposit.Nombre, product.Nombre));
     }
 
-    private static async Task<IResult> GetLotes(Guid? depositoId, Guid? tipoCespedId, EstadoLoteStock? estado, AppDbContext db, CancellationToken ct)
+    private static async Task<IResult> GetLotes(Guid? depositoId, Guid? tipoCespedId, EstadoLoteStock? estado, ClaimsPrincipal currentUser, AppDbContext db, CancellationToken ct)
     {
-        var query = db.LotesStock.AsNoTracking().Include(x => x.Deposito).Include(x => x.TipoCesped).Include(x => x.Rollos).AsQueryable();
-        if (depositoId.HasValue) query = query.Where(x => x.DepositoId == depositoId.Value);
+        var ownDepositId = await SucursalDepositoService.GetOwnDepositId(currentUser, db, ct);
+        var query = VisibleLotQuery(db.LotesStock.AsNoTracking().Include(x => x.Deposito).Include(x => x.TipoCesped).Include(x => x.Rollos), currentUser, ownDepositId, depositoId);
         if (tipoCespedId.HasValue) query = query.Where(x => x.TipoCespedId == tipoCespedId.Value);
         if (estado.HasValue) query = query.Where(x => x.Estado == estado.Value);
         var lots = await query.OrderByDescending(x => x.FechaIngreso).ToListAsync(ct);
         return Results.Ok(lots.Select(x => LotDto(x, x.Deposito.Nombre, x.TipoCesped.Nombre)));
     }
 
-    private static async Task<IResult> SearchByBarcode(string? codigoBarra, AppDbContext db, CancellationToken ct)
+    private static async Task<IResult> SearchByBarcode(string? codigoBarra, ClaimsPrincipal currentUser, AppDbContext db, CancellationToken ct)
     {
         var code = codigoBarra?.Trim();
         if (string.IsNullOrWhiteSpace(code)) return Results.ValidationProblem(new Dictionary<string, string[]> { ["codigoBarra"] = ["Ingresá un código de barra."] });
-        var roll = await db.Rollos.AsNoTracking().Include(x => x.LoteStock).ThenInclude(x => x.Rollos).Include(x => x.LoteStock.Deposito).Include(x => x.LoteStock.TipoCesped).SingleOrDefaultAsync(x => x.CodigoBarra == code, ct);
-        if (roll is null) return Results.NotFound(new { message = "No se encontró ningún rollo con ese código de barra." });
+        var ownDepositId = await SucursalDepositoService.GetOwnDepositId(currentUser, db, ct);
+        var roll = await db.Rollos.AsNoTracking().Include(x => x.LoteStock).ThenInclude(x => x.Rollos).Include(x => x.LoteStock.Deposito).Include(x => x.LoteStock.TipoCesped)
+            .SingleOrDefaultAsync(x => x.CodigoBarra == code, ct);
+        if (roll is null || !CanSeeBarcodeDeposit(currentUser, ownDepositId, roll.LoteStock.DepositoId))
+            return Results.NotFound(new { message = "No se encontró ningún rollo con ese código de barra." });
         object? sale = null;
         if (roll.LoteStock.VentaId.HasValue) sale = await db.Ventas.AsNoTracking().Where(x => x.Id == roll.LoteStock.VentaId.Value).Select(x => new { x.Id, x.FechaVenta, cliente = x.Cliente.Nombre + " " + x.Cliente.Apellido }).SingleOrDefaultAsync(ct);
         return Results.Ok(new { rollo = new { roll.Id, roll.Posicion, roll.CodigoBarra, roll.CantidadM2 }, lote = LotDto(roll.LoteStock, roll.LoteStock.Deposito.Nombre, roll.LoteStock.TipoCesped.Nombre), venta = sale });
