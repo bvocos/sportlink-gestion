@@ -1,16 +1,32 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { Pencil, Trash2 } from 'lucide-vue-next'
+import AppButton from '@/shared/components/AppButton.vue'
+import Column from 'primevue/column'
+import DataTable from 'primevue/datatable'
+import Dialog from 'primevue/dialog'
+import InputText from 'primevue/inputtext'
+import Message from 'primevue/message'
+import Password from 'primevue/password'
+import Select from 'primevue/select'
+import Checkbox from 'primevue/checkbox'
+import Fieldset from 'primevue/fieldset'
+import Tag from 'primevue/tag'
+import ToggleSwitch from 'primevue/toggleswitch'
+import AppIcon from '@/shared/components/AppIcon.vue'
+import { faPen, faTrash } from '@/shared/icons'
 import { http, apiErrorMessage } from '@/shared/api/httpClient'
 import { confirmAction, notify } from '@/shared/uiFeedback'
+import { TABLE_ROWS, TABLE_ROWS_OPTIONS } from '@/shared/tablePagination'
 
 const permissions = [
   ['presupuestos', 'Presupuestos'],
   ['dashboard', 'Inicio'], ['ventas', 'Ventas'], ['entregas', 'Próximas entregas'],
   ['clientes', 'Clientes'], ['cuotas', 'Cuotas'], ['caja', 'Caja'],
   ['gastos', 'Gastos'],
-  ['rentabilidad', 'Rentabilidad'], ['administracion', 'Administración de productos']
+  ['rentabilidad', 'Rentabilidad'], ['administracion', 'Administración de productos'],
 ]
+const roles = ['Usuario', 'Administrador']
+
 const items = ref<any[]>([])
 const show = ref(false)
 const editing = ref<string | null>(null)
@@ -42,7 +58,7 @@ async function save() {
   }
 }
 async function remove(x: any) {
-  if (!await confirmAction({title:'Eliminar usuario',message:`¿Querés eliminar el usuario ${x.nombreUsuario}?`,confirmText:'Eliminar',danger:true})) return
+  if (!await confirmAction({ title: 'Eliminar usuario', message: `¿Querés eliminar el usuario ${x.nombreUsuario}?`, confirmText: 'Eliminar', danger: true })) return
   try { await http.delete(`/usuarios/${x.id}`); await load() }
   catch (e: any) { notify(apiErrorMessage(e, 'No se pudo eliminar el usuario.')) }
 }
@@ -50,9 +66,117 @@ onMounted(load)
 </script>
 
 <template>
-  <section class="page">
-    <div class="page-title"><div><h2>Usuarios</h2><p>Personas habilitadas y módulos disponibles.</p></div><button class="btn" @click="create">+ Nuevo usuario</button></div>
-    <div class="panel"><table><thead><tr><th>Nombre</th><th>Usuario</th><th>Rol</th><th>Accesos</th><th>Estado</th><th></th></tr></thead><tbody><tr v-for="x in items" :key="x.id"><td><b>{{x.nombre}}</b></td><td>{{x.nombreUsuario}}</td><td>{{x.rol}}</td><td>{{x.rol==='Administrador'?'Todos':x.permisos.length+' módulos'}}</td><td><span class="badge" :class="{warn:!x.activo}">{{x.activo?'Activo':'Inactivo'}}</span></td><td><div class="row-actions"><button class="icon-btn" @click="edit(x)"><Pencil/></button><button class="icon-btn danger" @click="remove(x)"><Trash2/></button></div></td></tr></tbody></table></div>
-    <div v-if="show" class="modal-bg"><form class="modal" @submit.prevent="save"><h3>{{editing?'Editar':'Crear'}} usuario</h3><p v-if="error" class="error">{{error}}</p><div class="form-grid"><div class="field"><label>Nombre</label><input v-model="form.nombre" required></div><div class="field"><label>Usuario</label><input v-model="form.nombreUsuario" required></div><div class="field"><label>Contraseña {{editing?'(vacía para conservar)':''}}</label><input v-model="form.password" type="password" :required="!editing" minlength="8" autocomplete="new-password"></div><div class="field"><label>Repetir contraseña</label><input v-model="form.repetirPassword" type="password" :required="!editing||!!form.password" minlength="8" autocomplete="new-password"></div><div class="field"><label>Rol</label><select v-model="form.rol"><option>Usuario</option><option>Administrador</option></select></div></div><fieldset v-if="form.rol!=='Administrador'" class="permissions"><legend>Vistas disponibles</legend><label v-for="[key,label] in permissions" :key="key"><input v-model="form.permisos" type="checkbox" :value="key"> {{label}}</label></fieldset><label class="check"><input v-model="form.activo" type="checkbox"> Usuario activo</label><div class="actions"><button type="button" class="btn secondary" @click="show=false">Cancelar</button><button class="btn">Guardar usuario</button></div></form></div>
+  <section class="page compact-page">
+    <div class="page-toolbar flex justify-content-between align-items-center flex-wrap gap-3">
+      <p class="page-desc text-color-secondary m-0">Personas habilitadas y módulos disponibles.</p>
+      <AppButton label="Nuevo usuario" icon="pi pi-plus" @click="create" />
+    </div>
+
+    <div class="table-panel">
+      <DataTable
+        :value="items"
+        paginator
+        :rows="TABLE_ROWS"
+        :rows-per-page-options="TABLE_ROWS_OPTIONS"
+        striped-rows
+      >
+        <template #empty>
+          <div class="text-center py-5 text-color-secondary">No hay usuarios registrados.</div>
+        </template>
+        <Column header="Nombre">
+          <template #body="{ data }"><b>{{ data.nombre }}</b></template>
+        </Column>
+        <Column field="nombreUsuario" header="Usuario" />
+        <Column field="rol" header="Rol" />
+        <Column header="Accesos">
+          <template #body="{ data }">{{ data.rol === 'Administrador' ? 'Todos' : `${data.permisos.length} módulos` }}</template>
+        </Column>
+        <Column header="Estado">
+          <template #body="{ data }">
+            <Tag :value="data.activo ? 'Activo' : 'Inactivo'" :severity="data.activo ? 'success' : 'warn'" />
+          </template>
+        </Column>
+        <Column header="" body-class="cell-actions">
+          <template #body="{ data }">
+            <div class="flex gap-1">
+              <AppButton text rounded severity="secondary" aria-label="Editar usuario" @click="edit(data)">
+                <AppIcon :icon="faPen" />
+              </AppButton>
+              <AppButton text rounded severity="danger" aria-label="Eliminar usuario" @click="remove(data)">
+                <AppIcon :icon="faTrash" />
+              </AppButton>
+            </div>
+          </template>
+        </Column>
+      </DataTable>
+    </div>
+
+    <Dialog
+      v-model:visible="show"
+      modal
+      :header="editing ? 'Editar usuario' : 'Crear usuario'"
+      :style="{ width: 'min(680px, 96vw)' }"
+    >
+      <form @submit.prevent="save">
+        <Message v-if="error" severity="error" class="mb-3" :closable="false">{{ error }}</Message>
+        <div class="grid formgrid p-fluid">
+          <div class="field col-12 md:col-6">
+            <label for="nombre">Nombre</label>
+            <InputText id="nombre" v-model="form.nombre" required />
+          </div>
+          <div class="field col-12 md:col-6">
+            <label for="nombreUsuario">Usuario</label>
+            <InputText id="nombreUsuario" v-model="form.nombreUsuario" required />
+          </div>
+          <div class="field col-12 md:col-6">
+            <label for="password">Contraseña {{ editing ? '(vacía para conservar)' : '' }}</label>
+            <Password
+              id="password"
+              v-model="form.password"
+              :feedback="false"
+              toggle-mask
+              autocomplete="new-password"
+              :required="!editing"
+              input-class="w-full"
+            />
+          </div>
+          <div class="field col-12 md:col-6">
+            <label for="repetirPassword">Repetir contraseña</label>
+            <Password
+              id="repetirPassword"
+              v-model="form.repetirPassword"
+              :feedback="false"
+              toggle-mask
+              autocomplete="new-password"
+              :required="!editing || !!form.password"
+              input-class="w-full"
+            />
+          </div>
+          <div class="field col-12 md:col-6">
+            <label>Rol</label>
+            <Select v-model="form.rol" :options="roles" />
+          </div>
+        </div>
+
+        <Fieldset v-if="form.rol !== 'Administrador'" legend="Vistas disponibles" class="mt-3">
+          <div class="grid">
+            <div v-for="[key, label] in permissions" :key="key" class="col-12 md:col-6 flex align-items-center gap-2">
+              <Checkbox v-model="form.permisos" :input-id="`perm-${key}`" :value="key" />
+              <label :for="`perm-${key}`">{{ label }}</label>
+            </div>
+          </div>
+        </Fieldset>
+
+        <div class="flex align-items-center gap-2 mt-3">
+          <ToggleSwitch v-model="form.activo" input-id="usuarioActivo" />
+          <label for="usuarioActivo">Usuario activo</label>
+        </div>
+
+        <div class="flex justify-content-end gap-2 mt-4">
+          <AppButton type="button" label="Cancelar" severity="secondary" @click="show = false" />
+          <AppButton type="submit" label="Guardar usuario" />
+        </div>
+      </form>
+    </Dialog>
   </section>
 </template>

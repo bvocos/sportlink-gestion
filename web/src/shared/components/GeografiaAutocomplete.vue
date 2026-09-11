@@ -1,16 +1,80 @@
 <script setup lang="ts">
-import{computed,ref,watch}from'vue'
-interface Option{id:string;nombre:string}
-const props=defineProps<{modelValue:string;options:Option[];placeholder?:string;disabled?:boolean}>()
-const emit=defineEmits<{(e:'update:modelValue',value:string):void;(e:'select',value:Option):void}>()
-const query=ref(''),open=ref(false),active=ref(0)
-const norm=(value:string)=>value.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase()
-const matches=computed(()=>{const q=norm(query.value.trim());return props.options.filter(x=>!q||norm(x.nombre).includes(q))})
-const results=computed(()=>matches.value.slice(0,12))
-function select(option:Option){query.value=option.nombre;emit('update:modelValue',option.id);emit('select',option);open.value=false}
-function input(){emit('update:modelValue','');open.value=true;active.value=0}
-function key(event:KeyboardEvent){if(event.key==='ArrowDown'){event.preventDefault();active.value=Math.min(active.value+1,results.value.length-1)}else if(event.key==='ArrowUp'){event.preventDefault();active.value=Math.max(active.value-1,0)}else if(event.key==='Enter'){event.preventDefault();const option=results.value[active.value];if(option)select(option)}else if(event.key==='Escape')open.value=false}
-function blur(){window.setTimeout(()=>open.value=false,150)}
-watch([()=>props.modelValue,()=>props.options],()=>{const option=props.options.find(x=>x.id===props.modelValue);if(option)query.value=option.nombre;else if(!props.modelValue)query.value=''},{immediate:true})
+import AutoComplete from 'primevue/autocomplete'
+import { computed, ref, watch } from 'vue'
+
+interface Option {
+  id: string
+  nombre: string
+}
+
+const props = defineProps<{
+  modelValue: string
+  options: Option[]
+  placeholder?: string
+  disabled?: boolean
+  invalid?: boolean
+}>()
+
+const emit = defineEmits<{
+  'update:modelValue': [value: string]
+  select: [value: Option]
+}>()
+
+const selected = ref<Option | null>(null)
+const suggestions = ref<Option[]>([])
+
+const norm = (value: string) =>
+  value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+
+const totalMatches = computed(() => {
+  const q = norm(selected.value?.nombre ?? '')
+  return props.options.filter((option) => !q || norm(option.nombre).includes(q)).length
+})
+
+function search(event: { query: string }) {
+  const q = norm(event.query.trim())
+  suggestions.value = props.options
+    .filter((option) => !q || norm(option.nombre).includes(q))
+    .slice(0, 12)
+}
+
+watch(
+  [() => props.modelValue, () => props.options],
+  () => {
+    selected.value = props.options.find((option) => option.id === props.modelValue) ?? null
+  },
+  { immediate: true },
+)
+
+watch(selected, (option) => {
+  const next = option?.id ?? ''
+  if (next !== props.modelValue) emit('update:modelValue', next)
+})
+
+function onSelect(event: { value: Option }) {
+  emit('select', event.value)
+}
 </script>
-<template><div class="autocomplete"><input v-model="query" type="search" autocomplete="off" :placeholder="placeholder||'Buscar localidad'" :disabled="disabled" required @focus="open=true;active=0" @input="input" @keydown="key" @blur="blur"><div v-if="open&&!disabled" class="autocomplete-menu"><button v-for="(option,index) in results" :key="option.id" type="button" :class="{active:index===active}" @mousedown.prevent="select(option)">{{option.nombre}}</button><p v-if="matches.length>results.length">Mostrando {{results.length}} de {{matches.length}} — seguí escribiendo para afinar.</p><p v-if="!results.length">No se encontraron coincidencias.</p></div></div></template>
+
+<template>
+  <AutoComplete
+    v-model="selected"
+    :suggestions="suggestions"
+    option-label="nombre"
+    :placeholder="placeholder || 'Buscar localidad'"
+    empty-search-message="No se encontraron coincidencias."
+    force-selection
+    dropdown
+    fluid
+    :disabled="disabled"
+    :invalid="invalid"
+    @complete="search"
+    @option-select="onSelect"
+  >
+    <template #footer v-if="totalMatches > suggestions.length">
+      <small class="text-color-secondary px-2 py-1 block">
+        Mostrando {{ suggestions.length }} de {{ totalMatches }} — seguí escribiendo para afinar.
+      </small>
+    </template>
+  </AutoComplete>
+</template>

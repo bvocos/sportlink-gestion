@@ -1,9 +1,24 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import AppButton from "@/shared/components/AppButton.vue";
+import Column from "primevue/column";
+import DataTable from "primevue/datatable";
+import Dialog from "primevue/dialog";
+import InputNumber from "primevue/inputnumber";
+import AppDatePicker from "@/shared/components/AppDatePicker.vue";
+import SelectButton from "primevue/selectbutton";
+import InputText from "primevue/inputtext";
+import Message from "primevue/message";
+import Panel from "primevue/panel";
+import Select from "primevue/select";
+import Tag from "primevue/tag";
 import { http, apiErrorMessage } from "@/shared/api/httpClient";
 import { formatCurrency as money } from "@/shared/formatters";
 import { downloadCsv } from "@/shared/csv";
 import { confirmAction, notify } from "@/shared/uiFeedback";
+import { isSearchFilterActive, searchQuery } from "@/shared/composables/useFilterTriggers";
+import { TABLE_ROWS, TABLE_ROWS_OPTIONS } from "@/shared/tablePagination";
+
 const pendientes = ref<any[]>([]),
   abonadas = ref<any[]>([]),
   tab = ref<"pendientes" | "abonadas">("pendientes"),
@@ -32,6 +47,10 @@ const medios = [
   "Mercado Pago",
   "Otro",
 ];
+const tabOptions = computed(() => [
+  { label: `Por pagar (${pendientes.value.length})`, value: "pendientes" as const },
+  { label: `Abonadas (${abonadas.value.length})`, value: "abonadas" as const },
+]);
 const norm = (v: string) =>
   v
     .normalize("NFD")
@@ -40,8 +59,10 @@ const norm = (v: string) =>
 const visible = computed(() => {
   const source = tab.value === "pendientes" ? pendientes.value : abonadas.value,
     q = norm(clienteFiltro.value.trim());
-  return !q ? source : source.filter((c) => norm(c.cliente).includes(q));
+  if (!q || q.length < 3) return source;
+  return source.filter((c) => norm(c.cliente).includes(q));
 });
+
 async function load() {
   const [p, a] = await Promise.all([
     http.get("/cuotas/pendientes"),
@@ -51,11 +72,12 @@ async function load() {
   abonadas.value = a.data;
   await loadPendingSummary();
 }
+
 async function loadPendingSummary() {
   const request = ++resumenRequest;
   resumenLoading.value = true;
   try {
-    const r = await http.get("/cuotas/pendientes/resumen", { params: { buscar: clienteFiltro.value.trim() || undefined } });
+    const r = await http.get("/cuotas/pendientes/resumen", { params: { buscar: searchQuery(clienteFiltro.value) ?? undefined } });
     if (request === resumenRequest) {
       totalPendiente.value = Number(r.data.totalPendiente ?? 0);
       cantidadPendiente.value = Number(r.data.cantidad ?? 0);
@@ -66,6 +88,7 @@ async function loadPendingSummary() {
     if (request === resumenRequest) resumenLoading.value = false;
   }
 }
+
 function openPayment(c: any) {
   selected.value = c;
   payment.value = {
@@ -76,11 +99,21 @@ function openPayment(c: any) {
   };
   paymentError.value = "";
 }
+
 function openDueDate(c: any) {
   editingDueDate.value = c;
   dueDate.value = c.fechaVencimiento;
   dueDateError.value = "";
 }
+
+function closePayment() {
+  selected.value = null;
+}
+
+function closeDueDate() {
+  editingDueDate.value = null;
+}
+
 async function saveDueDate() {
   if (!editingDueDate.value || !dueDate.value) {
     dueDateError.value = "Ingresá una fecha de vencimiento válida.";
@@ -96,6 +129,7 @@ async function saveDueDate() {
     dueDateError.value = apiErrorMessage(e, "No se pudo modificar el vencimiento.");
   }
 }
+
 function apiError(e: any) {
   const errors = e.response?.data?.errors;
   const first = errors ? Object.values(errors).flat()[0] : null;
@@ -103,6 +137,7 @@ function apiError(e: any) {
     ? String(first)
     : (e.response?.data?.detail ?? "No se pudo registrar el pago.");
 }
+
 async function pay() {
   if (!selected.value) return;
   const medio =
@@ -125,6 +160,7 @@ async function pay() {
     paymentError.value = apiError(e);
   }
 }
+
 async function cancelPayment(c: any) {
   if (
     !(await confirmAction({
@@ -146,6 +182,7 @@ async function cancelPayment(c: any) {
     );
   }
 }
+
 function exportCsv() {
   const date = new Date().toISOString().slice(0, 10);
   if (tab.value === "pendientes") {
@@ -168,188 +205,216 @@ function exportCsv() {
     ]),
   );
 }
+
 onMounted(load);
 watch(clienteFiltro, () => {
+  const q = clienteFiltro.value.trim();
+  if (q.length > 0 && q.length < 3) return;
   if (resumenTimer) clearTimeout(resumenTimer);
   resumenTimer = setTimeout(loadPendingSummary, 300);
 });
 onBeforeUnmount(() => { if (resumenTimer) clearTimeout(resumenTimer); });
 </script>
+
 <template>
-  <section class="page">
-    <div class="page-title">
-      <div>
-        <h2>Cuotas</h2>
-        <p>Seguimiento de cobranza por cliente y compra.</p>
+  <section class="page compact-page">
+    <div class="page-toolbar flex justify-content-between align-items-center flex-wrap gap-3">
+      <p class="page-desc text-color-secondary m-0">Seguimiento de cobranza por cliente y compra.</p>
+      <AppButton label="Exportar a CSV" icon="pi pi-download" severity="secondary" :disabled="!visible.length" @click="exportCsv" />
+    </div>
+
+    <SelectButton v-model="tab" :options="tabOptions" option-label="label" option-value="value" class="mb-3" />
+
+    <Panel class="filter-panel">
+      <div class="filter-form">
+        <label for="clienteFiltro" class="block mb-1">Buscar cliente</label>
+        <InputText
+          id="clienteFiltro"
+          v-model="clienteFiltro"
+          type="search"
+          placeholder="Nombre o apellido"
+          class="w-full"
+        />
+        <small v-if="clienteFiltro.trim() && !isSearchFilterActive(clienteFiltro)" class="text-color-secondary mt-1 block">Escribí al menos 3 caracteres</small>
+        <small v-else class="text-color-secondary mt-1 block">{{ visible.length }} cuotas</small>
       </div>
-      <button class="btn secondary" :disabled="!visible.length" @click="exportCsv">Exportar a CSV</button>
-    </div>
-    <div class="cuotas-tabs">
-      <button
-        :class="{ active: tab === 'pendientes' }"
-        @click="tab = 'pendientes'"
-      >
-        Por pagar <span>{{ pendientes.length }}</span></button
-      ><button
-        :class="{ active: tab === 'abonadas' }"
-        @click="tab = 'abonadas'"
-      >
-        Abonadas <span>{{ abonadas.length }}</span>
-      </button>
-    </div>
-    <div class="card cuotas-filter">
-      <label>Buscar cliente</label
-      ><input
-        v-model="clienteFiltro"
-        type="search"
-        placeholder="Nombre o apellido"
-      /><small>{{ visible.length }} cuotas</small>
-    </div>
+    </Panel>
+
     <article v-if="tab === 'pendientes'" class="card cuotas-pending-total">
-      <div><small>{{ clienteFiltro.trim() ? "Pendiente del cliente buscado" : "Pendiente total por cobrar" }}</small><strong>{{ resumenLoading ? "Calculando…" : money(totalPendiente) }}</strong></div>
+      <div>
+        <small>{{ clienteFiltro.trim() ? "Pendiente del cliente buscado" : "Pendiente total por cobrar" }}</small>
+        <strong>{{ resumenLoading ? "Calculando…" : money(totalPendiente) }}</strong>
+      </div>
       <span>{{ cantidadPendiente }} {{ cantidadPendiente === 1 ? "cuota pendiente" : "cuotas pendientes" }}</span>
     </article>
-    <div class="panel">
-      <table>
-        <thead>
-          <tr>
-            <th>Cliente</th>
-            <th>Compra</th>
-            <th>Cuota</th>
-            <th>
-              {{ tab === "pendientes" ? "Vencimiento" : "Fecha de pago" }}
-            </th>
-            <th>{{ tab === "pendientes" ? "Pactado" : "Importe abonado" }}</th>
-            <th v-if="tab === 'abonadas'">Impactado en sistema</th>
-            <th>Estado</th>
-            <th>Acciones</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="c in visible" :key="c.id">
-            <td>
-              <b>{{ c.cliente }}</b>
-            </td>
-            <td>
-              <b>{{ c.tipoCesped }}</b
-              ><br /><small
-                >{{ c.fechaVenta }} · {{ money(c.totalVenta) }}<br />Venta
-                {{ c.ventaId.slice(0, 8).toUpperCase() }}</small
-              >
-            </td>
-            <td>#{{ c.numero }}</td>
-            <td>
-              {{ tab === "pendientes" ? c.fechaVencimiento : c.fechaPago }}
-            </td>
-            <td class="num">
-              {{
-                money(tab === "pendientes" ? c.importePactado : c.importePagado)
-              }}
-            </td>
-            <td v-if="tab === 'abonadas'">
-              {{ new Date(c.fechaImpacto).toLocaleString("es-AR")
-              }}<br /><small>{{ c.medioPago }}</small>
-            </td>
-            <td>
-              <span class="badge" :class="{ warn: tab === 'pendientes' }">{{
-                c.estado
-              }}</span>
-            </td>
-            <td>
-              <div class="row-actions">
-                <button
-                  v-if="tab === 'pendientes'"
-                  class="btn compact"
-                  @click="openPayment(c)"
-                >
-                  Registrar pago
-                </button>
-                <button
-                  v-else
-                  class="btn danger-btn compact"
-                  @click="cancelPayment(c)"
-                >
-                  Anular cobro
-                </button>
-                <button class="btn secondary compact" @click="openDueDate(c)">
-                  Editar vencimiento
-                </button>
-              </div>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-      <div v-if="!visible.length" class="empty">
-        No hay cuotas en esta sección para ese cliente.
-      </div>
+
+    <div class="table-panel">
+      <DataTable
+        :value="visible"
+        paginator
+        :rows="TABLE_ROWS"
+        :rows-per-page-options="TABLE_ROWS_OPTIONS"
+        striped-rows
+      >
+        <template #empty>
+          <div class="text-center py-5 text-color-secondary">
+            No hay cuotas en esta sección para ese cliente.
+          </div>
+        </template>
+        <Column header="Cliente" body-class="cell-wrap">
+          <template #body="{ data: c }"><b>{{ c.cliente }}</b></template>
+        </Column>
+        <Column header="Compra" body-class="cell-wrap">
+          <template #body="{ data: c }">
+            <b>{{ c.tipoCesped }}</b><br>
+            <small class="text-color-secondary">
+              {{ c.fechaVenta }} · {{ money(c.totalVenta) }}<br>
+              Venta {{ c.ventaId.slice(0, 8).toUpperCase() }}
+            </small>
+          </template>
+        </Column>
+        <Column header="Cuota">
+          <template #body="{ data: c }">#{{ c.numero }}</template>
+        </Column>
+        <Column :header="tab === 'pendientes' ? 'Vencimiento' : 'Fecha de pago'">
+          <template #body="{ data: c }">
+            {{ tab === "pendientes" ? c.fechaVencimiento : c.fechaPago }}
+          </template>
+        </Column>
+        <Column :header="tab === 'pendientes' ? 'Pactado' : 'Importe abonado'" body-class="cell-num">
+          <template #body="{ data: c }">
+            {{ money(tab === "pendientes" ? c.importePactado : c.importePagado) }}
+          </template>
+        </Column>
+        <Column v-if="tab === 'abonadas'" header="Impactado en sistema" body-class="cell-wrap">
+          <template #body="{ data: c }">
+            {{ new Date(c.fechaImpacto).toLocaleString("es-AR") }}<br>
+            <small class="text-color-secondary">{{ c.medioPago }}</small>
+          </template>
+        </Column>
+        <Column header="Estado">
+          <template #body="{ data: c }">
+            <Tag :value="c.estado" :severity="tab === 'pendientes' ? 'warn' : 'success'" />
+          </template>
+        </Column>
+        <Column header="" body-class="cell-actions">
+          <template #body="{ data: c }">
+            <div class="cuotas-actions">
+              <AppButton
+                v-if="tab === 'pendientes'"
+                tooltip="Registrar pago"
+                icon="pi pi-wallet"
+                size="small"
+                rounded
+                text
+                aria-label="Registrar pago"
+                @click="openPayment(c)"
+              />
+              <AppButton
+                v-else
+                tooltip="Anular cobro"
+                icon="pi pi-times-circle"
+                size="small"
+                rounded
+                text
+                severity="danger"
+                aria-label="Anular cobro"
+                @click="cancelPayment(c)"
+              />
+              <AppButton
+                tooltip="Editar vencimiento"
+                icon="pi pi-calendar"
+                size="small"
+                rounded
+                text
+                severity="secondary"
+                aria-label="Editar vencimiento"
+                @click="openDueDate(c)"
+              />
+            </div>
+          </template>
+        </Column>
+      </DataTable>
     </div>
-    <div v-if="selected" class="modal-bg">
-      <form class="modal small-modal" @submit.prevent="pay">
-        <h3>Registrar pago de cuota</h3>
-        <p>
-          <b>{{ selected.cliente }}</b
-          ><br />{{ selected.tipoCesped }} · Cuota #{{ selected.numero }}
+
+    <Dialog
+      :visible="selected !== null"
+      modal
+      header="Registrar pago de cuota"
+      :style="{ width: 'min(480px, 96vw)' }"
+      @update:visible="(v) => { if (!v) closePayment() }"
+    >
+      <form v-if="selected" @submit.prevent="pay">
+        <p class="mt-0">
+          <b>{{ selected.cliente }}</b><br>
+          {{ selected.tipoCesped }} · Cuota #{{ selected.numero }}
         </p>
-        <p v-if="paymentError" class="error">{{ paymentError }}</p>
-        <div class="field">
-          <label>Importe</label
-          ><input
-            v-model.number="payment.importe"
-            type="number"
-            min="0.01"
-            :max="selected.importePactado - selected.importePagado"
-            step="0.01"
-            required
-          /><small
-            >Saldo pendiente:
-            {{ money(selected.importePactado - selected.importePagado) }}</small
-          >
+        <Message v-if="paymentError" severity="error" class="mb-3" :closable="false">{{ paymentError }}</Message>
+
+        <div class="grid formgrid p-fluid">
+          <div class="field col-12">
+            <label>Importe</label>
+            <InputNumber
+              v-model="payment.importe"
+              :min="0.01"
+              :max="selected.importePactado - selected.importePagado"
+              :min-fraction-digits="2"
+              :max-fraction-digits="2"
+              mode="currency"
+              currency="ARS"
+              locale="es-AR"
+              required
+            />
+            <small class="text-color-secondary">
+              Saldo pendiente: {{ money(selected.importePactado - selected.importePagado) }}
+            </small>
+          </div>
+          <div class="field col-12">
+            <label>Medio de pago</label>
+            <Select v-model="payment.medioPago" :options="medios" />
+          </div>
+          <div v-if="payment.medioPago === 'Otro'" class="field col-12">
+            <label>Especificar medio</label>
+            <InputText v-model="payment.otroMedio" maxlength="100" required />
+          </div>
+          <div class="field col-12">
+            <label>Fecha de pago</label>
+            <AppDatePicker v-model="payment.fechaPago" required />
+          </div>
         </div>
-        <div class="field">
-          <label>Medio de pago</label
-          ><select v-model="payment.medioPago">
-            <option v-for="medio in medios" :key="medio">{{ medio }}</option>
-          </select>
-        </div>
-        <div v-if="payment.medioPago === 'Otro'" class="field">
-          <label>Especificar medio</label
-          ><input v-model="payment.otroMedio" maxlength="100" required />
-        </div>
-        <div class="field">
-          <label>Fecha de pago</label
-          ><input v-model="payment.fechaPago" type="date" required />
-        </div>
-        <div class="actions">
-          <button type="button" class="btn secondary" @click="selected = null">
-            Cancelar</button
-          ><button class="btn">Confirmar pago</button>
+
+        <div class="flex justify-content-end gap-2 mt-4">
+          <AppButton type="button" label="Cancelar" severity="secondary" @click="closePayment" />
+          <AppButton type="submit" label="Confirmar pago" />
         </div>
       </form>
-    </div>
-    <div v-if="editingDueDate" class="modal-bg">
-      <form class="modal small-modal" @submit.prevent="saveDueDate">
-        <h3>Editar vencimiento</h3>
-        <p>
-          <b>{{ editingDueDate.cliente }}</b><br />
+    </Dialog>
+
+    <Dialog
+      :visible="editingDueDate !== null"
+      modal
+      header="Editar vencimiento"
+      :style="{ width: 'min(480px, 96vw)' }"
+      @update:visible="(v) => { if (!v) closeDueDate() }"
+    >
+      <form v-if="editingDueDate" @submit.prevent="saveDueDate">
+        <p class="mt-0">
+          <b>{{ editingDueDate.cliente }}</b><br>
           {{ editingDueDate.tipoCesped }} · Cuota #{{ editingDueDate.numero }}
         </p>
-        <p v-if="dueDateError" class="error">{{ dueDateError }}</p>
+        <Message v-if="dueDateError" severity="error" class="mb-3" :closable="false">{{ dueDateError }}</Message>
+
         <div class="field">
           <label>Fecha de vencimiento</label>
-          <input v-model="dueDate" type="date" required />
-          <small>Únicamente se modificará esta fecha.</small>
+          <AppDatePicker v-model="dueDate" required />
+          <small class="text-color-secondary">Únicamente se modificará esta fecha.</small>
         </div>
-        <div class="actions">
-          <button
-            type="button"
-            class="btn secondary"
-            @click="editingDueDate = null"
-          >
-            Cancelar
-          </button>
-          <button class="btn">Guardar fecha</button>
+
+        <div class="flex justify-content-end gap-2 mt-4">
+          <AppButton type="button" label="Cancelar" severity="secondary" @click="closeDueDate" />
+          <AppButton type="submit" label="Guardar fecha" />
         </div>
       </form>
-    </div>
+    </Dialog>
   </section>
 </template>

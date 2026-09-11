@@ -1,10 +1,27 @@
 <script setup lang="ts">
 import { ref, onMounted, watch, computed, reactive } from "vue";
-import { Pencil, Trash2 } from "lucide-vue-next";
+import AppButton from "@/shared/components/AppButton.vue";
+import Column from "primevue/column";
+import DataTable from "primevue/datatable";
+import Dialog from "primevue/dialog";
+import InputNumber from "primevue/inputnumber";
+import AppDatePicker from "@/shared/components/AppDatePicker.vue";
+import InputText from "primevue/inputtext";
+import Message from "primevue/message";
+import Panel from "primevue/panel";
+import Select from "primevue/select";
+import Tag from "primevue/tag";
+import Textarea from "primevue/textarea";
+import AppIcon from "@/shared/components/AppIcon.vue";
+import { faPen, faTrash } from "@/shared/icons";
 import { http } from "@/shared/api/httpClient";
 import ClienteAutocomplete from "@/shared/components/ClienteAutocomplete.vue";
 import { formatCurrency as money } from "@/shared/formatters";
 import { confirmAction, notify } from "@/shared/uiFeedback";
+import { formatDateRangeLabel, monthRange, sixMonthsRange, weekRange } from "@/shared/dateFilters";
+import { useImmediateFilters } from "@/shared/composables/useFilterTriggers";
+import { TABLE_ROWS, TABLE_ROWS_OPTIONS, tableFirst, type DataTablePageEvent } from "@/shared/tablePagination";
+
 const items = ref<any[]>([]),
   clientes = ref<any[]>([]),
   maestros = ref<any>({ tiposCesped: [], alicuotasIva: [] }),
@@ -13,10 +30,24 @@ const items = ref<any[]>([]),
   editingId = ref<string | null>(null),
   totalEdited = ref(false),
   total = ref(0),
+  page = ref(1),
+  pageSize = ref(TABLE_ROWS),
+  first = computed(() => tableFirst(page.value, pageSize.value)),
   loading = ref(false),
   loadError = ref("");
-const dateKey = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-const filters = reactive({ periodo: "all", desde: "", hasta: "", clienteId: "", tipoCespedId: "" });
+
+const periodoOptions = [
+  { label: "Todo el historial", value: "all" },
+  { label: "Última semana", value: "week" },
+  { label: "Último mes", value: "month" },
+  { label: "Últimos 6 meses", value: "sixMonths" },
+  { label: "Personalizado", value: "custom" },
+];
+const estadoOptions = ["Confirmada", "Futura", "Entregada", "Cancelada"];
+const formaPagoOptions = ["Contado", "Transferencia", "Cheque", "Cuotas", "Otros"];
+
+const filters = reactive({ periodo: "month", ...monthRange(), clienteId: "", tipoCespedId: "" });
+const filterPeriodLabel = computed(() => formatDateRangeLabel(filters.desde, filters.hasta));
 const blank = () => ({
   clienteId: "",
   fechaVenta: new Date().toISOString().slice(0, 10),
@@ -37,15 +68,28 @@ const blank = () => ({
   alicuotaIvaId: "",
 });
 const form = ref(blank());
-function saleStatusClass(status: string) {
-  return {
+
+function saleStatusSeverity(status: string) {
+  return ({
     Cancelada: "danger",
-    Futura: "",
+    Futura: "secondary",
     Confirmada: "warn",
-    Entregada: "strong",
-  }[status] ?? "";
+    Entregada: "success",
+  } as const)[status] ?? "secondary";
 }
-const selectedProduct = computed(() => maestros.value.tiposCesped.find((x:any) => x.id === form.value.tipoCespedId));
+
+const clienteFilterOptions = computed(() => [
+  { id: "", label: "Todos los clientes" },
+  ...clientes.value.map((c: any) => ({ id: c.id, label: c.nombreCompleto || c.nombre })),
+]);
+const tipoCespedFilterOptions = computed(() => [
+  { id: "", label: "Todos los tipos" },
+  ...(maestros.value.tiposCespedFiltro || []).map((t: any) => ({
+    id: t.id,
+    label: `${t.nombre}${t.activo === false ? " (inactivo)" : ""}`,
+  })),
+]);
+const selectedProduct = computed(() => maestros.value.tiposCesped.find((x: any) => x.id === form.value.tipoCespedId));
 const availableColors = computed<string[]>(() => selectedProduct.value?.colores ?? []);
 const calculatedTotal = computed(() =>
   Math.round(
@@ -54,51 +98,66 @@ const calculatedTotal = computed(() =>
       100,
   ) / 100
 );
+
 function useCalculatedTotal() {
   form.value.precioTotal = calculatedTotal.value;
   totalEdited.value = false;
 }
+
 watch(
   () => [form.value.cantidadM2, form.value.precioUnitario],
   () => {
     if (!totalEdited.value) form.value.precioTotal = calculatedTotal.value;
   },
 );
+
 function applyPeriod() {
-  if (filters.periodo === "all" || filters.periodo === "custom") {
-    if (filters.periodo === "all") { filters.desde = ""; filters.hasta = ""; }
+  if (filters.periodo === "all") {
+    filters.desde = "";
+    filters.hasta = "";
     return;
   }
-  const end = new Date();
-  const start = new Date(end);
-  if (filters.periodo === "week") start.setDate(start.getDate() - 6);
-  if (filters.periodo === "month") start.setDate(start.getDate() - 29);
-  if (filters.periodo === "sixMonths") start.setMonth(start.getMonth() - 6);
-  filters.desde = dateKey(start);
-  filters.hasta = dateKey(end);
+  if (filters.periodo === "custom") return;
+  const ranges = { week: weekRange(), month: monthRange(), sixMonths: sixMonthsRange() };
+  const range = ranges[filters.periodo as keyof typeof ranges];
+  if (range) {
+    filters.desde = range.desde;
+    filters.hasta = range.hasta;
+  }
 }
+
 function customDates() { filters.periodo = "custom"; }
+
 function resetFilters() {
-  filters.periodo = "all"; filters.desde = ""; filters.hasta = ""; filters.clienteId = ""; filters.tipoCespedId = "";
+  filters.periodo = "month";
+  Object.assign(filters, monthRange(), { clienteId: "", tipoCespedId: "" });
+}
+
+function onPage(event: DataTablePageEvent) {
+  page.value = event.page + 1;
+  pageSize.value = event.rows;
   loadSales();
 }
+
 async function loadSales() {
   loading.value = true; loadError.value = "";
   try {
-    const response = await http.get("/ventas", { params: { pageSize: 100, desde: filters.desde || undefined, hasta: filters.hasta || undefined, clienteId: filters.clienteId || undefined, tipoCespedId: filters.tipoCespedId || undefined } });
+    const response = await http.get("/ventas", { params: { page: page.value, pageSize: pageSize.value, desde: filters.desde || undefined, hasta: filters.hasta || undefined, clienteId: filters.clienteId || undefined, tipoCespedId: filters.tipoCespedId || undefined } });
     items.value = response.data.items;
     total.value = response.data.total;
   } catch { loadError.value = "No se pudieron cargar las ventas."; }
   finally { loading.value = false; }
 }
+
 async function load() {
   const [filterData, masterData] = await Promise.all([http.get("/ventas/filtros"), http.get("/maestros")]);
   clientes.value = filterData.data.clientes;
   maestros.value = { ...masterData.data, tiposCespedFiltro: filterData.data.tiposCesped };
   await loadSales();
 }
-/* El precio maestro se completa al cambiar producto, pero sigue siendo editable. */
-watch(()=>form.value.tipoCespedId,(id)=>{const t=maestros.value.tiposCesped.find((x:any)=>x.id===id);if(!t)return;if(!editingId.value){form.value.precioUnitario=t.precioVentaM2;form.value.costoCompraUnitario=t.costoM2}if(!t.colores?.includes(form.value.color))form.value.color=t.colores?.length===1?t.colores[0]:""})
+
+watch(() => form.value.tipoCespedId, (id) => { const t = maestros.value.tiposCesped.find((x: any) => x.id === id); if (!t) return; if (!editingId.value) { form.value.precioUnitario = t.precioVentaM2; form.value.costoCompraUnitario = t.costoM2; } if (!t.colores?.includes(form.value.color)) form.value.color = t.colores?.length === 1 ? t.colores[0] : ""; });
+
 function openNew() {
   editingId.value = null;
   form.value = blank();
@@ -106,6 +165,7 @@ function openNew() {
   error.value = "";
   show.value = true;
 }
+
 function edit(v: any) {
   editingId.value = v.id;
   form.value = {
@@ -131,6 +191,7 @@ function edit(v: any) {
   error.value = "";
   show.value = true;
 }
+
 async function save() {
   try {
     editingId.value
@@ -146,8 +207,9 @@ async function save() {
       "Revisá los datos ingresados.";
   }
 }
+
 async function remove(v: any) {
-  if (!await confirmAction({title:"Eliminar venta",message:`¿Querés eliminar la venta de ${v.cliente} por ${money(v.precioTotal)}? También se eliminarán sus cuotas cobradas y los movimientos de caja relacionados.`,confirmText:"Eliminar",danger:true})) return;
+  if (!await confirmAction({ title: "Eliminar venta", message: `¿Querés eliminar la venta de ${v.cliente} por ${money(v.precioTotal)}? También se eliminarán sus cuotas cobradas y los movimientos de caja relacionados.`, confirmText: "Eliminar", danger: true })) return;
   try {
     await http.delete(`/ventas/${v.id}`);
     await loadSales();
@@ -155,6 +217,7 @@ async function remove(v: any) {
     notify(e.response?.data?.message ?? "No se pudo eliminar la venta.");
   }
 }
+
 async function deliver(id: string) {
   try {
     await http.post(`/ventas/${id}/entregar`);
@@ -163,230 +226,283 @@ async function deliver(id: string) {
     notify(e.response?.data?.message ?? "No se pudo actualizar.");
   }
 }
+
+watch(() => filters.periodo, () => applyPeriod());
+
+useImmediateFilters(() => filters, () => {
+  page.value = 1;
+  loadSales();
+});
+
 onMounted(load);
 </script>
+
 <template>
-  <section class="page">
-    <div class="page-title">
-      <div>
-        <h2>Ventas</h2>
-        <p>Operaciones, costos y margen en un solo lugar.</p>
+  <section class="page compact-page">
+    <div class="page-toolbar flex justify-content-between align-items-center flex-wrap gap-3">
+      <p class="page-desc text-color-secondary m-0">Operaciones, costos y margen en un solo lugar.</p>
+      <RouterLink to="/ventas/nueva">
+        <AppButton label="Registrar venta" icon="pi pi-plus" />
+      </RouterLink>
+    </div>
+
+    <Panel class="filter-panel">
+      <p v-if="filters.periodo !== 'all'" class="filter-period-hint pt-2">
+        Período activo: <strong>{{ filterPeriodLabel }}</strong>
+      </p>
+      <div class="grid formgrid p-fluid filter-form">
+        <div class="field col-12 md:col-6 lg:col-3">
+          <label for="periodo">Período</label>
+          <Select
+            id="periodo"
+            v-model="filters.periodo"
+            :options="periodoOptions"
+            option-label="label"
+            option-value="value"
+          />
+        </div>
+        <div class="field col-12 md:col-6 lg:col-3">
+          <label for="desde">Desde</label>
+          <AppDatePicker id="desde" v-model="filters.desde" @change="customDates" />
+        </div>
+        <div class="field col-12 md:col-6 lg:col-3">
+          <label for="hasta">Hasta</label>
+          <AppDatePicker id="hasta" v-model="filters.hasta" @change="customDates" />
+        </div>
+        <div class="field col-12 md:col-6 lg:col-3">
+          <label for="clienteFiltro">Cliente</label>
+          <Select
+            id="clienteFiltro"
+            v-model="filters.clienteId"
+            :options="clienteFilterOptions"
+            option-label="label"
+            option-value="id"
+          />
+        </div>
+        <div class="field col-12 md:col-6 lg:col-3">
+          <label for="tipoCespedFiltro">Tipo de césped</label>
+          <Select
+            id="tipoCespedFiltro"
+            v-model="filters.tipoCespedId"
+            :options="tipoCespedFilterOptions"
+            option-label="label"
+            option-value="id"
+          />
+        </div>
+        <div class="field col-12 md:col-6 lg:col-3 filter-actions flex align-items-end">
+          <AppButton type="button" label="Restablecer" icon="pi pi-filter-slash" severity="secondary" @click="resetFilters" />
+        </div>
       </div>
-      <RouterLink class="btn" to="/ventas/nueva">+ Registrar venta</RouterLink>
+    </Panel>
+
+    <Message v-if="loadError" severity="error" class="mb-3" :closable="false">
+      {{ loadError }}
+      <AppButton label="Reintentar" size="small" severity="secondary" class="ml-2" @click="loadSales" />
+    </Message>
+
+    <div v-else class="table-panel">
+      <DataTable
+        :value="items"
+        :loading="loading"
+        lazy
+        paginator
+        :rows="pageSize"
+        :total-records="total"
+        :first="first"
+        :rows-per-page-options="TABLE_ROWS_OPTIONS"
+        striped-rows
+        @page="onPage"
+      >
+        <template #empty>
+          <div class="text-center py-5">
+            <p class="font-bold mb-2">No hay ventas</p>
+            <p class="text-color-secondary mb-3">No encontramos operaciones para los filtros seleccionados.</p>
+            <RouterLink to="/ventas/nueva">
+              <AppButton label="Registrar venta" icon="pi pi-plus" />
+            </RouterLink>
+          </div>
+        </template>
+        <Column header="Cliente / Césped" body-class="cell-wrap">
+          <template #body="{ data: v }">
+            <b>{{ v.cliente }}</b><br>
+            <small class="text-color-secondary">
+              <template v-if="v.lineas?.length > 1">{{ v.lineas.length }} productos</template>
+              <template v-else>{{ v.tipoCesped }}<template v-if="v.color"> · {{ v.color }}</template></template>
+              · {{ v.cantidadM2 }} m²
+            </small>
+          </template>
+        </Column>
+        <Column field="fechaVenta" header="Fecha" />
+        <Column header="Total" body-class="cell-num">
+          <template #body="{ data: v }">{{ money(v.precioTotal) }}</template>
+        </Column>
+        <Column header="Entrega" body-class="cell-num">
+          <template #body="{ data: v }">{{ money(v.montoEntrega) }}</template>
+        </Column>
+        <Column header="Estado">
+          <template #body="{ data: v }">
+            <Tag :value="v.estado" :severity="saleStatusSeverity(v.estado)" />
+          </template>
+        </Column>
+        <Column header="Acciones" body-class="cell-actions">
+          <template #body="{ data: v }">
+            <div class="flex gap-1 flex-wrap">
+              <AppButton
+                v-if="!['Entregada', 'Cancelada'].includes(v.estado)"
+                label="Entregar"
+                size="small"
+                @click="deliver(v.id)"
+              />
+              <RouterLink :to="`/ventas/${v.id}/editar`">
+                <AppButton text rounded severity="secondary" aria-label="Editar venta">
+                  <AppIcon :icon="faPen" />
+                </AppButton>
+              </RouterLink>
+              <AppButton text rounded severity="danger" aria-label="Eliminar venta" @click="remove(v)">
+                <AppIcon :icon="faTrash" />
+              </AppButton>
+            </div>
+          </template>
+        </Column>
+      </DataTable>
     </div>
-    <form class="panel sales-filters" @submit.prevent="loadSales">
-      <div class="field"><label>Período</label><select v-model="filters.periodo" @change="applyPeriod"><option value="all">Todo el historial</option><option value="week">Última semana</option><option value="month">Último mes</option><option value="sixMonths">Últimos 6 meses</option><option value="custom">Personalizado</option></select></div>
-      <div class="field"><label>Desde</label><input v-model="filters.desde" type="date" @change="customDates"></div>
-      <div class="field"><label>Hasta</label><input v-model="filters.hasta" type="date" @change="customDates"></div>
-      <div class="field"><label>Cliente</label><select v-model="filters.clienteId"><option value="">Todos los clientes</option><option v-for="client in clientes" :key="client.id" :value="client.id">{{ client.nombreCompleto || client.nombre }}</option></select></div>
-      <div class="field"><label>Tipo de césped</label><select v-model="filters.tipoCespedId"><option value="">Todos los tipos</option><option v-for="type in maestros.tiposCespedFiltro || []" :key="type.id" :value="type.id">{{ type.nombre }}{{ type.activo === false ? " (inactivo)" : "" }}</option></select></div>
-      <div class="filter-actions"><button class="btn" :disabled="loading">{{ loading ? "Buscando…" : "Aplicar filtros" }}</button><button type="button" class="btn secondary" @click="resetFilters">Restablecer</button></div>
-    </form>
-    <div v-if="loadError" class="error load-state">{{ loadError }} <button class="btn secondary compact" @click="loadSales">Reintentar</button></div>
-    <div class="panel">
-      <div class="panel-head"><h3>{{ total }} {{ total === 1 ? "venta encontrada" : "ventas encontradas" }}</h3></div>
-      <div v-if="loading" class="loading">Cargando ventas…</div>
-      <table>
-        <thead>
-          <tr>
-            <th>Cliente / Césped</th>
-            <th>Fecha</th>
-            <th>Total</th>
-            <th>Entrega</th>
-            <th>Estado</th>
-            <th>Acciones</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="v in items" v-show="!loading" :key="v.id">
-            <td>
-              <b>{{ v.cliente }}</b
-              ><br /><small><template v-if="v.lineas?.length > 1">{{v.lineas.length}} productos</template><template v-else>{{ v.tipoCesped }}<template v-if="v.color"> · {{ v.color }}</template></template> · {{ v.cantidadM2 }} m²</small>
-            </td>
-            <td>{{ v.fechaVenta }}</td>
-            <td>{{ money(v.precioTotal) }}</td>
-            <td>{{ money(v.montoEntrega) }}</td>
-            <td>
-              <span class="badge" :class="saleStatusClass(v.estado)">{{ v.estado }}</span>
-            </td>
-            <td>
-              <div class="row-actions">
-                <button
-                  v-if="!['Entregada', 'Cancelada'].includes(v.estado)"
-                  class="btn secondary compact"
-                  @click="deliver(v.id)"
-                >
-                  Entregar</button
-                ><RouterLink class="icon-btn" :to="`/ventas/${v.id}/editar`" title="Editar venta"><Pencil /></RouterLink
-                ><button class="icon-btn danger" @click="remove(v)">
-                  <Trash2 />
-                </button>
-              </div>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-      <div v-if="!loading && !items.length" class="empty">No hay ventas para los filtros seleccionados.</div>
-    </div>
-    <div v-if="show" class="modal-bg">
-      <form class="modal" @submit.prevent="save">
-        <h3>{{ editingId ? "Modificar venta" : "Registrar venta" }}</h3>
-        <p v-if="error" class="error">{{ error }}</p>
-        <div class="form-grid">
-          <div class="field">
-            <label>Cliente</label><ClienteAutocomplete v-model="form.clienteId" :clientes="clientes" />
+
+    <Dialog
+      v-model:visible="show"
+      modal
+      :header="editingId ? 'Modificar venta' : 'Registrar venta'"
+      :style="{ width: 'min(760px, 96vw)' }"
+    >
+      <form @submit.prevent="save">
+        <Message v-if="error" severity="error" class="mb-3" :closable="false">{{ error }}</Message>
+
+        <div class="grid formgrid p-fluid">
+          <div class="field col-12 md:col-6">
+            <label>Cliente</label>
+            <ClienteAutocomplete v-model="form.clienteId" :clientes="clientes" />
           </div>
-          <div class="field">
-            <label>Tipo de césped</label
-            ><select v-model="form.tipoCespedId" required>
-              <option value="" disabled>Seleccionar</option>
-              <option v-for="t in maestros.tiposCesped" :value="t.id">
-                {{ t.nombre }}
-              </option>
-            </select>
-          </div>
-          <div v-if="availableColors.length" class="field">
-            <label>Color</label><select v-model="form.color" required>
-              <option value="" disabled>Seleccionar color</option>
-              <option v-for="color in availableColors" :key="color" :value="color">{{ color }}</option>
-            </select>
-          </div>
-          <div class="field">
-            <label>Fecha de venta</label
-            ><input v-model="form.fechaVenta" type="date" required />
-          </div>
-          <div class="field">
-            <label>Estado</label
-            ><select v-model="form.estado">
-              <option
-                v-for="x in ['Confirmada', 'Futura', 'Entregada', 'Cancelada']"
-              >
-                {{ x }}
-              </option>
-            </select>
-          </div>
-          <div v-if="form.estado === 'Futura'" class="field">
-            <label>Entrega estimada</label
-            ><input v-model="form.fechaEntregaEstimada" type="date" required />
-          </div>
-          <div class="field">
-            <label>Cantidad m²</label
-            ><input
-              v-model.number="form.cantidadM2"
-              type="number"
-              min="0.01"
-              step="0.01"
+          <div class="field col-12 md:col-6">
+            <label>Tipo de césped</label>
+            <Select
+              v-model="form.tipoCespedId"
+              :options="maestros.tiposCesped"
+              option-label="nombre"
+              option-value="id"
+              placeholder="Seleccionar"
               required
             />
           </div>
-          <div class="field">
-            <label>Precio por m²</label
-            ><input
-              v-model.number="form.precioUnitario"
-              type="number"
-              min="0.01"
-              step="0.01"
+          <div v-if="availableColors.length" class="field col-12 md:col-6">
+            <label>Color</label>
+            <Select
+              v-model="form.color"
+              :options="availableColors"
+              placeholder="Seleccionar color"
               required
             />
           </div>
-          <div class="field highlight-field">
-            <label>Importe final de la venta</label
-            ><input
-              v-model.number="form.precioTotal"
-              type="number"
-              min="0.01"
-              step="0.01"
+          <div class="field col-12 md:col-6">
+            <label>Fecha de venta</label>
+            <AppDatePicker v-model="form.fechaVenta" required />
+          </div>
+          <div class="field col-12 md:col-6">
+            <label>Estado</label>
+            <Select v-model="form.estado" :options="estadoOptions" />
+          </div>
+          <div v-if="form.estado === 'Futura'" class="field col-12 md:col-6">
+            <label>Entrega estimada</label>
+            <AppDatePicker v-model="form.fechaEntregaEstimada" required />
+          </div>
+          <div class="field col-12 md:col-6">
+            <label>Cantidad m²</label>
+            <InputNumber v-model="form.cantidadM2" :min="0.01" :min-fraction-digits="2" :max-fraction-digits="2" required />
+          </div>
+          <div class="field col-12 md:col-6">
+            <label>Precio por m²</label>
+            <InputNumber v-model="form.precioUnitario" :min="0.01" :min-fraction-digits="2" :max-fraction-digits="2" mode="currency" currency="ARS" locale="es-AR" required />
+          </div>
+          <div class="field col-12 md:col-6 highlight-field">
+            <label>Importe final de la venta</label>
+            <InputNumber
+              v-model="form.precioTotal"
+              :min="0.01"
+              :min-fraction-digits="2"
+              :max-fraction-digits="2"
+              mode="currency"
+              currency="ARS"
+              locale="es-AR"
               required
-              @input="totalEdited = true"
-            /><small>
+              @update:model-value="totalEdited = true"
+            />
+            <small class="text-color-secondary">
               Cálculo por m²: {{ money(calculatedTotal) }}
-              <button
+              <AppButton
                 v-if="form.precioTotal !== calculatedTotal"
                 type="button"
-                class="link-button"
+                label="Usar cálculo"
+                link
+                class="p-0 ml-1"
                 @click="useCalculatedTotal"
-              >
-                Usar cálculo
-              </button>
+              />
             </small>
           </div>
-          <div class="field highlight-field">
-            <label>Monto de entrega inicial</label
-            ><input
-              v-model.number="form.montoEntrega"
-              type="number"
-              min="0.01"
+          <div class="field col-12 md:col-6 highlight-field">
+            <label>Monto de entrega inicial</label>
+            <InputNumber
+              v-model="form.montoEntrega"
+              :min="0.01"
               :max="form.precioTotal"
-              step="0.01"
+              :min-fraction-digits="2"
+              :max-fraction-digits="2"
+              mode="currency"
+              currency="ARS"
+              locale="es-AR"
               required
-            /><small>Se registra automáticamente como ingreso en Caja.</small>
+            />
+            <small class="text-color-secondary">Se registra automáticamente como ingreso en Caja.</small>
           </div>
-          <div class="field">
-            <label>Costo compra por m²</label
-            ><input
-              v-model.number="form.costoCompraUnitario"
-              type="number"
-              min="0.01"
-              step="0.01"
+          <div class="field col-12 md:col-6">
+            <label>Costo compra por m²</label>
+            <InputNumber v-model="form.costoCompraUnitario" :min="0.01" :min-fraction-digits="2" :max-fraction-digits="2" mode="currency" currency="ARS" locale="es-AR" required />
+          </div>
+          <div class="field col-12 md:col-6">
+            <label>Envío</label>
+            <InputNumber v-model="form.costoEnvio" :min="0" :min-fraction-digits="2" :max-fraction-digits="2" mode="currency" currency="ARS" locale="es-AR" />
+          </div>
+          <div class="field col-12 md:col-6">
+            <label>Otros costos</label>
+            <InputNumber v-model="form.otrosCostos" :min="0" :min-fraction-digits="2" :max-fraction-digits="2" mode="currency" currency="ARS" locale="es-AR" />
+          </div>
+          <div class="field col-12 md:col-6">
+            <label>Forma de pago</label>
+            <Select v-model="form.formaPago" :options="formaPagoOptions" />
+          </div>
+          <div v-if="form.formaPago === 'Cuotas'" class="field col-12 md:col-6">
+            <label>Cuotas sobre el saldo</label>
+            <InputNumber v-model="form.cantidadCuotas" :min="1" :max="60" required />
+          </div>
+          <div class="field col-12 md:col-6">
+            <label>IVA</label>
+            <Select
+              v-model="form.alicuotaIvaId"
+              :options="maestros.alicuotasIva"
+              option-label="nombre"
+              option-value="id"
+              placeholder="Seleccionar"
               required
             />
           </div>
-          <div class="field">
-            <label>Envío</label
-            ><input v-model.number="form.costoEnvio" type="number" min="0" />
-          </div>
-          <div class="field">
-            <label>Otros costos</label
-            ><input v-model.number="form.otrosCostos" type="number" min="0" />
-          </div>
-          <div class="field">
-            <label>Forma de pago</label
-            ><select v-model="form.formaPago">
-              <option
-                v-for="x in [
-                  'Contado',
-                  'Transferencia',
-                  'Cheque',
-                  'Cuotas',
-                  'Otros',
-                ]"
-              >
-                {{ x }}
-              </option>
-            </select>
-          </div>
-          <div v-if="form.formaPago === 'Cuotas'" class="field">
-            <label>Cuotas sobre el saldo</label
-            ><input
-              v-model.number="form.cantidadCuotas"
-              type="number"
-              min="1"
-              max="60"
-              required
-            />
-          </div>
-          <div class="field">
-            <label>IVA</label
-            ><select v-model="form.alicuotaIvaId" required>
-              <option value="" disabled>Seleccionar</option>
-              <option v-for="a in maestros.alicuotasIva" :value="a.id">
-                {{ a.nombre }}
-              </option>
-            </select>
-          </div>
-          <div class="field">
-            <label>Observaciones</label
-            ><textarea v-model="form.observaciones"></textarea>
+          <div class="field col-12">
+            <label>Observaciones</label>
+            <Textarea v-model="form.observaciones" rows="3" auto-resize />
           </div>
         </div>
-        <div class="actions">
-          <button type="button" class="btn secondary" @click="show = false">
-            Cancelar</button
-          ><button class="btn">
-            {{ editingId ? "Guardar cambios" : "Confirmar venta" }}
-          </button>
+
+        <div class="flex justify-content-end gap-2 mt-4">
+          <AppButton type="button" label="Cancelar" severity="secondary" @click="show = false" />
+          <AppButton type="submit" :label="editingId ? 'Guardar cambios' : 'Confirmar venta'" />
         </div>
       </form>
-    </div>
+    </Dialog>
   </section>
 </template>

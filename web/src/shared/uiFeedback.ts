@@ -1,10 +1,41 @@
-import{reactive}from'vue'
-type ConfirmOptions={title:string;message:string;confirmText?:string;danger?:boolean}
-type ConfirmState=ConfirmOptions&{open:boolean;resolve?:((value:boolean)=>void)}
-const confirmState=reactive<ConfirmState>({open:false,title:'',message:''})
-const toastState=reactive({visible:false,message:'',type:'error' as'error'|'success'})
-let toastTimer:number|undefined
-export function confirmAction(options:ConfirmOptions){return new Promise<boolean>(resolve=>Object.assign(confirmState,options,{open:true,resolve}))}
-export function resolveConfirmation(value:boolean){confirmState.open=false;confirmState.resolve?.(value);confirmState.resolve=undefined}
-export function notify(message:string,type:'error'|'success'='error'){toastState.message=message;toastState.type=type;toastState.visible=true;if(toastTimer)clearTimeout(toastTimer);toastTimer=window.setTimeout(()=>toastState.visible=false,4500)}
-export{confirmState,toastState}
+import { showConfirm, showToast } from '@/shared/feedbackBridge'
+
+type ConfirmOptions = {
+  title: string
+  message: string
+  confirmText?: string
+  danger?: boolean
+}
+
+export async function confirmAction(options: ConfirmOptions): Promise<boolean> {
+  return new Promise((resolve) => {
+    let settled = false
+    const finish = (value: boolean) => {
+      if (settled) return
+      settled = true
+      resolve(value)
+    }
+
+    showConfirm({
+      message: options.message,
+      header: options.title,
+      icon: 'pi pi-exclamation-triangle',
+      rejectLabel: 'Cancelar',
+      acceptLabel: options.confirmText ?? 'Confirmar',
+      rejectClass: 'p-button-secondary p-button-outlined',
+      acceptClass: options.danger ? 'p-button-danger' : '',
+      accept: () => finish(true),
+      reject: () => finish(false),
+      onHide: () => finish(false),
+    })
+  })
+}
+
+export function notify(message: string, type: 'error' | 'success' = 'error') {
+  showToast({
+    severity: type === 'success' ? 'success' : 'error',
+    summary: type === 'success' ? 'Éxito' : 'Error',
+    detail: message,
+    life: 4000,
+  })
+}

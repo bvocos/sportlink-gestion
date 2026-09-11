@@ -1,0 +1,552 @@
+.p-button.p-button-success,
+.p-button:not(.p-button-outlined):not(.p-button-text):not(.p-button-danger):not(.p-button-secondary) {
+  background: var(--p-primary-500);
+  border-color: var(--p-primary-500);
+  color: #fff;
+}
+
+.p-button.p-button-secondary:not(.p-button-outlined):not(.p-button-text) {
+  background: #e7eee6;
+  border-color: #ccd8ce;
+  color: #285c3d;
+}
+
+.p-button.p-button-secondary:not(.p-button-outlined):not(.p-button-text):hover {
+  background: #d7e3d6;
+  border-color: #b8c9b8;
+  color: #214f3a;
+}
+
+.p-button .p-button-label {
+  color: inherit;
+}
+
+.p-button.p-button-success:hover,
+.p-button:not(.p-button-outlined):not(.p-button-text):not(.p-button-danger):not(.p-button-secondary):hover {
+  background: var(--p-primary-600);
+  border-color: var(--p-primary-600);
+}
+
+.p-datatable .p-datatable-thead > tr > th {
+  background: #f6faf5;
+  color: #718278;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+
+.p-datatable .p-datatable-tbody > tr:hover {
+  background: #f4f9f2;
+}
+
+.page .p-datatable .p-datatable-table {
+  width: 100%;
+  table-layout: auto;
+}
+
+.page .p-datatable .p-datatable-tbody > tr > td,
+.page .p-datatable .p-datatable-thead > tr > th {
+  padding: 0.45rem 0.6rem;
+  vertical-align: middle;
+}
+
+.page .p-datatable .p-datatable-tbody > tr > td {
+  max-width: 18rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.page .p-datatable .cell-wrap {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: unset;
+  max-width: none;
+  line-height: 1.35;
+}
+
+.page .p-datatable .cell-wrap small {
+  display: block;
+  margin-top: 0.15rem;
+}
+
+.page .p-datatable .cell-actions {
+  width: 11rem;
+  min-width: 11rem;
+  max-width: none;
+  white-space: nowrap;
+  overflow: visible;
+}
+
+.page .p-datatable .cell-actions-wide {
+  width: 14rem;
+  min-width: 14rem;
+}
+
+.page .p-datatable .cell-num {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.page .p-datatable .p-datatable-wrapper {
+  overflow-x: auto;
+}
+
+.page .p-datatable:not(.p-datatable-scrollable) .p-datatable-table {
+  border-collapse: collapse;
+}
+
+.page .p-datatable .p-datatable-thead > tr > th {
+  position: static;
+  top: auto;
+}
+
+/* PrimeFlex grid must win over legacy .grid stats layout */
+.grid.formgrid,
+.grid.p-fluid {
+  display: flex;
+  flex-wrap: wrap;
+  margin-right: -0.5rem;
+  margin-left: -0.5rem;
+  margin-top: -0.5rem;
+}
+
+.dashboard-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+  align-items: stretch;
+}
+
+.dashboard-metrics .card.metric,
+.dashboard-metrics .card.metric-link,
+.dashboard-metrics a.card.metric-link {
+  height: 100%;
+  min-height: 110px;
+  display: flex;
+  flex-direction: column;
+}
+
+.dashboard-metrics .chart-metric {
+  min-height: 160px;
+}
+
+.dashboard-charts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.65rem;
+  margin-top: 0.85rem;
+  align-items: stretch;
+}
+
+.dashboard-chart-card {
+  padding: 0.75rem 0.85rem 0.65rem;
+  min-height: 280px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.dashboard-chart-head h3 {
+  margin: 0;
+  font: 800 0.92rem Manrope, sans-serif;
+  color: #12372a;
+  line-height: 1.25;
+}
+
+.dashboard-chart-head p {
+  margin: 0.15rem 0 0;
+  font-size: 0.75rem;
+  color: #718278;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.dashboard-chart-body {
+  flex: 1;
+  min-height: 200px;
+  margin-top: 0.5rem;
+  position: relative;
+}
+
+.dashboard-line-chart,
+.dashboard-bar-chart,
+.dashboard-doughnut-chart {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.dashboard-doughnut-wrap {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.dashboard-doughnut-center {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  text-align: center;
+  pointer-events: none;
+  padding-bottom: 1.25rem;
+}
+
+.dashboard-doughnut-center small {
+  display: block;
+  color: #718278;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.dashboard-doughnut-center strong {
+  font: 800 0.92rem Manrope, sans-serif;
+  color: #173f32;
+}
+
+.dashboard-chart-empty {
+  margin-top: 0.85rem;
+  padding: 1rem 1.1rem;
+  text-align: center;
+}
+
+.dashboard-chart-skeleton {
+  border-radius: 12px;
+}
+
+@media (max-width: 1100px) {
+  .dashboard-charts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 650px) {
+  .dashboard-charts {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-chart-card {
+    min-height: 260px;
+  }
+
+  .dashboard-chart-body {
+    min-height: 190px;
+  }
+}
+
+.shell > main {
+  min-width: 0;
+  min-height: 100vh;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+/* Unified page spacing — overrides legacy style.css padding */
+.page {
+  padding: 0.75rem 1rem 6.5rem !important;
+  max-width: 100%;
+  width: 100%;
+  margin: 0 auto;
+  box-sizing: border-box;
+}
+
+@media (min-width: 901px) {
+  .page {
+    padding: 0.85rem 1.25rem 7rem !important;
+    max-width: 1500px;
+  }
+}
+
+@media (max-width: 650px) {
+  .page {
+    padding: 0.65rem 0.75rem 6rem !important;
+  }
+}
+
+.page .card {
+  padding: 0.85rem 1rem;
+}
+
+.page .card.metric strong {
+  margin-top: 0.35rem;
+  font-size: 1.45rem;
+}
+
+.page .card.metric em {
+  margin-top: 0.15rem;
+}
+
+.page-toolbar {
+  margin-bottom: 0.5rem;
+}
+
+.page-desc {
+  max-width: none;
+  line-height: 1.35;
+}
+
+.table-panel {
+  margin-bottom: 0.5rem;
+  overflow: visible;
+  background: #fff;
+  border: 1px solid #e8eee6;
+  border-radius: 12px;
+}
+
+.p-panel.filter-panel {
+  margin-bottom: 0.5rem !important;
+}
+
+.p-panel.mb-3,
+.page .mb-3 {
+  margin-bottom: 0.65rem !important;
+}
+
+.p-panel.mb-4,
+.page .mb-4 {
+  margin-bottom: 0.85rem !important;
+}
+
+.dashboard-brand {
+  padding: 1.15rem 1rem !important;
+  margin-bottom: 0.65rem;
+}
+
+.dashboard-period {
+  margin-bottom: 0.5rem !important;
+}
+
+.dashboard-metrics {
+  gap: 0.65rem;
+}
+
+.filter-form {
+  padding: 0.45rem 0.65rem;
+  row-gap: 0.35rem;
+  column-gap: 0.5rem;
+}
+
+.filter-panel + .summary-metrics,
+.filter-panel + .table-panel,
+.filter-panel + .card,
+.filter-panel + .cuotas-pending-total,
+.filter-panel + .formula.card,
+.page .filter-panel + .mb-3 {
+  margin-top: 0 !important;
+}
+
+.filter-form-inline {
+  align-items: flex-end;
+}
+
+.filter-form-inline .filter-period-hint {
+  margin: 0;
+  padding: 0;
+  white-space: nowrap;
+}
+
+@media (min-width: 992px) {
+  .filter-form-inline.filter-form {
+    flex-wrap: nowrap;
+  }
+
+  .filter-form-inline .field {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .filter-form-inline .filter-actions {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+}
+
+.p-tooltip .p-tooltip-text {
+  font-size: 0.78rem;
+  padding: 0.35rem 0.55rem;
+}
+
+.page .p-button.p-button-icon-only {
+  width: 2.1rem;
+  height: 2.1rem;
+}
+
+.cuotas-actions {
+  display: flex;
+  gap: 0.25rem;
+  flex-wrap: nowrap;
+}
+
+.filter-period-hint {
+  margin: 0 0 0.35rem;
+  padding: 0 0.65rem;
+  font-size: 0.78rem;
+  color: #718278;
+}
+
+.filter-period-hint strong {
+  color: #285c3d;
+  font-weight: 700;
+}
+
+.summary-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+  max-width: 920px;
+  margin-inline: auto;
+}
+
+.summary-metrics .card.metric,
+.summary-metrics .p-panel.card.metric {
+  padding: 0.7rem 0.85rem;
+  text-align: center;
+}
+
+.summary-metrics .metric strong,
+.summary-metrics .metric .text-2xl {
+  font-size: 1.25rem !important;
+}
+
+.summary-metrics .metric small,
+.summary-metrics .metric em {
+  display: block;
+}
+
+.filter-form .filter-actions {
+  flex-wrap: wrap;
+}
+
+.filter-form .filter-actions .p-button {
+  flex: 1 1 auto;
+  min-width: 5.5rem;
+}
+
+@media (max-width: 1200px) {
+  .dashboard-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 650px) {
+  .dashboard-metrics {
+    grid-template-columns: 1fr;
+  }
+}
+
+.p-dialog .p-dialog-header {
+  font-family: Manrope, sans-serif;
+  font-weight: 800;
+}
+
+.p-tag.p-tag-success {
+  background: #e9f5e4;
+  color: #367146;
+}
+
+.p-tag.p-tag-warn {
+  background: #fff2d6;
+  color: #986819;
+}
+
+.p-tag.p-tag-danger {
+  background: #fdebe8;
+  color: #a3362c;
+}
+
+.filter-form .p-datepicker,
+.filter-form .p-datepicker-input,
+.filter-form .p-autocomplete,
+.filter-form .p-autocomplete-input {
+  width: 100%;
+}
+
+.filter-form .p-datepicker:has(.p-datepicker-input-icon-container) .p-datepicker-input {
+  padding-right: 2.25rem;
+}
+
+.p-toast .p-toast-message-text {
+  gap: 0.35rem;
+}
+
+.p-confirmdialog .p-dialog-header {
+  font-family: Manrope, sans-serif;
+  font-weight: 800;
+}
+
+.p-inputtext,
+.p-select,
+.p-textarea,
+.p-datepicker-input {
+  width: 100%;
+}
+
+.p-panel.filter-panel > .p-panel-header {
+  display: none;
+}
+
+.p-panel.filter-panel > .p-panel-content {
+  padding: 0;
+}
+
+.filter-form .field {
+  margin-bottom: 0;
+}
+
+.filter-form .field > label {
+  margin-bottom: 0.12rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #536b60;
+}
+
+.p-panel .p-panel-content {
+  padding: 0;
+}
+
+.p-panel .p-panel-header {
+  font-family: Manrope, sans-serif;
+  font-weight: 800;
+}
+
+.page .p-button {
+  font-weight: 700;
+}
+
+.page .text-center.py-5 {
+  padding-top: 1.25rem !important;
+  padding-bottom: 1.25rem !important;
+}
+
+.page .formula.card {
+  padding: 0.65rem 0.85rem;
+  margin-bottom: 0.65rem !important;
+}
+
+.p-paginator {
+  border: 0;
+  background: #fafcf9;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  padding: 0.45rem 0.65rem;
+  border-top: 1px solid #e8eee6;
+}
+
+.p-paginator .p-paginator-current,
+.p-paginator .p-paginator-pages,
+.p-paginator .p-paginator-rpp-options {
+  margin: 0;
+}
+
+.p-paginator .p-select {
+  width: auto;
+  min-width: 4.5rem;
+}
