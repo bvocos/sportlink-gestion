@@ -20,7 +20,9 @@ import './cuotas.css'
 import './auth.css'
 import './dolar-widget.css'
 import './quote.css'
+import './sale-create.css'
 import './primevue-overrides.css'
+import './mobile.css'
 
 const updateSW = registerSW({
   immediate: true,

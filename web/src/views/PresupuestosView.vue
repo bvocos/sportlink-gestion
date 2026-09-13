@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import AppButton from '@/shared/components/AppButton.vue'
+import PresupuestoPdfPreview from '@/shared/components/PresupuestoPdfPreview.vue'
 import Column from 'primevue/column'
 import DataTable from 'primevue/datatable'
-import Dialog from 'primevue/dialog'
 import Message from 'primevue/message'
 import AppIcon from '@/shared/components/AppIcon.vue'
-import { faDownload, faEye, faPen, faTrash, faXmark } from '@/shared/icons'
+import { faDownload, faEye, faPen, faTrash } from '@/shared/icons'
 import { http, apiErrorMessage } from '@/shared/api/httpClient'
 import { confirmAction, notify } from '@/shared/uiFeedback'
 import { TABLE_ROWS, TABLE_ROWS_OPTIONS } from '@/shared/tablePagination'
@@ -17,7 +17,8 @@ const error = ref('')
 const previewUrl = ref('')
 const previewTitle = ref('')
 const previewLoading = ref(false)
-const showPreview = ref(false)
+const selectedId = ref<string | null>(null)
+const previewPanelRef = ref<HTMLElement | null>(null)
 
 const usd = (v: number) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'USD' }).format(v)
 
@@ -31,6 +32,7 @@ async function load() {
     loading.value = false
   }
 }
+
 async function pdf(x: any) {
   const r = await http.get(`/presupuestos/${x.id}/pdf`, { responseType: 'blob' })
   const url = URL.createObjectURL(new Blob([r.data], { type: 'application/pdf' }))
@@ -40,18 +42,34 @@ async function pdf(x: any) {
   a.click()
   URL.revokeObjectURL(url)
 }
+
 function closePreview() {
   if (previewUrl.value) URL.revokeObjectURL(previewUrl.value)
   previewUrl.value = ''
   previewTitle.value = ''
   previewLoading.value = false
-  showPreview.value = false
+  selectedId.value = null
 }
+
+function rowClass(data: any) {
+  return data.id === selectedId.value ? 'presupuesto-row-selected' : ''
+}
+
 async function preview(x: any) {
-  closePreview()
+  if (selectedId.value === x.id && !previewLoading.value) {
+    closePreview()
+    return
+  }
+
+  if (previewUrl.value) URL.revokeObjectURL(previewUrl.value)
+  previewUrl.value = ''
+  selectedId.value = x.id
   previewTitle.value = `Presupuesto #${String(x.numero).padStart(5, '0')}`
   previewLoading.value = true
-  showPreview.value = true
+
+  await nextTick()
+  previewPanelRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+
   try {
     const r = await http.get(`/presupuestos/${x.id}/pdf`, { responseType: 'blob' })
     previewUrl.value = URL.createObjectURL(new Blob([r.data], { type: 'application/pdf' }))
@@ -62,15 +80,18 @@ async function preview(x: any) {
     previewLoading.value = false
   }
 }
+
 async function remove(x: any) {
   if (!await confirmAction({ title: 'Eliminar presupuesto', message: `¿Eliminar el presupuesto #${String(x.numero).padStart(5, '0')}?`, confirmText: 'Eliminar', danger: true })) return
   try {
     await http.delete(`/presupuestos/${x.id}`)
+    if (selectedId.value === x.id) closePreview()
     await load()
   } catch (e) {
     notify(apiErrorMessage(e, 'No se pudo eliminar.'))
   }
 }
+
 onMounted(load)
 onBeforeUnmount(closePreview)
 </script>
@@ -89,6 +110,7 @@ onBeforeUnmount(closePreview)
       <DataTable
         :value="items"
         :loading="loading"
+        :row-class="rowClass"
         paginator
         :rows="TABLE_ROWS"
         :rows-per-page-options="TABLE_ROWS_OPTIONS"
@@ -122,7 +144,13 @@ onBeforeUnmount(closePreview)
         <Column header="" body-class="cell-actions">
           <template #body="{ data }">
             <div class="flex gap-1">
-              <AppButton text rounded severity="secondary" title="Visualizar presupuesto" @click="preview(data)">
+              <AppButton
+                text
+                rounded
+                :severity="selectedId === data.id ? 'success' : 'secondary'"
+                title="Visualizar presupuesto"
+                @click="preview(data)"
+              >
                 <AppIcon :icon="faEye" />
               </AppButton>
               <AppButton text rounded severity="secondary" title="Descargar PDF" @click="pdf(data)">
@@ -142,27 +170,13 @@ onBeforeUnmount(closePreview)
       </DataTable>
     </div>
 
-    <Dialog
-      v-model:visible="showPreview"
-      modal
-      :header="previewTitle"
-      :style="{ width: 'min(960px, 96vw)' }"
-      class="pdf-preview-dialog"
-      @hide="closePreview"
-    >
-      <template #header>
-        <div class="flex justify-content-between align-items-center w-full">
-          <div>
-            <h3 class="m-0">{{ previewTitle }}</h3>
-            <small class="text-color-secondary">Vista previa del PDF</small>
-          </div>
-          <AppButton text rounded severity="secondary" title="Cerrar vista previa" @click="closePreview">
-            <AppIcon :icon="faXmark" />
-          </AppButton>
-        </div>
-      </template>
-      <div v-if="previewLoading" class="pdf-preview-loading py-5 text-center">Generando vista previa…</div>
-      <iframe v-else-if="previewUrl" :src="previewUrl" :title="previewTitle" class="pdf-preview-frame w-full" />
-    </Dialog>
+    <div v-if="selectedId" ref="previewPanelRef">
+      <PresupuestoPdfPreview
+        :title="previewTitle"
+        :url="previewUrl"
+        :loading="previewLoading"
+        @close="closePreview"
+      />
+    </div>
   </section>
 </template>

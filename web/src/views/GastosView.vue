@@ -3,7 +3,6 @@ import { computed, onMounted, ref } from 'vue'
 import AppButton from '@/shared/components/AppButton.vue'
 import Column from 'primevue/column'
 import DataTable from 'primevue/datatable'
-import Dialog from 'primevue/dialog'
 import AppDatePicker from '@/shared/components/AppDatePicker.vue'
 import InputNumber from 'primevue/inputnumber'
 import InputText from 'primevue/inputtext'
@@ -30,7 +29,7 @@ const loading = ref(false)
 const loadError = ref('')
 const filters = ref({ ...monthRange(), buscar: '' })
 const filterPeriodLabel = computed(() => formatDateRangeLabel(filters.value.desde, filters.value.hasta))
-const show = ref(false)
+const showForm = ref(false)
 const editingId = ref<string | null>(null)
 const saving = ref(false)
 const error = ref('')
@@ -54,18 +53,25 @@ async function load(reset = false) {
   }
 }
 
+function cancelForm() {
+  showForm.value = false
+  editingId.value = null
+  form.value = blank()
+  error.value = ''
+}
+
 function create() {
   editingId.value = null
   form.value = blank()
   error.value = ''
-  show.value = true
+  showForm.value = true
 }
 
 function edit(x: any) {
   editingId.value = x.id
   form.value = { fecha: x.fecha, categoria: x.categoria, descripcion: x.descripcion, importe: x.importe, observaciones: x.observaciones ?? '' }
   error.value = ''
-  show.value = true
+  showForm.value = true
 }
 
 async function save() {
@@ -73,7 +79,7 @@ async function save() {
   error.value = ''
   try {
     editingId.value ? await http.put(`/gastos/${editingId.value}`, form.value) : await http.post('/gastos', form.value)
-    show.value = false
+    cancelForm()
     await load()
   } catch (e: any) {
     error.value = apiErrorMessage(e, 'No se pudo guardar el gasto.')
@@ -85,6 +91,7 @@ async function save() {
 async function remove(x: any) {
   if (!await confirmAction({ title: 'Eliminar gasto', message: `¿Querés eliminar “${x.descripcion}” por ${money(x.importe)}?`, confirmText: 'Eliminar', danger: true })) return
   try {
+    if (editingId.value === x.id) cancelForm()
     await http.delete(`/gastos/${x.id}`)
     await load()
   } catch (e: any) {
@@ -114,12 +121,22 @@ useImmediateFilters([() => filters.value.desde, () => filters.value.hasta], () =
 
 <template>
   <section class="page compact-page">
-    <div class="page-toolbar flex justify-content-between align-items-center flex-wrap gap-3">
-      <p class="page-desc text-color-secondary m-0">Registro independiente de gastos generales.</p>
-      <AppButton label="Nuevo gasto" icon="pi pi-plus" @click="create" />
+    <div class="page-toolbar flex justify-content-between align-items-center flex-wrap gap-2">
+      <p class="page-desc text-color-secondary m-0">
+        {{ showForm
+          ? (editingId ? 'Editar gasto' : 'Nuevo gasto')
+          : 'Registro independiente de gastos generales.' }}
+      </p>
+      <AppButton
+        v-if="!showForm"
+        label="Nuevo gasto"
+        icon="pi pi-plus"
+        size="small"
+        @click="create"
+      />
     </div>
 
-    <Panel class="filter-panel filter-panel-inline">
+    <Panel v-if="!showForm" class="filter-panel filter-panel-inline">
       <div class="grid formgrid p-fluid filter-form filter-form-inline">
         <div class="field col-12 xl:col-2">
           <label for="desde">Desde</label>
@@ -140,7 +157,7 @@ useImmediateFilters([() => filters.value.desde, () => filters.value.hasta], () =
           </p>
         </div>
         <div class="field col-12 xl:col-2 filter-actions flex align-items-end justify-content-end">
-          <AppButton type="button" label="Restablecer" icon="pi pi-filter-slash" severity="secondary" @click="resetFilters" />
+          <AppButton type="button" label="Restablecer" icon="pi pi-filter-slash" severity="secondary" size="small" @click="resetFilters" />
         </div>
       </div>
     </Panel>
@@ -150,7 +167,7 @@ useImmediateFilters([() => filters.value.desde, () => filters.value.hasta], () =
       <AppButton label="Reintentar" size="small" severity="secondary" class="ml-2" @click="load()" />
     </Message>
 
-    <template v-else>
+    <template v-else-if="!showForm">
       <div class="summary-metrics">
         <article class="card metric">
           <small>Total del período</small>
@@ -178,7 +195,7 @@ useImmediateFilters([() => filters.value.desde, () => filters.value.hasta], () =
               <p class="text-color-secondary mb-3">
                 {{ hasActiveFilters() ? 'Probá ajustar fechas o la búsqueda.' : 'Registrá el primero para llevar el control del período.' }}
               </p>
-              <AppButton v-if="!hasActiveFilters()" label="Nuevo gasto" icon="pi pi-plus" @click="create" />
+              <AppButton v-if="!hasActiveFilters()" label="Nuevo gasto" icon="pi pi-plus" size="small" @click="create" />
             </div>
           </template>
           <Column header="Fecha">
@@ -212,32 +229,23 @@ useImmediateFilters([() => filters.value.desde, () => filters.value.hasta], () =
       </div>
     </template>
 
-    <Dialog
-      v-model:visible="show"
-      modal
-      :header="`${editingId ? 'Editar' : 'Nuevo'} gasto`"
-      :style="{ width: 'min(560px, 96vw)' }"
-    >
+    <article v-else class="card inline-form-panel">
       <form @submit.prevent="save">
-        <p class="text-color-secondary mt-0">Este registro no modifica Caja, Rentabilidad ni otras vistas.</p>
-        <Message v-if="error" severity="error" class="mb-3" :closable="false">{{ error }}</Message>
+        <Message v-if="error" severity="error" class="inline-form-error" :closable="false">{{ error }}</Message>
 
-        <div class="grid formgrid p-fluid">
-          <div class="field col-12 md:col-6">
-            <label>Fecha</label>
-            <AppDatePicker v-model="form.fecha" required />
+        <div class="grid formgrid p-fluid inline-form-grid">
+          <div class="field col-12 md:col-3">
+            <label for="gasto-fecha">Fecha</label>
+            <AppDatePicker id="gasto-fecha" v-model="form.fecha" required />
           </div>
-          <div class="field col-12 md:col-6">
-            <label>Categoría</label>
-            <InputText v-model="form.categoria" maxlength="100" placeholder="Ej.: Servicios, insumos, alquiler" required />
+          <div class="field col-12 md:col-5">
+            <label for="gasto-categoria">Categoría</label>
+            <InputText id="gasto-categoria" v-model="form.categoria" size="small" maxlength="100" placeholder="Servicios, insumos, alquiler…" required />
           </div>
-          <div class="field col-12">
-            <label>Descripción</label>
-            <InputText v-model="form.descripcion" maxlength="300" required />
-          </div>
-          <div class="field col-12 md:col-6">
-            <label>Importe</label>
+          <div class="field col-12 md:col-4">
+            <label for="gasto-importe">Importe</label>
             <InputNumber
+              id="gasto-importe"
               v-model="form.importe"
               :min="0.01"
               :min-fraction-digits="2"
@@ -245,20 +253,28 @@ useImmediateFilters([() => filters.value.desde, () => filters.value.hasta], () =
               mode="currency"
               currency="ARS"
               locale="es-AR"
+              size="small"
               required
             />
           </div>
           <div class="field col-12">
-            <label>Observaciones</label>
-            <Textarea v-model="form.observaciones" maxlength="1000" rows="3" auto-resize />
+            <label for="gasto-descripcion">Descripción</label>
+            <InputText id="gasto-descripcion" v-model="form.descripcion" size="small" maxlength="300" required />
+          </div>
+          <div class="field col-12">
+            <label for="gasto-observaciones">Observaciones</label>
+            <Textarea id="gasto-observaciones" v-model="form.observaciones" maxlength="1000" rows="2" auto-resize />
           </div>
         </div>
 
-        <div class="flex justify-content-end gap-2 mt-4">
-          <AppButton type="button" label="Cancelar" severity="secondary" @click="show = false" />
-          <AppButton type="submit" :label="saving ? 'Guardando…' : 'Guardar gasto'" :loading="saving" />
+        <div class="inline-form-footer">
+          <small class="inline-form-note text-color-secondary">No modifica Caja, Rentabilidad ni otras vistas.</small>
+          <div class="flex gap-2">
+            <AppButton type="button" label="Cancelar" severity="secondary" size="small" @click="cancelForm" />
+            <AppButton type="submit" :label="saving ? 'Guardando…' : 'Guardar'" :loading="saving" size="small" />
+          </div>
         </div>
       </form>
-    </Dialog>
+    </article>
   </section>
 </template>

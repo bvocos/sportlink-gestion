@@ -343,18 +343,44 @@ a[href]:focus-visible, [tabindex]:focus-visible {
 }
 
 @media (max-width: 900px) {
-  header { padding: 0 16px; }
-  .menu {
-    display: grid;
-    place-items: center;
-    width: 40px;
-    height: 40px;
-    border-radius: 10px;
-    color: var(--brand);
-  }
+  header { padding: 0 16px 0 56px; }
   .mobile-close { display: grid; place-items: center; }
   .brand { display: flex; align-items: center; justify-content: space-between; }
   .shell-overlay.open { display: block; }
+  aside .sidebar-toggle {
+    display: grid !important;
+    position: fixed;
+    top: calc(var(--header-h) / 2 - 18px);
+    left: 12px;
+    z-index: 7;
+    width: 36px;
+    height: 36px;
+  }
+  aside.open .sidebar-toggle {
+    position: static;
+    top: auto;
+    left: auto;
+    width: 26px;
+    height: 26px;
+  }
+  aside:not(.open) .sidebar-head {
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 7;
+    width: auto;
+    height: var(--header-h);
+    margin: 0;
+    padding: 0 0 0 8px;
+    align-items: center;
+    pointer-events: none;
+  }
+  aside:not(.open) .sidebar-toggle {
+    pointer-events: auto;
+  }
+  aside:not(.open) .brand {
+    display: none;
+  }
 }
 
 @media (max-width: 700px) {

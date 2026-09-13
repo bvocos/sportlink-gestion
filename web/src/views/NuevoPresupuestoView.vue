@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppButton from '@/shared/components/AppButton.vue'
+import PresupuestoPdfPreview from '@/shared/components/PresupuestoPdfPreview.vue'
 import AppDatePicker from '@/shared/components/AppDatePicker.vue'
 import InputNumber from 'primevue/inputnumber'
 import InputText from 'primevue/inputtext'
@@ -15,6 +16,7 @@ import { http, apiErrorMessage } from '@/shared/api/httpClient'
 import ClienteAutocomplete from '@/shared/components/ClienteAutocomplete.vue'
 import NuevoClienteModal from '@/shared/components/NuevoClienteModal.vue'
 import { auth } from '@/auth'
+import { notify } from '@/shared/uiFeedback'
 
 const route = useRoute()
 const router = useRouter()
@@ -24,6 +26,12 @@ const productos = ref<any[]>([])
 const saving = ref(false)
 const error = ref('')
 const showNewClient = ref(false)
+const previewUrl = ref('')
+const previewTitle = ref('')
+const previewLoading = ref(false)
+const showPreview = ref(false)
+const previewPanelRef = ref<HTMLElement | null>(null)
+const presupuestoNumero = ref<number | null>(null)
 
 const today = new Date()
 function addDay(value: string) {
@@ -68,6 +76,7 @@ async function load() {
   productos.value = f.productos
   if (id.value) {
     const p = (await http.get(`/presupuestos/${id.value}`)).data
+    presupuestoNumero.value = p.numero
     form.value = {
       clienteId: p.clienteId, fecha: p.fecha, validezHasta: addDay(p.fecha),
       descuentoContadoPorcentaje: p.descuentoContadoPorcentaje, ivaContadoPorcentaje: p.ivaContadoPorcentaje,
@@ -80,6 +89,42 @@ async function load() {
     }
   }
 }
+function closePreview() {
+  if (previewUrl.value) URL.revokeObjectURL(previewUrl.value)
+  previewUrl.value = ''
+  previewTitle.value = ''
+  previewLoading.value = false
+  showPreview.value = false
+}
+
+async function previewPdf() {
+  if (!id.value) return
+
+  if (showPreview.value && !previewLoading.value) {
+    closePreview()
+    return
+  }
+
+  if (previewUrl.value) URL.revokeObjectURL(previewUrl.value)
+  previewUrl.value = ''
+  previewTitle.value = `Presupuesto #${String(presupuestoNumero.value ?? 0).padStart(5, '0')}`
+  previewLoading.value = true
+  showPreview.value = true
+
+  await nextTick()
+  previewPanelRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+
+  try {
+    const r = await http.get(`/presupuestos/${id.value}/pdf`, { responseType: 'blob' })
+    previewUrl.value = URL.createObjectURL(new Blob([r.data], { type: 'application/pdf' }))
+  } catch (e) {
+    closePreview()
+    notify(apiErrorMessage(e, 'No se pudo abrir la vista previa.'))
+  } finally {
+    previewLoading.value = false
+  }
+}
+
 async function save() {
   error.value = ''
   saving.value = true
@@ -98,6 +143,7 @@ async function save() {
   }
 }
 onMounted(load)
+onBeforeUnmount(closePreview)
 </script>
 
 <template>
@@ -254,13 +300,34 @@ onMounted(load)
         </div>
       </Panel>
 
-      <div class="flex justify-content-end gap-2">
-        <RouterLink to="/presupuestos">
-          <AppButton type="button" label="Cancelar" severity="secondary" />
-        </RouterLink>
-        <AppButton type="submit" :label="saving ? 'Guardando…' : 'Guardar presupuesto'" :loading="saving" />
+      <div class="flex justify-content-between align-items-center flex-wrap gap-2">
+        <AppButton
+          v-if="id"
+          type="button"
+          label="Vista previa PDF"
+          icon="pi pi-eye"
+          severity="secondary"
+          :loading="previewLoading"
+          @click="previewPdf"
+        />
+        <div v-else />
+        <div class="flex gap-2">
+          <RouterLink to="/presupuestos">
+            <AppButton type="button" label="Cancelar" severity="secondary" />
+          </RouterLink>
+          <AppButton type="submit" :label="saving ? 'Guardando…' : 'Guardar presupuesto'" :loading="saving" />
+        </div>
       </div>
     </form>
+
+    <div v-if="showPreview" ref="previewPanelRef">
+      <PresupuestoPdfPreview
+        :title="previewTitle"
+        :url="previewUrl"
+        :loading="previewLoading"
+        @close="closePreview"
+      />
+    </div>
 
     <NuevoClienteModal v-if="showNewClient" @close="showNewClient = false" @created="clientCreated" />
   </section>

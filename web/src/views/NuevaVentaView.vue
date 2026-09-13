@@ -123,11 +123,11 @@ onMounted(load)
 </script>
 
 <template>
-  <section class="page sale-create-page">
-    <div class="page-toolbar flex justify-content-between align-items-center flex-wrap gap-3">
+  <section class="page compact-page sale-create-page">
+    <div class="page-toolbar flex justify-content-between align-items-center flex-wrap gap-2">
       <p class="page-desc text-color-secondary m-0">Seleccioná el cliente, agregá los productos y acordá el pago.</p>
       <RouterLink to="/ventas">
-        <AppButton label="Volver a ventas" severity="secondary" />
+        <AppButton label="Volver a ventas" severity="secondary" size="small" />
       </RouterLink>
     </div>
 
@@ -136,24 +136,18 @@ onMounted(load)
 
       <Panel class="sale-step mb-3">
         <template #header><span class="font-bold">1. Cliente</span></template>
-        <div class="grid formgrid p-fluid sale-step-body">
-          <div class="field col-12 md:col-8">
+        <div class="sale-client-row">
+          <div class="field sale-client-field">
             <label>Cliente</label>
-            <div class="sale-client-picker flex gap-2">
+            <div class="sale-client-picker">
               <ClienteAutocomplete v-model="form.clienteId" :clientes="clientes" class="flex-1" />
-              <AppButton
-                v-if="auth.can('clientes')"
-                type="button"
-                severity="secondary"
-                title="Agregar nuevo cliente"
-                aria-label="Agregar nuevo cliente"
-                @click="showNewClient = true"
-              >
+              <AppButton v-if="auth.can('clientes')" type="button" severity="secondary" size="small"
+                title="Agregar nuevo cliente" aria-label="Agregar nuevo cliente" @click="showNewClient = true">
                 <AppIcon :icon="faPlus" />
               </AppButton>
             </div>
           </div>
-          <div class="field col-12 md:col-4">
+          <div class="field sale-date-field">
             <label for="fechaVenta">Fecha de venta</label>
             <AppDatePicker id="fechaVenta" v-model="form.fechaVenta" required />
           </div>
@@ -169,104 +163,104 @@ onMounted(load)
                 {{ form.lineas.length ? 'Productos incluidos en esta venta.' : 'Cargá el producto de la venta.' }}
               </small>
             </div>
-            <AppButton v-if="form.lineas.length && !showProductEntry" type="button" label="Agregar otro producto" severity="secondary" size="small" @click="startNewLine">
+            <AppButton v-if="form.lineas.length && !showProductEntry" type="button" label="Agregar otro producto"
+              severity="secondary" size="small" @click="startNewLine">
               <AppIcon :icon="faPlus" class="mr-1" />
             </AppButton>
           </div>
         </template>
 
-        <div v-if="showProductEntry" class="sale-entry grid formgrid p-fluid mb-3">
-          <div class="field col-12 md:col-4 sale-product-field">
-            <label>Producto</label>
-            <Select
-              v-model="draft.tipoCespedId"
-              :options="maestros.tiposCesped"
-              option-label="nombre"
-              option-value="id"
-              placeholder="Seleccionar producto"
-              @change="selectProduct(draft)"
-            />
-          </div>
-          <div class="field col-12 md:col-2">
-            <label>Color</label>
-            <Select
-              v-if="product(draft)?.colores?.length"
-              v-model="draft.color"
-              :options="product(draft).colores"
-              placeholder="Seleccionar"
-            />
-            <InputText v-else model-value="Sin variantes" disabled />
-          </div>
-          <div class="field col-12 md:col-2">
-            <label>Metros m²</label>
-            <InputNumber v-model="draft.cantidadM2" :min="0.01" :min-fraction-digits="2" :max-fraction-digits="2" @update:model-value="recalculate(draft)" />
-          </div>
-          <div class="field col-12 md:col-2">
-            <label>Costo / m²</label>
-            <InputNumber v-model="draft.precioCompraM2" :min="0.01" :min-fraction-digits="2" :max-fraction-digits="2" />
-          </div>
-          <div class="field col-12 md:col-2">
-            <label>Venta / m²</label>
-            <InputNumber v-model="draft.precioVentaM2" :min="0.01" :min-fraction-digits="2" :max-fraction-digits="2" @update:model-value="recalculate(draft)" />
-          </div>
-          <div class="field col-12 md:col-2 highlight-field">
-            <label>Total</label>
-            <InputNumber v-model="draft.total" :min="0.01" :min-fraction-digits="2" :max-fraction-digits="2" />
-            <small class="text-color-secondary">Editable · cálculo {{ money(Number(draft.cantidadM2) * Number(draft.precioVentaM2)) }}</small>
-          </div>
-          <div class="col-12 sale-line-actions flex justify-content-end gap-2">
-            <AppButton v-if="form.lineas.length" type="button" label="Cancelar" severity="secondary" @click="cancelLine" />
-            <AppButton
-              type="button"
-              :tooltip="editingLine !== null ? 'Actualizar producto' : 'Agregar producto'"
-              @click="saveLine"
-            >
-              <AppIcon :icon="editingLine !== null ? faCheck : faPlus" class="mr-1" />
-              {{ editingLine !== null ? 'Actualizar' : 'Agregar producto' }}
-            </AppButton>
+        <div v-if="showProductEntry" class="card sale-entry-card">
+          <div class="sale-entry">
+            <div class="grid formgrid p-fluid sale-entry-grid">
+              <div class="field col-12 md:col-4 sale-product-field">
+                <label>Producto</label>
+                <Select v-model="draft.tipoCespedId" :options="maestros.tiposCesped" option-label="nombre"
+                  option-value="id" placeholder="Seleccionar producto" size="small" @change="selectProduct(draft)" />
+              </div>
+              <div class="field col-6 md:col-2">
+                <label>Color</label>
+                <Select v-if="product(draft)?.colores?.length" v-model="draft.color" :options="product(draft).colores"
+                  placeholder="Seleccionar" size="small" />
+                <InputText v-else model-value="Sin variantes" disabled size="small" />
+              </div>
+              <div class="field col-6 md:col-2">
+                <label>Metros m²</label>
+                <InputNumber v-model="draft.cantidadM2" :min="0.01" :min-fraction-digits="2" :max-fraction-digits="2"
+                  size="small" @update:model-value="recalculate(draft)" />
+              </div>
+              <div class="field col-6 md:col-2">
+                <label>Costo / m²</label>
+                <InputNumber v-model="draft.precioCompraM2" :min="0.01" :min-fraction-digits="2"
+                  :max-fraction-digits="2" size="small" />
+              </div>
+              <div class="field col-6 md:col-2">
+                <label>Venta / m²</label>
+                <InputNumber v-model="draft.precioVentaM2" :min="0.01" :min-fraction-digits="2" :max-fraction-digits="2"
+                  size="small" @update:model-value="recalculate(draft)" />
+              </div>
+              <div class="field col-12 md:col-4 highlight-field">
+                <label>Total</label>
+                <InputNumber v-model="draft.total" :min="0.01" :min-fraction-digits="2" :max-fraction-digits="2"
+                  size="small" />
+                <small class="text-color-secondary">Cálculo sugerido: {{ money(Number(draft.cantidadM2) *
+                  Number(draft.precioVentaM2)) }}</small>
+              </div>
+            </div>
+            <div class="sale-line-actions flex justify-content-end gap-2">
+              <AppButton v-if="form.lineas.length" type="button" label="Cancelar" severity="secondary" size="small"
+                @click="cancelLine" />
+              <AppButton type="button" size="small"
+                :tooltip="editingLine !== null ? 'Actualizar producto' : 'Agregar producto'" @click="saveLine">
+                <AppIcon :icon="editingLine !== null ? faCheck : faPlus" class="mr-1" />
+                {{ editingLine !== null ? 'Actualizar' : 'Agregar producto' }}
+              </AppButton>
+            </div>
           </div>
         </div>
 
-        <DataTable :value="form.lineas" striped-rows class="sale-detail-table">
-          <template #empty>
-            <div class="text-center py-4 text-color-secondary">Todavía no agregaste productos a la venta.</div>
-          </template>
-          <Column header="#" style="width: 3rem">
-            <template #body="{ index }">{{ index + 1 }}</template>
-          </Column>
-          <Column header="Producto">
-            <template #body="{ data: row }"><b>{{ productName(row.tipoCespedId) }}</b></template>
-          </Column>
-          <Column header="Color">
-            <template #body="{ data: row }">{{ row.color || '—' }}</template>
-          </Column>
-          <Column header="Metros" body-class="text-right">
-            <template #body="{ data: row }"><span class="num">{{ row.cantidadM2 }} m²</span></template>
-          </Column>
-          <Column header="Costo / m²" body-class="text-right">
-            <template #body="{ data: row }"><span class="num">{{ money(row.precioCompraM2) }}</span></template>
-          </Column>
-          <Column header="Venta / m²" body-class="text-right">
-            <template #body="{ data: row }"><span class="num">{{ money(row.precioVentaM2) }}</span></template>
-          </Column>
-          <Column header="Total" body-class="text-right">
-            <template #body="{ data: row }"><b class="num">{{ money(row.total) }}</b></template>
-          </Column>
-          <Column header="" style="width: 7rem">
-            <template #body="{ index }">
-              <div class="flex gap-1">
-                <AppButton text rounded severity="secondary" title="Editar línea" @click="editLine(index)">
-                  <AppIcon :icon="faPen" />
-                </AppButton>
-                <AppButton text rounded severity="danger" title="Quitar línea" @click="removeLine(index)">
-                  <AppIcon :icon="faTrash" />
-                </AppButton>
-              </div>
+        <div class="table-panel">
+          <DataTable :value="form.lineas" striped-rows class="sale-detail-table">
+            <template #empty>
+              <div class="text-center py-4 text-color-secondary">Todavía no agregaste productos a la venta.</div>
             </template>
-          </Column>
-        </DataTable>
+            <Column header="#" style="width: 3rem">
+              <template #body="{ index }">{{ index + 1 }}</template>
+            </Column>
+            <Column header="Producto">
+              <template #body="{ data: row }"><b>{{ productName(row.tipoCespedId) }}</b></template>
+            </Column>
+            <Column header="Color">
+              <template #body="{ data: row }">{{ row.color || '—' }}</template>
+            </Column>
+            <Column header="Metros" body-class="text-right">
+              <template #body="{ data: row }"><span class="num">{{ row.cantidadM2 }} m²</span></template>
+            </Column>
+            <Column header="Costo / m²" body-class="text-right">
+              <template #body="{ data: row }"><span class="num">{{ money(row.precioCompraM2) }}</span></template>
+            </Column>
+            <Column header="Venta / m²" body-class="text-right">
+              <template #body="{ data: row }"><span class="num">{{ money(row.precioVentaM2) }}</span></template>
+            </Column>
+            <Column header="Total" body-class="text-right">
+              <template #body="{ data: row }"><b class="num">{{ money(row.total) }}</b></template>
+            </Column>
+            <Column header="" style="width: 7rem">
+              <template #body="{ index }">
+                <div class="flex gap-1">
+                  <AppButton text rounded severity="secondary" title="Editar línea" @click="editLine(index)">
+                    <AppIcon :icon="faPen" />
+                  </AppButton>
+                  <AppButton text rounded severity="danger" title="Quitar línea" @click="removeLine(index)">
+                    <AppIcon :icon="faTrash" />
+                  </AppButton>
+                </div>
+              </template>
+            </Column>
+          </DataTable>
+        </div>
 
-        <div class="sale-products-total flex justify-content-between align-items-center mt-3">
+        <div class="sale-products-total flex justify-content-between align-items-center">
           <span>Subtotal de productos</span>
           <strong>{{ money(totalProductos) }}</strong>
         </div>
@@ -274,57 +268,76 @@ onMounted(load)
 
       <Panel class="sale-step mb-3">
         <template #header><span class="font-bold">3. Entrega y pago</span></template>
-        <div class="grid formgrid p-fluid sale-step-body">
-          <div class="field col-12 md:col-4">
-            <label>Estado</label>
-            <Select v-model="form.estado" :options="estados" />
-          </div>
-          <div v-if="form.estado === 'Futura'" class="field col-12 md:col-4">
-            <label for="fechaEntrega">Entrega estimada</label>
-            <AppDatePicker id="fechaEntrega" v-model="form.fechaEntregaEstimada" required />
-          </div>
-          <div class="field col-12 md:col-4">
-            <label>Envío</label>
-            <InputNumber v-model="form.costoEnvio" :min="0" :min-fraction-digits="2" :max-fraction-digits="2" />
-          </div>
-          <div class="field col-12 md:col-4">
-            <label>Otros costos</label>
-            <InputNumber v-model="form.otrosCostos" :min="0" :min-fraction-digits="2" :max-fraction-digits="2" />
-          </div>
-          <div class="field col-12 md:col-4">
-            <label>IVA</label>
-            <Select v-model="form.alicuotaIvaId" :options="maestros.alicuotasIva" option-label="nombre" option-value="id" required />
-          </div>
-          <div class="field col-12 md:col-4">
-            <label>Forma de pago</label>
-            <Select v-model="form.formaPago" :options="formasPago" />
-          </div>
-          <div v-if="form.formaPago === 'Cuotas'" class="field col-12 md:col-4">
-            <label>Cuotas sobre el saldo</label>
-            <InputNumber v-model="form.cantidadCuotas" :min="1" :max="60" required />
-          </div>
-          <div class="field col-12 md:col-4 highlight-field">
-            <label>Entrega inicial</label>
-            <InputNumber v-model="form.montoEntrega" :min="0.01" :max="totalProductos" :min-fraction-digits="2" :max-fraction-digits="2" required />
-            <small class="text-color-secondary">Se registra como ingreso en Caja.</small>
-          </div>
-          <div class="field col-12">
+        <div class="sale-step-body">
+          <section class="sale-payment-block">
+            <span class="sale-block-label">Estado y cobro</span>
+            <div class="grid formgrid p-fluid sale-payment-grid">
+              <div class="field col-12 md:col-3">
+                <label>Estado</label>
+                <Select v-model="form.estado" :options="estados" size="small" />
+              </div>
+              <div v-if="form.estado === 'Futura'" class="field col-12 md:col-3">
+                <label for="fechaEntrega">Entrega estimada</label>
+                <AppDatePicker id="fechaEntrega" v-model="form.fechaEntregaEstimada" required />
+              </div>
+              <div class="field col-12 md:col-3">
+                <label>Forma de pago</label>
+                <Select v-model="form.formaPago" :options="formasPago" size="small" />
+              </div>
+              <div v-if="form.formaPago === 'Cuotas'" class="field col-12 md:col-3">
+                <label>Cuotas sobre el saldo</label>
+                <InputNumber v-model="form.cantidadCuotas" :min="1" :max="60" size="small" required />
+              </div>
+              <div class="field col-12 md:col-3">
+                <label>Entrega inicial</label>
+                <InputNumber v-model="form.montoEntrega" :min="0.01" :max="totalProductos" :min-fraction-digits="2"
+                  :max-fraction-digits="2" size="small" required />
+              </div>
+            </div>
+          </section>
+
+          <section class="sale-payment-block">
+            <span class="sale-block-label">Costos e impuestos</span>
+            <div class="grid formgrid p-fluid sale-costs-grid">
+              <div class="field col-12 md:col-4">
+                <label>Envío</label>
+                <InputNumber v-model="form.costoEnvio" :min="0" :min-fraction-digits="2" :max-fraction-digits="2"
+                  size="small" />
+              </div>
+              <div class="field col-12 md:col-4">
+                <label>Otros costos</label>
+                <InputNumber v-model="form.otrosCostos" :min="0" :min-fraction-digits="2" :max-fraction-digits="2"
+                  size="small" />
+              </div>
+              <div class="field col-12 md:col-4">
+                <label>IVA</label>
+                <Select v-model="form.alicuotaIvaId" :options="maestros.alicuotasIva" option-label="nombre"
+                  option-value="id" size="small" required />
+              </div>
+            </div>
+          </section>
+
+          <div class="field col-12 px-0">
             <label for="observaciones">Observaciones</label>
-            <Textarea id="observaciones" v-model="form.observaciones" rows="3" auto-resize />
+            <Textarea id="observaciones" v-model="form.observaciones" rows="2" auto-resize />
           </div>
-        </div>
-        <div class="sale-final-total mt-3">
-          <span>Total final de la venta</span>
-          <strong class="block text-2xl">{{ money(totalVenta) }}</strong>
-          <small class="text-color-secondary">Los costos de envío y otros costos afectan rentabilidad, no el importe cobrado por productos.</small>
+
+          <div class="sale-final-card">
+            <div>
+              <span class="text-color-secondary">Total final de la venta</span>
+              <strong class="block">{{ money(totalVenta) }}</strong>
+            </div>
+            <small>Envío y otros costos impactan rentabilidad, no el importe por productos.</small>
+          </div>
         </div>
       </Panel>
 
-      <div class="flex justify-content-end gap-2">
+      <div class="sale-form-actions flex justify-content-end gap-2">
         <RouterLink to="/ventas">
-          <AppButton type="button" label="Cancelar" severity="secondary" />
+          <AppButton type="button" label="Cancelar" severity="secondary" size="small" />
         </RouterLink>
-        <AppButton type="submit" :label="saving ? 'Guardando…' : editingId ? 'Guardar cambios' : 'Confirmar venta'" :loading="saving" />
+        <AppButton type="submit" :label="saving ? 'Guardando…' : editingId ? 'Guardar cambios' : 'Confirmar venta'"
+          :loading="saving" size="small" />
       </div>
     </form>
 

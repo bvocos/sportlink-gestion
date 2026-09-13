@@ -42,6 +42,7 @@ type NavGroup = { id: string; label: string; items: NavItem[] }
 
 const open = ref(false)
 const collapsed = ref(localStorage.getItem('sidebar-collapsed') === 'true')
+const mobile = ref(false)
 const route = useRoute()
 const router = useRouter()
 const systemOnline = ref(navigator.onLine)
@@ -89,6 +90,8 @@ const groups = computed(() => allGroups
   .filter(group => group.items.length))
 
 const pageTitle = computed(() => (route.meta.title as string | undefined) || 'Sportlink')
+const menuExpanded = computed(() => (mobile.value ? open.value : !collapsed.value))
+const menuToggleLabel = computed(() => menuExpanded.value ? 'Minimizar menú' : 'Abrir menú')
 const initials = computed(() => {
   const parts = (auth.state.user?.nombre || '').trim().split(/\s+/).filter(Boolean)
   return parts.slice(0, 2).map(part => part[0]?.toUpperCase() ?? '').join('') || '?'
@@ -113,7 +116,15 @@ async function logout() {
   router.push('/login')
 }
 
+function syncMobile() {
+  mobile.value = window.matchMedia('(max-width: 900px)').matches
+}
+
 function toggleSidebar() {
+  if (mobile.value) {
+    open.value = !open.value
+    return
+  }
   collapsed.value = !collapsed.value
   localStorage.setItem('sidebar-collapsed', String(collapsed.value))
 }
@@ -130,9 +141,11 @@ function onKey(event: KeyboardEvent) {
 }
 
 onMounted(() => {
+  syncMobile()
   window.addEventListener('online', checkSystem)
   window.addEventListener('offline', setOffline)
   window.addEventListener('keydown', onKey)
+  window.addEventListener('resize', syncMobile)
   checkSystem()
   connectivityTimer = window.setInterval(checkSystem, 30000)
 })
@@ -141,6 +154,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('online', checkSystem)
   window.removeEventListener('offline', setOffline)
   window.removeEventListener('keydown', onKey)
+  window.removeEventListener('resize', syncMobile)
   if (connectivityTimer) window.clearInterval(connectivityTimer)
 })
 
@@ -169,15 +183,15 @@ watch(() => route.path, closeMenu)
           </AppButton>
         </div>
         <AppButton
-          v-tooltip.right="collapsed ? 'Abrir menú' : 'Minimizar menú'"
+          v-tooltip.right="menuToggleLabel"
           class="sidebar-toggle"
           text
           rounded
-          :aria-label="collapsed ? 'Abrir menú' : 'Minimizar menú'"
+          :aria-label="menuToggleLabel"
           @click="toggleSidebar"
         >
-          <AppIcon v-if="collapsed" :icon="faBars" />
-          <AppIcon v-else :icon="faChevronLeft" />
+          <AppIcon v-if="menuExpanded" :icon="faChevronLeft" />
+          <AppIcon v-else :icon="faBars" />
         </AppButton>
       </div>
       <nav>
@@ -214,8 +228,15 @@ watch(() => route.path, closeMenu)
     </aside>
     <main>
       <header>
-        <AppButton v-tooltip.bottom="'Abrir menú'" class="menu" text rounded aria-label="Abrir menú" @click="open = true">
-          <AppIcon :icon="faBars" />
+        <AppButton
+          v-if="mobile"
+          class="header-menu-toggle"
+          text
+          rounded
+          :aria-label="open ? 'Cerrar menú' : 'Abrir menú'"
+          @click="toggleSidebar"
+        >
+          <AppIcon :icon="open ? faXmark : faBars" />
         </AppButton>
         <div class="header-context">
           <small>Sportlink by Empire</small>
@@ -238,5 +259,11 @@ watch(() => route.path, closeMenu)
 <style scoped>
 .online-tag :deep(.p-tag) {
   font-weight: 700;
+}
+
+.header-menu-toggle :deep(.p-button) {
+  width: 2.25rem;
+  height: 2.25rem;
+  color: #285c3d;
 }
 </style>
