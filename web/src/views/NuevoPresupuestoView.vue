@@ -25,6 +25,8 @@ const clientes = ref<any[]>([])
 const productos = ref<any[]>([])
 const saving = ref(false)
 const error = ref('')
+const loading = ref(false)
+const loadError = ref('')
 const showNewClient = ref(false)
 const previewUrl = ref('')
 const previewTitle = ref('')
@@ -71,22 +73,30 @@ function removeLine(i: number) { if (form.value.lineas.length > 1) form.value.li
 function clientCreated(cliente: any) { clientes.value.push(cliente); form.value.clienteId = cliente.id; showNewClient.value = false }
 
 async function load() {
-  const f = (await http.get('/presupuestos/filtros')).data
-  clientes.value = f.clientes
-  productos.value = f.productos
-  if (id.value) {
-    const p = (await http.get(`/presupuestos/${id.value}`)).data
-    presupuestoNumero.value = p.numero
-    form.value = {
-      clienteId: p.clienteId, fecha: p.fecha, validezHasta: addDay(p.fecha),
-      descuentoContadoPorcentaje: p.descuentoContadoPorcentaje, ivaContadoPorcentaje: p.ivaContadoPorcentaje,
-      ivaFinanciadoPorcentaje: p.ivaFinanciadoPorcentaje, entregaFinanciada: p.entregaFinanciada,
-      observaciones: p.observaciones ?? '',
-      lineas: p.lineas.map((l: any) => ({
-        tipoCespedId: l.tipoCespedId, color: l.color ?? '', cantidadM2: l.cantidadM2,
-        precioContadoM2: l.precioContadoM2, precioFinanciadoM2: l.precioFinanciadoM2,
-      })),
+  loading.value = true
+  loadError.value = ''
+  try {
+    const f = (await http.get('/presupuestos/filtros')).data
+    clientes.value = f.clientes
+    productos.value = f.productos
+    if (id.value) {
+      const p = (await http.get(`/presupuestos/${id.value}`)).data
+      presupuestoNumero.value = p.numero
+      form.value = {
+        clienteId: p.clienteId, fecha: p.fecha, validezHasta: addDay(p.fecha),
+        descuentoContadoPorcentaje: p.descuentoContadoPorcentaje, ivaContadoPorcentaje: p.ivaContadoPorcentaje,
+        ivaFinanciadoPorcentaje: p.ivaFinanciadoPorcentaje, entregaFinanciada: p.entregaFinanciada,
+        observaciones: p.observaciones ?? '',
+        lineas: p.lineas.map((l: any) => ({
+          tipoCespedId: l.tipoCespedId, color: l.color ?? '', cantidadM2: l.cantidadM2,
+          precioContadoM2: l.precioContadoM2, precioFinanciadoM2: l.precioFinanciadoM2,
+        })),
+      }
     }
+  } catch (e) {
+    loadError.value = apiErrorMessage(e, 'No se pudieron cargar los datos necesarios para el presupuesto.')
+  } finally {
+    loading.value = false
   }
 }
 function closePreview() {
@@ -155,7 +165,13 @@ onBeforeUnmount(closePreview)
       </RouterLink>
     </div>
 
-    <form @submit.prevent="save">
+    <Message v-if="loading" severity="info" class="mb-3" :closable="false">Cargando datos del presupuesto…</Message>
+    <Message v-else-if="loadError" severity="error" class="mb-3" :closable="false">
+      {{ loadError }}
+      <AppButton label="Reintentar" size="small" severity="secondary" class="ml-2" @click="load" />
+    </Message>
+
+    <form v-else @submit.prevent="save">
       <Message v-if="error" severity="error" class="mb-3" :closable="false">{{ error }}</Message>
 
       <Panel class="sale-step mb-3">

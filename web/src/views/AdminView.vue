@@ -21,6 +21,8 @@ const showForm = ref(false)
 const showPdfSection = ref(false)
 const error = ref('')
 const saving = ref(false)
+const loading = ref(false)
+const loadError = ref('')
 const editingId = ref<string | null>(null)
 const colorInput = ref('')
 const formPanelRef = ref<HTMLElement | null>(null)
@@ -61,7 +63,15 @@ watch(() => form.value.precioVentaM2, (value) => {
 })
 
 async function load() {
-  items.value = (await http.get('/maestros/tipos-cesped')).data
+  loading.value = true
+  loadError.value = ''
+  try {
+    items.value = (await http.get('/maestros/tipos-cesped')).data
+  } catch (e) {
+    loadError.value = apiErrorMessage(e, 'No se pudieron cargar los productos.')
+  } finally {
+    loading.value = false
+  }
 }
 
 function focusForm() {
@@ -208,9 +218,15 @@ onMounted(load)
       />
     </div>
 
-    <div v-if="!showForm" class="table-panel">
+    <Message v-if="loadError && !showForm" severity="error" class="mb-3" :closable="false">
+      {{ loadError }}
+      <AppButton label="Reintentar" size="small" severity="secondary" class="ml-2" @click="load" />
+    </Message>
+
+    <div v-else-if="!showForm" class="table-panel">
       <DataTable
         :value="items"
+        :loading="loading"
         paginator
         :rows="TABLE_ROWS"
         :rows-per-page-options="TABLE_ROWS_OPTIONS"

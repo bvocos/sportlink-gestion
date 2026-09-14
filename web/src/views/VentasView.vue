@@ -14,7 +14,7 @@ import Tag from "primevue/tag";
 import Textarea from "primevue/textarea";
 import AppIcon from "@/shared/components/AppIcon.vue";
 import { faPen, faTrash } from "@/shared/icons";
-import { http } from "@/shared/api/httpClient";
+import { http, apiErrorMessage } from "@/shared/api/httpClient";
 import ClienteAutocomplete from "@/shared/components/ClienteAutocomplete.vue";
 import { formatCurrency as money } from "@/shared/formatters";
 import { confirmAction, notify } from "@/shared/uiFeedback";
@@ -150,10 +150,18 @@ async function loadSales() {
 }
 
 async function load() {
-  const [filterData, masterData] = await Promise.all([http.get("/ventas/filtros"), http.get("/maestros")]);
-  clientes.value = filterData.data.clientes;
-  maestros.value = { ...masterData.data, tiposCespedFiltro: filterData.data.tiposCesped };
-  await loadSales();
+  loading.value = true;
+  loadError.value = "";
+  try {
+    const [filterData, masterData] = await Promise.all([http.get("/ventas/filtros"), http.get("/maestros")]);
+    clientes.value = filterData.data.clientes;
+    maestros.value = { ...masterData.data, tiposCespedFiltro: filterData.data.tiposCesped };
+    await loadSales();
+  } catch (e) {
+    loadError.value = apiErrorMessage(e, "No se pudieron cargar los datos necesarios para las ventas.");
+  } finally {
+    loading.value = false;
+  }
 }
 
 watch(() => form.value.tipoCespedId, (id) => { const t = maestros.value.tiposCesped.find((x: any) => x.id === id); if (!t) return; if (!editingId.value) { form.value.precioUnitario = t.precioVentaM2; form.value.costoCompraUnitario = t.costoM2; } if (!t.colores?.includes(form.value.color)) form.value.color = t.colores?.length === 1 ? t.colores[0] : ""; });
@@ -297,7 +305,7 @@ onMounted(load);
 
     <Message v-if="loadError" severity="error" class="mb-3" :closable="false">
       {{ loadError }}
-      <AppButton label="Reintentar" size="small" severity="secondary" class="ml-2" @click="loadSales" />
+      <AppButton label="Reintentar" size="small" severity="secondary" class="ml-2" @click="load" />
     </Message>
 
     <div v-else class="table-panel">

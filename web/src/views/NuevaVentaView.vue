@@ -13,7 +13,7 @@ import Select from 'primevue/select'
 import Textarea from 'primevue/textarea'
 import AppIcon from '@/shared/components/AppIcon.vue'
 import { faCheck, faPen, faPlus, faTrash } from '@/shared/icons'
-import { http } from '@/shared/api/httpClient'
+import { http, apiErrorMessage } from '@/shared/api/httpClient'
 import { formatCurrency as money } from '@/shared/formatters'
 import ClienteAutocomplete from '@/shared/components/ClienteAutocomplete.vue'
 import NuevoClienteModal from '@/shared/components/NuevoClienteModal.vue'
@@ -26,6 +26,8 @@ const clientes = ref<any[]>([])
 const maestros = ref<any>({ tiposCesped: [], alicuotasIva: [] })
 const saving = ref(false)
 const error = ref('')
+const loading = ref(false)
+const loadError = ref('')
 const editingLine = ref<number | null>(null)
 const showNewClient = ref(false)
 const showProductEntry = ref(true)
@@ -78,23 +80,31 @@ function productName(id: string) { return maestros.value.tiposCesped.find((x: an
 function clientCreated(cliente: any) { clientes.value.push(cliente); form.value.clienteId = cliente.id; showNewClient.value = false }
 
 async function load() {
-  const [filters, masters] = await Promise.all([http.get('/ventas/filtros'), http.get('/maestros')])
-  clientes.value = filters.data.clientes
-  maestros.value = masters.data
-  form.value.alicuotaIvaId = masters.data.alicuotasIva?.[0]?.id ?? ''
-  if (editingId.value) {
-    const v = (await http.get(`/ventas/${editingId.value}`)).data
-    form.value = {
-      clienteId: v.clienteId, fechaVenta: v.fechaVenta,
-      lineas: v.lineas?.length ? v.lineas : [{
-        tipoCespedId: v.tipoCespedId, color: v.color ?? '', cantidadM2: v.cantidadM2,
-        precioCompraM2: v.costoCompraUnitario, precioVentaM2: v.precioUnitario, total: v.precioTotal,
-      }],
-      montoEntrega: v.montoEntrega, formaPago: v.formaPago, cantidadCuotas: v.cantidadCuotas,
-      estado: v.estado, fechaEntregaEstimada: v.fechaEntregaEstimada, costoEnvio: v.costoEnvio,
-      otrosCostos: v.otrosCostos, alicuotaIvaId: v.alicuotaIvaId, observaciones: v.observaciones ?? '',
+  loading.value = true
+  loadError.value = ''
+  try {
+    const [filters, masters] = await Promise.all([http.get('/ventas/filtros'), http.get('/maestros')])
+    clientes.value = filters.data.clientes
+    maestros.value = masters.data
+    form.value.alicuotaIvaId = masters.data.alicuotasIva?.[0]?.id ?? ''
+    if (editingId.value) {
+      const v = (await http.get(`/ventas/${editingId.value}`)).data
+      form.value = {
+        clienteId: v.clienteId, fechaVenta: v.fechaVenta,
+        lineas: v.lineas?.length ? v.lineas : [{
+          tipoCespedId: v.tipoCespedId, color: v.color ?? '', cantidadM2: v.cantidadM2,
+          precioCompraM2: v.costoCompraUnitario, precioVentaM2: v.precioUnitario, total: v.precioTotal,
+        }],
+        montoEntrega: v.montoEntrega, formaPago: v.formaPago, cantidadCuotas: v.cantidadCuotas,
+        estado: v.estado, fechaEntregaEstimada: v.fechaEntregaEstimada, costoEnvio: v.costoEnvio,
+        otrosCostos: v.otrosCostos, alicuotaIvaId: v.alicuotaIvaId, observaciones: v.observaciones ?? '',
+      }
+      showProductEntry.value = false
     }
-    showProductEntry.value = false
+  } catch (e) {
+    loadError.value = apiErrorMessage(e, 'No se pudieron cargar los datos necesarios para la venta.')
+  } finally {
+    loading.value = false
   }
 }
 async function save() {
@@ -131,7 +141,13 @@ onMounted(load)
       </RouterLink>
     </div>
 
-    <form @submit.prevent="save">
+    <Message v-if="loading" severity="info" class="mb-3" :closable="false">Cargando datos de la venta…</Message>
+    <Message v-else-if="loadError" severity="error" class="mb-3" :closable="false">
+      {{ loadError }}
+      <AppButton label="Reintentar" size="small" severity="secondary" class="ml-2" @click="load" />
+    </Message>
+
+    <form v-else @submit.prevent="save">
       <Message v-if="error" severity="error" class="mb-3" :closable="false">{{ error }}</Message>
 
       <Panel class="sale-step mb-3">
@@ -290,7 +306,7 @@ onMounted(load)
               </div>
               <div class="field col-12 md:col-3">
                 <label>Entrega inicial</label>
-                <InputNumber v-model="form.montoEntrega" :min="0.01" :max="totalProductos" :min-fraction-digits="2"
+                <InputNumber v-model="form.montoEntrega" :min="0" :max="totalProductos" :min-fraction-digits="2"
                   :max-fraction-digits="2" size="small" required />
               </div>
             </div>

@@ -33,9 +33,9 @@ public sealed class RegistrarVentaValidator : AbstractValidator<RegistrarVentaCo
         RuleFor(x => x.PrecioUnitario).GreaterThan(0);
         RuleFor(x => x.PrecioTotal).GreaterThan(0)
             .WithMessage("El importe final de la venta debe ser mayor que cero.");
-        RuleFor(x => x.MontoEntrega).GreaterThan(0)
+        RuleFor(x => x.MontoEntrega).GreaterThanOrEqualTo(0)
             .LessThanOrEqualTo(x => x.PrecioTotal)
-            .WithMessage("La entrega debe ser mayor que cero y no puede superar el total de la venta.");
+            .WithMessage("La entrega no puede ser negativa ni superar el total de la venta.");
         RuleFor(x => x.MontoEntrega).LessThan(x => x.PrecioTotal)
             .When(x => x.FormaPago == FormaPago.Cuotas)
             .WithMessage("En una venta en cuotas la entrega debe ser menor al total para que exista saldo a financiar.");

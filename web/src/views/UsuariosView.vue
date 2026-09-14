@@ -30,10 +30,22 @@ const showForm = ref(false)
 const editing = ref<string | null>(null)
 const saving = ref(false)
 const error = ref('')
+const loading = ref(false)
+const loadError = ref('')
 const blank = () => ({ nombre: '', nombreUsuario: '', password: '', repetirPassword: '', rol: 'Usuario', permisos: ['dashboard'], activo: true })
 const form = ref(blank())
 
-async function load() { items.value = (await http.get('/usuarios')).data }
+async function load() {
+  loading.value = true
+  loadError.value = ''
+  try {
+    items.value = (await http.get('/usuarios')).data
+  } catch (e) {
+    loadError.value = apiErrorMessage(e, 'No se pudieron cargar los usuarios.')
+  } finally {
+    loading.value = false
+  }
+}
 
 function cancelForm() {
   showForm.value = false
@@ -111,9 +123,15 @@ onMounted(load)
       />
     </div>
 
-    <div v-if="!showForm" class="table-panel">
+    <Message v-if="loadError && !showForm" severity="error" class="mb-3" :closable="false">
+      {{ loadError }}
+      <AppButton label="Reintentar" size="small" severity="secondary" class="ml-2" @click="load" />
+    </Message>
+
+    <div v-else-if="!showForm" class="table-panel">
       <DataTable
         :value="items"
+        :loading="loading"
         paginator
         :rows="TABLE_ROWS"
         :rows-per-page-options="TABLE_ROWS_OPTIONS"
