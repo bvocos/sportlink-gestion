@@ -66,18 +66,22 @@ public sealed class RegistrarVentaHandler(AppDbContext db) : IRequestHandler<Reg
         var venta = new Venta();
         VentaService.Apply(venta, request, alicuota.Porcentaje);
 
-        await using var transaction = await db.Database.BeginTransactionAsync(ct);
-        db.Ventas.Add(venta);
-        VentaService.CreateInstallments(venta, request);
-        await db.SaveChangesAsync(ct); // La venta debe existir antes de referenciarla desde Caja.
-
-        if (request.MontoEntrega > 0)
+        var strategy = db.Database.CreateExecutionStrategy();
+        await strategy.ExecuteAsync(async () =>
         {
-            db.MovimientosCaja.Add(VentaService.CreateCashMovement(venta));
-            await db.SaveChangesAsync(ct);
-        }
+            await using var transaction = await db.Database.BeginTransactionAsync(ct);
+            db.Ventas.Add(venta);
+            VentaService.CreateInstallments(venta, request);
+            await db.SaveChangesAsync(ct); // La venta debe existir antes de referenciarla desde Caja.
 
-        await transaction.CommitAsync(ct);
+            if (request.MontoEntrega > 0)
+            {
+                db.MovimientosCaja.Add(VentaService.CreateCashMovement(venta));
+                await db.SaveChangesAsync(ct);
+            }
+
+            await transaction.CommitAsync(ct);
+        });
         return VentaService.ToDto(venta, cliente, tipo);
     }
 }
@@ -262,7 +266,10 @@ public static class VentaEndpoints
         request = VentaService.NormalizeColor(request, tipo);
         try
         {
-            await using var transaction = await db.Database.BeginTransactionAsync(ct);
+            var strategy = db.Database.CreateExecutionStrategy();
+            return await strategy.ExecuteAsync<IResult>(async () =>
+            {
+                await using var transaction = await db.Database.BeginTransactionAsync(ct);
 
             // ExecuteDelete evita conflictos entre cuotas eliminadas y las nuevas con el mismo número.
             await db.MovimientosCaja.Where(x => x.VentaId == id).ExecuteDeleteAsync(ct);
@@ -314,7 +321,8 @@ public static class VentaEndpoints
             await db.SaveChangesAsync(ct);
 
             await transaction.CommitAsync(ct);
-            return Results.Ok(VentaService.ToDto(updated, cliente, tipo));
+                return Results.Ok(VentaService.ToDto(updated, cliente, tipo));
+            });
         }
         catch (DbUpdateException exception)
         {
@@ -370,14 +378,18 @@ public static class VentaEndpoints
             }
         }
 
-        await using var transaction = await db.Database.BeginTransactionAsync(ct);
-        venta.FechaVenta = request.FechaVenta;
-        if (colorChanged) venta.Color = request.Color;
-        var installments = await db.Cuotas.Where(x => x.VentaId == venta.Id).ToListAsync(ct);
-        foreach (var installment in installments)
-            installment.FechaVencimiento = request.FechaVenta.AddMonths(installment.Numero);
-        await db.SaveChangesAsync(ct);
-        await transaction.CommitAsync(ct);
+        var strategy = db.Database.CreateExecutionStrategy();
+        await strategy.ExecuteAsync(async () =>
+        {
+            await using var transaction = await db.Database.BeginTransactionAsync(ct);
+            venta.FechaVenta = request.FechaVenta;
+            if (colorChanged) venta.Color = request.Color;
+            var installments = await db.Cuotas.Where(x => x.VentaId == venta.Id).ToListAsync(ct);
+            foreach (var installment in installments)
+                installment.FechaVencimiento = request.FechaVenta.AddMonths(installment.Numero);
+            await db.SaveChangesAsync(ct);
+            await transaction.CommitAsync(ct);
+        });
 
         var client = await db.Clientes.AsNoTracking().SingleAsync(x => x.Id == venta.ClienteId, ct);
         return Results.Ok(VentaService.ToDto(venta, client, product));
@@ -386,11 +398,15 @@ public static class VentaEndpoints
     private static async Task<IResult> Delete(Guid id, AppDbContext db, CancellationToken ct)
     {
         if (!await db.Ventas.AnyAsync(x => x.Id == id, ct)) return Results.NotFound();
-        await using var transaction = await db.Database.BeginTransactionAsync(ct);
-        await db.MovimientosCaja.Where(x => x.VentaId == id).ExecuteDeleteAsync(ct);
-        await db.Cuotas.Where(x => x.VentaId == id).ExecuteDeleteAsync(ct);
-        await db.Ventas.Where(x => x.Id == id).ExecuteDeleteAsync(ct);
-        await transaction.CommitAsync(ct);
+        var strategy = db.Database.CreateExecutionStrategy();
+        await strategy.ExecuteAsync(async () =>
+        {
+            await using var transaction = await db.Database.BeginTransactionAsync(ct);
+            await db.MovimientosCaja.Where(x => x.VentaId == id).ExecuteDeleteAsync(ct);
+            await db.Cuotas.Where(x => x.VentaId == id).ExecuteDeleteAsync(ct);
+            await db.Ventas.Where(x => x.Id == id).ExecuteDeleteAsync(ct);
+            await transaction.CommitAsync(ct);
+        });
         return Results.NoContent();
     }
 

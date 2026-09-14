@@ -35,25 +35,29 @@ public static class CajaEndpoints
         if (concepto?.Length > 500) errors["concepto"] = ["La observación no puede superar 500 caracteres."];
         if (errors.Count > 0) return Results.ValidationProblem(errors);
 
-        await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
-        if (request.Tipo == TipoMovimiento.Retiro)
+        var strategy = db.Database.CreateExecutionStrategy();
+        return await strategy.ExecuteAsync<IResult>(async () =>
         {
-            var saldo = await db.MovimientosCaja.SumAsync(x => x.Tipo == TipoMovimiento.Ingreso ? x.Monto : -x.Monto, ct);
-            var withdrawalError = ValidateWithdrawal(request.Tipo, request.Monto, saldo);
-            if (withdrawalError is not null)
-                return Results.ValidationProblem(new Dictionary<string, string[]> { ["monto"] = [withdrawalError] });
-        }
+            await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
+            if (request.Tipo == TipoMovimiento.Retiro)
+            {
+                var saldo = await db.MovimientosCaja.SumAsync(x => x.Tipo == TipoMovimiento.Ingreso ? x.Monto : -x.Monto, ct);
+                var withdrawalError = ValidateWithdrawal(request.Tipo, request.Monto, saldo);
+                if (withdrawalError is not null)
+                    return Results.ValidationProblem(new Dictionary<string, string[]> { ["monto"] = [withdrawalError] });
+            }
 
-        var movement = new MovimientoCaja
-        {
-            Tipo = request.Tipo, Monto = request.Monto, Concepto = concepto!,
-            Usuario = currentUser.Identity?.Name ?? currentUser.FindFirstValue("usuario") ?? "sistema",
-            Fecha = DateTimeOffset.UtcNow
-        };
-        db.MovimientosCaja.Add(movement);
-        await db.SaveChangesAsync(ct);
-        await transaction.CommitAsync(ct);
-        return Results.Created($"/api/caja/movimientos/{movement.Id}", movement);
+            var movement = new MovimientoCaja
+            {
+                Tipo = request.Tipo, Monto = request.Monto, Concepto = concepto!,
+                Usuario = currentUser.Identity?.Name ?? currentUser.FindFirstValue("usuario") ?? "sistema",
+                Fecha = DateTimeOffset.UtcNow
+            };
+            db.MovimientosCaja.Add(movement);
+            await db.SaveChangesAsync(ct);
+            await transaction.CommitAsync(ct);
+            return Results.Created($"/api/caja/movimientos/{movement.Id}", movement);
+        });
     }
 
     private static async Task<IResult> ActualizarObservacion(Guid id, ActualizarObservacionRequest request, AppDbContext db, CancellationToken ct)

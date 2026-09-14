@@ -34,6 +34,9 @@ public static class CuotaEndpoints
  static async Task<IResult> RegistrarPago(Guid id,PagoRequest r,ClaimsPrincipal currentUser,AppDbContext db,CancellationToken ct){var medioPago=r.MedioPago?.Trim();if(string.IsNullOrWhiteSpace(medioPago)||medioPago.Length>100)return Results.ValidationProblem(new Dictionary<string,string[]>{{"medioPago",["Seleccioná un medio de pago válido."]}});var c=await db.Cuotas.FindAsync([id],ct);if(c is null)return Results.NotFound();var saldoPendiente=c.ImportePactado-c.ImportePagado;var paymentError=ValidatePayment(r.Importe,saldoPendiente);if(paymentError is not null)return Results.ValidationProblem(new Dictionary<string,string[]>{{"importe",[paymentError]}});c.ImportePagado+=r.Importe;c.FechaPago=r.FechaPago;c.MedioPago=medioPago;c.Estado=c.ImportePagado>=c.ImportePactado?EstadoCuota.Pagada:EstadoCuota.PagadaParcial;db.MovimientosCaja.Add(new MovimientoCaja{Tipo=TipoMovimiento.Ingreso,Fecha=DateTimeOffset.UtcNow,Monto=r.Importe,Concepto=$"Pago cuota {c.Numero}",Usuario=currentUser.Identity?.Name??currentUser.FindFirstValue("usuario")??"sistema",CuotaId=c.Id,VentaId=c.VentaId});await db.SaveChangesAsync(ct);return Results.Ok(new{c.Id,c.ImportePagado,c.Estado});}
  static async Task<IResult> AnularPago(Guid id,ClaimsPrincipal currentUser,AppDbContext db,CancellationToken ct)
  {
+  var strategy=db.Database.CreateExecutionStrategy();
+  return await strategy.ExecuteAsync<IResult>(async()=>
+  {
   await using var transaction=await db.Database.BeginTransactionAsync(IsolationLevel.Serializable,ct);
   var c=await db.Cuotas.SingleOrDefaultAsync(x=>x.Id==id,ct);
   if(c is null)return Results.NotFound();
@@ -44,6 +47,7 @@ public static class CuotaEndpoints
   db.MovimientosCaja.Add(new MovimientoCaja{Tipo=TipoMovimiento.Retiro,Fecha=DateTimeOffset.UtcNow,Monto=importeAnulado,Concepto=$"Anulación cobro cuota {c.Numero}",Usuario=currentUser.Identity?.Name??currentUser.FindFirstValue("usuario")??"sistema",CuotaId=c.Id,VentaId=c.VentaId});
   await db.SaveChangesAsync(ct);await transaction.CommitAsync(ct);
   return Results.Ok(new{c.Id,importeAnulado,c.Estado});
+  });
  }
 
  static async Task<IResult> ActualizarVencimiento(Guid id,ActualizarVencimientoRequest request,AppDbContext db,CancellationToken ct)
