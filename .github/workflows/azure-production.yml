@@ -24,6 +24,16 @@ env:
 jobs:
   validate:
     runs-on: ubuntu-latest
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: Y
+          MSSQL_SA_PASSWORD: "Sportlink_Test_2026!"
+        ports:
+          - 1433:1433
+    env:
+      TEST_SQL_CONNECTION: "Server=localhost,1433;Database=master;User ID=sa;Password=Sportlink_Test_2026!;Encrypt=False;TrustServerCertificate=True"
     steps:
       - name: Descargar código
         uses: actions/checkout@v4

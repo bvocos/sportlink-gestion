@@ -1,71 +1,375 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
-import { Check, Pencil, Plus, Trash2 } from "lucide-vue-next";
-import { useRoute, useRouter } from "vue-router";
-import { http } from "@/shared/api/httpClient";
-import { formatCurrency as money } from "@/shared/formatters";
-import ClienteAutocomplete from "@/shared/components/ClienteAutocomplete.vue";
-import NuevoClienteModal from "@/shared/components/NuevoClienteModal.vue";
-import { auth } from "@/auth";
+import { computed, onMounted, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import AppButton from '@/shared/components/AppButton.vue'
+import AppDatePicker from '@/shared/components/AppDatePicker.vue'
+import Column from 'primevue/column'
+import DataTable from 'primevue/datatable'
+import InputNumber from 'primevue/inputnumber'
+import InputText from 'primevue/inputtext'
+import Message from 'primevue/message'
+import Panel from 'primevue/panel'
+import Select from 'primevue/select'
+import Textarea from 'primevue/textarea'
+import AppIcon from '@/shared/components/AppIcon.vue'
+import { faCheck, faPen, faPlus, faTrash } from '@/shared/icons'
+import { http, apiErrorMessage } from '@/shared/api/httpClient'
+import { formatCurrency as money } from '@/shared/formatters'
+import ClienteAutocomplete from '@/shared/components/ClienteAutocomplete.vue'
+import NuevoClienteForm from '@/shared/components/NuevoClienteForm.vue'
+import { auth } from '@/auth'
 
-const router = useRouter();
-const route = useRoute();
-const editingId = computed(() => typeof route.params.id === "string" ? route.params.id : "");
-const clientes = ref<any[]>([]), maestros = ref<any>({ tiposCesped: [], alicuotasIva: [] });
-const sucursales = ref<any[]>([]), depositos = ref<any[]>([]);
-const isAdmin = computed(() => auth.state.user?.rol === "Administrador");
-const canViewAmounts = computed(() => auth.canVerMontos("ventas"));
-const saving = ref(false), error = ref(""), editingLine = ref<number|null>(null), showNewClient = ref(false), showProductEntry = ref(true);
-const line = () => ({ tipoCespedId: "", color: "", cantidadM2: 1, precioCompraM2: 0, precioVentaM2: 0, total: 0, loteStockId: null as string|null });
-const draft = ref(line());
-const lotesDisponibles = ref<any[]>([]), loadingLots = ref(false);
-const form = ref({ clienteId: "", fechaVenta: new Date().toISOString().slice(0, 10), lineas: [] as ReturnType<typeof line>[],
-  montoEntrega: 0, formaPago: "Contado", cantidadCuotas: null as number|null, estado: "Confirmada",
-  fechaEntregaEstimada: null as string|null, costoEnvio: 0, otrosCostos: 0, alicuotaIvaId: "", observaciones: "",
-  sucursalId: null as string|null, depositoId: "" });
-const totalProductos = computed(() => form.value.lineas.reduce((sum, x) => sum + Number(x.total || 0), 0));
-const totalVenta = computed(() => totalProductos.value);
-function product(row:any){return maestros.value.tiposCesped.find((x:any)=>x.id===row.tipoCespedId)}
-async function selectProduct(row:any){const p=product(row);if(!p)return;row.precioCompraM2=p.costoM2;row.precioVentaM2=p.precioVentaM2;row.color=p.colores?.length===1?p.colores[0]:"";row.loteStockId=null;row.cantidadM2=p.controlPorLotes?0:1;lotesDisponibles.value=[];if(p.controlPorLotes)await loadLots(row.tipoCespedId);recalculate(row)}
-async function loadLots(tipoCespedId:string){if(!tipoCespedId||!form.value.depositoId)return;loadingLots.value=true;try{const {data}=await http.get('/stock/lotes',{params:{depositoId:form.value.depositoId,tipoCespedId}});lotesDisponibles.value=data.filter((x:any)=>x.estado==='Disponible'||x.ventaId===editingId.value)}catch{lotesDisponibles.value=[]}finally{loadingLots.value=false}}
-function selectLot(row:any){const lote=lotesDisponibles.value.find((x:any)=>x.id===row.loteStockId);if(!lote){row.cantidadM2=0;row.color="";recalculate(row);return}row.cantidadM2=Number(lote.cantidadM2);row.color=lote.color??"";recalculate(row)}
-function lotLabel(lote:any){const codes=(lote.rollos??[]).map((x:any)=>`${x.posicion}: ${x.codigoBarra}`).join(' · ');return `${lote.color||'Sin color'} · ${lote.cantidadM2} m² · ${codes}`}
-async function changeDeposit(){if(product(draft.value)?.controlPorLotes){draft.value.loteStockId=null;draft.value.cantidadM2=0;draft.value.color="";recalculate(draft.value);await loadLots(draft.value.tipoCespedId)}}
-function recalculate(row:any){row.total=Math.round(Number(row.cantidadM2||0)*Number(row.precioVentaM2||0)*100)/100}
-function saveLine(){if(!draft.value.tipoCespedId||draft.value.cantidadM2<=0||draft.value.precioCompraM2<=0||draft.value.precioVentaM2<=0||draft.value.total<=0||(product(draft.value)?.controlPorLotes&&!draft.value.loteStockId)){error.value="Completá todos los datos del producto antes de agregarlo.";return}if(editingLine.value===null)form.value.lineas.push({...draft.value});else form.value.lineas[editingLine.value]={...draft.value};draft.value=line();editingLine.value=null;showProductEntry.value=false;error.value=""}
-function startNewLine(){draft.value=line();editingLine.value=null;showProductEntry.value=true;error.value=""}
-function cancelLine(){draft.value=line();editingLine.value=null;showProductEntry.value=form.value.lineas.length===0;error.value=""}
-async function editLine(index:number){draft.value={...form.value.lineas[index]!};editingLine.value=index;showProductEntry.value=true;if(product(draft.value)?.controlPorLotes)await loadLots(draft.value.tipoCespedId);window.scrollTo({top:300,behavior:"smooth"})}
-function removeLine(index:number){form.value.lineas.splice(index,1);if(editingLine.value===index){draft.value=line();editingLine.value=null}showProductEntry.value=form.value.lineas.length===0}
-function productName(id:string){return maestros.value.tiposCesped.find((x:any)=>x.id===id)?.nombre??"Producto"}
-function depositLabel(deposito:any){
-  if(!form.value.lineas.length)return `${deposito.nombre} · agregá un producto para consultar stock`;
-  const required=new Map<string,number>();
-  form.value.lineas.forEach(x=>required.set(x.tipoCespedId,(required.get(x.tipoCespedId)??0)+Number(x.cantidadM2||0)));
-  const shortages=[...required].map(([id,quantity])=>{const available=Number(deposito.productos?.find((p:any)=>p.tipoCespedId===id)?.stockActualM2??0);return available<quantity?`${productName(id)}: faltan ${(quantity-available).toLocaleString('es-AR')} m²`:null}).filter(Boolean);
-  return `${deposito.nombre} · ${shortages.length?shortages.join(' · '):'stock suficiente'}`;
+const router = useRouter()
+const route = useRoute()
+const editingId = computed(() => typeof route.params.id === 'string' ? route.params.id : '')
+const clientes = ref<any[]>([])
+const maestros = ref<any>({ tiposCesped: [], alicuotasIva: [] })
+const saving = ref(false)
+const error = ref('')
+const loading = ref(false)
+const loadError = ref('')
+const editingLine = ref<number | null>(null)
+const showNewClient = ref(false)
+const showProductEntry = ref(true)
+
+const estados = ['Confirmada', 'Futura', 'Entregada', 'Cancelada']
+const formasPago = ['Contado', 'Transferencia', 'Cheque', 'Cuotas', 'Otros']
+
+const line = () => ({ tipoCespedId: '', color: '', cantidadM2: 1, precioCompraM2: 0, precioVentaM2: 0, total: 0 })
+const draft = ref(line())
+const form = ref({
+  clienteId: '', fechaVenta: new Date().toISOString().slice(0, 10), lineas: [] as ReturnType<typeof line>[],
+  montoEntrega: 0, formaPago: 'Contado', cantidadCuotas: null as number | null, estado: 'Confirmada',
+  fechaEntregaEstimada: null as string | null, costoEnvio: 0, otrosCostos: 0, alicuotaIvaId: '', observaciones: '',
+})
+
+const totalProductos = computed(() => form.value.lineas.reduce((sum, x) => sum + Number(x.total || 0), 0))
+const totalVenta = computed(() => totalProductos.value)
+
+function product(row: any) { return maestros.value.tiposCesped.find((x: any) => x.id === row.tipoCespedId) }
+function selectProduct(row: any) {
+  const p = product(row)
+  if (!p) return
+  row.precioCompraM2 = p.costoM2
+  row.precioVentaM2 = p.precioVentaM2
+  row.color = p.colores?.length === 1 ? p.colores[0] : ''
+  recalculate(row)
 }
-function clientCreated(cliente:any){clientes.value.push(cliente);form.value.clienteId=cliente.id;showNewClient.value=false}
-async function load(){const [filters, masters]=await Promise.all([http.get("/ventas/filtros"),http.get("/maestros")]);clientes.value=filters.data.clientes;sucursales.value=filters.data.sucursales??[];depositos.value=filters.data.depositos??[];maestros.value=masters.data;form.value.alicuotaIvaId=masters.data.alicuotasIva?.[0]?.id??"";form.value.sucursalId=isAdmin.value?(sucursales.value[0]?.id??null):auth.state.user?.sucursalId??null;form.value.depositoId=depositos.value[0]?.id??"";if(editingId.value){const v=(await http.get(`/ventas/${editingId.value}`)).data;form.value={clienteId:v.clienteId,fechaVenta:v.fechaVenta,lineas:v.lineas?.length?v.lineas:[{tipoCespedId:v.tipoCespedId,color:v.color??"",cantidadM2:v.cantidadM2,precioCompraM2:v.costoCompraUnitario,precioVentaM2:v.precioUnitario,total:v.precioTotal,loteStockId:null}],montoEntrega:v.montoEntrega,formaPago:v.formaPago,cantidadCuotas:v.cantidadCuotas,estado:v.estado,fechaEntregaEstimada:v.fechaEntregaEstimada,costoEnvio:v.costoEnvio,otrosCostos:v.otrosCostos,alicuotaIvaId:v.alicuotaIvaId,observaciones:v.observaciones??"",sucursalId:v.sucursalId,depositoId:v.depositoId};showProductEntry.value=false}}
-async function save(){error.value="";if(!form.value.lineas.length){error.value="Agregá al menos un producto a la venta.";return}saving.value=true;try{const first=form.value.lineas[0]!;const payload={...form.value,
-  tipoCespedId:first.tipoCespedId,color:first.color,cantidadM2:form.value.lineas.reduce((s,x)=>s+Number(x.cantidadM2),0),
-  precioUnitario:totalProductos.value/form.value.lineas.reduce((s,x)=>s+Number(x.cantidadM2),0),precioTotal:totalProductos.value,
-  costoCompraUnitario:form.value.lineas.reduce((s,x)=>s+Number(x.precioCompraM2)*Number(x.cantidadM2),0)/form.value.lineas.reduce((s,x)=>s+Number(x.cantidadM2),0)};editingId.value?await http.put(`/ventas/${editingId.value}`,payload):await http.post("/ventas",payload);await router.push("/ventas")}
-  catch(e:any){error.value=e.response?.data?.message??e.response?.data?.detail??Object.values(e.response?.data?.errors??{}).flat()[0]??"Revisá los datos ingresados."}finally{saving.value=false}}
-onMounted(load);
+function recalculate(row: any) { row.total = Math.round(Number(row.cantidadM2 || 0) * Number(row.precioVentaM2 || 0) * 100) / 100 }
+function saveLine() {
+  if (!draft.value.tipoCespedId || draft.value.cantidadM2 <= 0 || draft.value.precioCompraM2 <= 0 || draft.value.precioVentaM2 <= 0 || draft.value.total <= 0) {
+    error.value = 'Completá todos los datos del producto antes de agregarlo.'
+    return
+  }
+  if (editingLine.value === null) form.value.lineas.push({ ...draft.value })
+  else form.value.lineas[editingLine.value] = { ...draft.value }
+  draft.value = line()
+  editingLine.value = null
+  showProductEntry.value = false
+  error.value = ''
+}
+function startNewLine() { draft.value = line(); editingLine.value = null; showProductEntry.value = true; error.value = '' }
+function cancelLine() { draft.value = line(); editingLine.value = null; showProductEntry.value = form.value.lineas.length === 0; error.value = '' }
+function editLine(index: number) { draft.value = { ...form.value.lineas[index]! }; editingLine.value = index; showProductEntry.value = true; window.scrollTo({ top: 300, behavior: 'smooth' }) }
+function removeLine(index: number) {
+  form.value.lineas.splice(index, 1)
+  if (editingLine.value === index) { draft.value = line(); editingLine.value = null }
+  showProductEntry.value = form.value.lineas.length === 0
+}
+function productName(id: string) { return maestros.value.tiposCesped.find((x: any) => x.id === id)?.nombre ?? 'Producto' }
+function clientCreated(cliente: any) { clientes.value.push(cliente); form.value.clienteId = cliente.id; showNewClient.value = false }
+
+async function load() {
+  loading.value = true
+  loadError.value = ''
+  try {
+    const [filters, masters] = await Promise.all([http.get('/ventas/filtros'), http.get('/maestros')])
+    clientes.value = filters.data.clientes
+    maestros.value = masters.data
+    form.value.alicuotaIvaId = masters.data.alicuotasIva?.[0]?.id ?? ''
+    if (editingId.value) {
+      const v = (await http.get(`/ventas/${editingId.value}`)).data
+      form.value = {
+        clienteId: v.clienteId, fechaVenta: v.fechaVenta,
+        lineas: v.lineas?.length ? v.lineas : [{
+          tipoCespedId: v.tipoCespedId, color: v.color ?? '', cantidadM2: v.cantidadM2,
+          precioCompraM2: v.costoCompraUnitario, precioVentaM2: v.precioUnitario, total: v.precioTotal,
+        }],
+        montoEntrega: v.montoEntrega, formaPago: v.formaPago, cantidadCuotas: v.cantidadCuotas,
+        estado: v.estado, fechaEntregaEstimada: v.fechaEntregaEstimada, costoEnvio: v.costoEnvio,
+        otrosCostos: v.otrosCostos, alicuotaIvaId: v.alicuotaIvaId, observaciones: v.observaciones ?? '',
+      }
+      showProductEntry.value = false
+    }
+  } catch (e) {
+    loadError.value = apiErrorMessage(e, 'No se pudieron cargar los datos necesarios para la venta.')
+  } finally {
+    loading.value = false
+  }
+}
+async function save() {
+  error.value = ''
+  if (!form.value.lineas.length) { error.value = 'Agregá al menos un producto a la venta.'; return }
+  saving.value = true
+  try {
+    const first = form.value.lineas[0]!
+    const payload = {
+      ...form.value,
+      tipoCespedId: first.tipoCespedId, color: first.color,
+      cantidadM2: form.value.lineas.reduce((s, x) => s + Number(x.cantidadM2), 0),
+      precioUnitario: totalProductos.value / form.value.lineas.reduce((s, x) => s + Number(x.cantidadM2), 0),
+      precioTotal: totalProductos.value,
+      costoCompraUnitario: form.value.lineas.reduce((s, x) => s + Number(x.precioCompraM2) * Number(x.cantidadM2), 0) / form.value.lineas.reduce((s, x) => s + Number(x.cantidadM2), 0),
+    }
+    editingId.value ? await http.put(`/ventas/${editingId.value}`, payload) : await http.post('/ventas', payload)
+    await router.push('/ventas')
+  } catch (e: any) {
+    error.value = e.response?.data?.detail ?? Object.values(e.response?.data?.errors ?? {}).flat()[0] ?? 'Revisá los datos ingresados.'
+  } finally {
+    saving.value = false
+  }
+}
+onMounted(load)
 </script>
 
-<template><section class="page sale-create-page" :class="{'deny-client-create':!auth.can('clientes','crear')}"><div class="page-title"><div><h2>{{editingId?'Modificar venta':'Nueva venta'}}</h2><p>Seleccioná el cliente, agregá los productos y acordá el pago.</p></div><RouterLink class="btn secondary" to="/ventas">Volver a ventas</RouterLink></div>
-<form @submit.prevent="save"><p v-if="error" class="error">{{error}}</p>
-<section class="panel sale-step"><div class="panel-head"><h3>1. Cliente y origen</h3></div><div class="form-grid sale-step-body"><div class="field"><label>Cliente</label><div class="sale-client-picker"><ClienteAutocomplete v-model="form.clienteId" :clientes="clientes" /><button v-if="auth.can('clientes')" type="button" class="btn sale-new-client" title="Agregar nuevo cliente" aria-label="Agregar nuevo cliente" @click="showNewClient=true"><Plus/></button></div></div><div class="field"><label>Fecha de venta</label><input v-model="form.fechaVenta" type="date" required></div><div v-if="isAdmin&&!editingId" class="field"><label>Sucursal</label><select v-model="form.sucursalId" required><option :value="null" disabled>Seleccionar sucursal</option><option v-for="s in sucursales" :key="s.id" :value="s.id">{{s.nombre}}</option></select></div><div v-if="!editingId" class="field"><label>Depósito de salida</label><select v-model="form.depositoId" required :disabled="!isAdmin" @change="changeDeposit"><option value="" disabled>Seleccionar depósito</option><option v-for="d in depositos" :key="d.id" :value="d.id">{{depositLabel(d)}}</option></select><small v-if="!isAdmin">Se usa automáticamente el depósito de tu sucursal.</small></div></div></section>
-<section class="panel sale-step sale-detail-panel"><div class="panel-head"><div><h3>2. Detalle de productos</h3><small>{{form.lineas.length?'Productos incluidos en esta venta.':'Cargá el producto de la venta.'}}</small></div><button v-if="form.lineas.length&&!showProductEntry" type="button" class="btn secondary compact" @click="startNewLine"><Plus/> Agregar otro producto</button></div>
-<div v-if="showProductEntry" class="sale-entry">
-  <div class="field sale-product-field"><label>Producto</label><select v-model="draft.tipoCespedId" @change="selectProduct(draft)"><option value="" disabled>Seleccionar producto</option><option v-for="p in maestros.tiposCesped" :key="p.id" :value="p.id">{{p.nombre}}</option></select></div>
-  <div class="field"><label>Color</label><input v-if="product(draft)?.controlPorLotes" :value="draft.color || 'Se define con el lote'" disabled><select v-else-if="product(draft)?.colores?.length" v-model="draft.color"><option value="" disabled>Seleccionar</option><option v-for="color in product(draft).colores" :key="color">{{color}}</option></select><input v-else value="Sin variantes" disabled></div>
-  <div v-if="product(draft)?.controlPorLotes" class="field sale-lot-field"><label>Lote disponible</label><select v-model="draft.loteStockId" required :disabled="loadingLots" @change="selectLot(draft)"><option :value="null" disabled>{{loadingLots?'Cargando lotes…':'Seleccionar lote'}}</option><option v-for="lote in lotesDisponibles" :key="lote.id" :value="lote.id">{{lotLabel(lote)}}</option></select><small v-if="draft.loteStockId">Metros del lote: {{draft.cantidadM2}} m² (no editable)</small><small v-else-if="!loadingLots&&!lotesDisponibles.length">No hay lotes disponibles en este depósito.</small></div>
-  <div v-else class="field"><label>Metros m²</label><input v-model.number="draft.cantidadM2" type="number" min="0.01" step="0.01" @input="recalculate(draft)"></div>
-  <div v-if="canViewAmounts" class="field"><label>Costo / m²</label><input v-model.number="draft.precioCompraM2" type="number" min="0.01" step="0.01"></div><div v-if="canViewAmounts" class="field"><label>Venta / m²</label><input v-model.number="draft.precioVentaM2" type="number" min="0.01" step="0.01" @input="recalculate(draft)"></div><div v-if="canViewAmounts" class="field highlight-field"><label>Total</label><input v-model.number="draft.total" type="number" min="0.01" step="0.01"><small>Editable · cálculo {{money(Number(draft.cantidadM2)*Number(draft.precioVentaM2))}}</small></div><div class="sale-line-actions"><button v-if="form.lineas.length" type="button" class="btn secondary sale-cancel-line" @click="cancelLine">Cancelar</button><button type="button" class="btn sale-add-button" @click="saveLine"><Check v-if="editingLine!==null"/><Plus v-else/>{{editingLine!==null?'Actualizar':'Agregar producto'}}</button></div>
-</div>
-<div class="sale-table-wrap"><table class="sale-detail-table"><thead><tr><th>#</th><th>Producto</th><th>Color</th><th class="num">Metros</th><th v-if="canViewAmounts" class="num">Costo / m²</th><th v-if="canViewAmounts" class="num">Venta / m²</th><th v-if="canViewAmounts" class="num">Total</th><th></th></tr></thead><tbody><tr v-for="(row,index) in form.lineas" :key="index"><td>{{index+1}}</td><td><b>{{productName(row.tipoCespedId)}}</b></td><td>{{row.color||'—'}}</td><td class="num">{{row.cantidadM2}} m²</td><td v-if="canViewAmounts" class="num">{{money(row.precioCompraM2)}}</td><td v-if="canViewAmounts" class="num">{{money(row.precioVentaM2)}}</td><td v-if="canViewAmounts" class="num"><b>{{money(row.total)}}</b></td><td><div class="row-actions"><button type="button" class="icon-btn" title="Editar línea" @click="editLine(index)"><Pencil/></button><button type="button" class="icon-btn danger" title="Quitar línea" @click="removeLine(index)"><Trash2/></button></div></td></tr></tbody></table><div v-if="!form.lineas.length" class="empty">Todavía no agregaste productos a la venta.</div></div><div v-if="canViewAmounts" class="sale-products-total"><span>Subtotal de productos</span><strong>{{money(totalProductos)}}</strong></div></section>
-<section class="panel sale-step"><div class="panel-head"><h3>3. Entrega y pago</h3></div><div class="form-grid sale-step-body"><div class="field"><label>Estado</label><select v-model="form.estado"><option v-for="x in ['Confirmada','Futura','Entregada','Cancelada']" :key="x">{{x}}</option></select></div><div v-if="form.estado==='Futura'" class="field"><label>Entrega estimada</label><input v-model="form.fechaEntregaEstimada" type="date" required></div><div v-if="canViewAmounts" class="field"><label>Envío</label><input v-model.number="form.costoEnvio" type="number" min="0" step="0.01"></div><div v-if="canViewAmounts" class="field"><label>Otros costos</label><input v-model.number="form.otrosCostos" type="number" min="0" step="0.01"></div><div class="field"><label>IVA</label><select v-model="form.alicuotaIvaId" required><option v-for="a in maestros.alicuotasIva" :key="a.id" :value="a.id">{{a.nombre}}</option></select></div><div class="field"><label>Forma de pago</label><select v-model="form.formaPago"><option v-for="x in ['Contado','Transferencia','Cheque','Cuotas','Otros']" :key="x">{{x}}</option></select></div><div v-if="form.formaPago==='Cuotas'" class="field"><label>Cuotas sobre el saldo</label><input v-model.number="form.cantidadCuotas" type="number" min="1" max="60" required></div><div v-if="canViewAmounts" class="field highlight-field"><label>Entrega inicial</label><input v-model.number="form.montoEntrega" type="number" min="0.01" :max="totalProductos" step="0.01" required><small>Se registra como ingreso en Caja.</small></div><div class="field full-field"><label>Observaciones</label><textarea v-model="form.observaciones" rows="3"></textarea></div></div><div v-if="canViewAmounts" class="sale-final-total"><span>Total final de la venta</span><strong>{{money(totalVenta)}}</strong><small>Los costos de envío y otros costos afectan rentabilidad, no el importe cobrado por productos.</small></div></section>
-<div class="actions"><RouterLink class="btn secondary" to="/ventas">Cancelar</RouterLink><button class="btn" :disabled="saving">{{saving?'Guardando…':editingId?'Guardar cambios':'Confirmar venta'}}</button></div></form><NuevoClienteModal v-if="showNewClient" @close="showNewClient=false" @created="clientCreated"/></section></template>
+<template>
+  <section class="page compact-page sale-create-page">
+    <div class="page-toolbar flex justify-content-between align-items-center flex-wrap gap-2">
+      <p class="page-desc text-color-secondary m-0">Seleccioná el cliente, agregá los productos y acordá el pago.</p>
+      <RouterLink to="/ventas">
+        <AppButton label="Volver a ventas" severity="secondary" size="small" />
+      </RouterLink>
+    </div>
+
+    <Message v-if="loading" severity="info" class="mb-3" :closable="false">Cargando datos de la venta…</Message>
+    <Message v-else-if="loadError" severity="error" class="mb-3" :closable="false">
+      {{ loadError }}
+      <AppButton label="Reintentar" size="small" severity="secondary" class="ml-2" @click="load" />
+    </Message>
+
+    <form v-else @submit.prevent="save">
+      <Message v-if="error" severity="error" class="mb-3" :closable="false">{{ error }}</Message>
+
+      <Panel class="sale-step mb-3">
+        <template #header><span class="font-bold">1. Cliente</span></template>
+        <article v-if="showNewClient" class="card inline-form-panel inline-form-panel-wide">
+          <NuevoClienteForm
+            hint="Se guardará y quedará seleccionado en esta venta."
+            @cancel="showNewClient = false"
+            @created="clientCreated"
+          />
+        </article>
+        <div v-else class="sale-client-row">
+          <div class="field sale-client-field">
+            <label>Cliente</label>
+            <div class="sale-client-picker">
+              <ClienteAutocomplete v-model="form.clienteId" :clientes="clientes" class="flex-1" />
+              <AppButton
+                v-if="auth.can('clientes')"
+                type="button"
+                severity="secondary"
+                size="small"
+                tooltip="Nuevo cliente"
+                aria-label="Nuevo cliente"
+                @click="showNewClient = true"
+              >
+                <AppIcon :icon="faPlus" />
+              </AppButton>
+            </div>
+          </div>
+          <div class="field sale-date-field">
+            <label for="fechaVenta">Fecha de venta</label>
+            <AppDatePicker id="fechaVenta" v-model="form.fechaVenta" required />
+          </div>
+        </div>
+      </Panel>
+
+      <Panel class="sale-step sale-detail-panel mb-3">
+        <template #header>
+          <div class="flex justify-content-between align-items-center flex-wrap gap-2 w-full">
+            <div>
+              <span class="font-bold">2. Detalle de productos</span>
+              <small class="block text-color-secondary">
+                {{ form.lineas.length ? 'Productos incluidos en esta venta.' : 'Cargá el producto de la venta.' }}
+              </small>
+            </div>
+            <AppButton v-if="form.lineas.length && !showProductEntry" type="button" label="Agregar otro producto"
+              severity="secondary" size="small" @click="startNewLine">
+              <AppIcon :icon="faPlus" class="mr-1" />
+            </AppButton>
+          </div>
+        </template>
+
+        <div v-if="showProductEntry" class="card sale-entry-card">
+          <div class="sale-entry">
+            <div class="grid formgrid p-fluid sale-entry-grid">
+              <div class="field col-12 md:col-4 sale-product-field">
+                <label>Producto</label>
+                <Select v-model="draft.tipoCespedId" :options="maestros.tiposCesped" option-label="nombre"
+                  option-value="id" placeholder="Seleccionar producto" size="small" @change="selectProduct(draft)" />
+              </div>
+              <div class="field col-6 md:col-2">
+                <label>Color</label>
+                <Select v-if="product(draft)?.colores?.length" v-model="draft.color" :options="product(draft).colores"
+                  placeholder="Seleccionar" size="small" />
+                <InputText v-else model-value="Sin variantes" disabled size="small" />
+              </div>
+              <div class="field col-6 md:col-2">
+                <label>Metros m²</label>
+                <InputNumber v-model="draft.cantidadM2" :min="0.01" :min-fraction-digits="2" :max-fraction-digits="2"
+                  size="small" @update:model-value="recalculate(draft)" />
+              </div>
+              <div class="field col-6 md:col-2">
+                <label>Costo / m²</label>
+                <InputNumber v-model="draft.precioCompraM2" :min="0.01" :min-fraction-digits="2"
+                  :max-fraction-digits="2" size="small" />
+              </div>
+              <div class="field col-6 md:col-2">
+                <label>Venta / m²</label>
+                <InputNumber v-model="draft.precioVentaM2" :min="0.01" :min-fraction-digits="2" :max-fraction-digits="2"
+                  size="small" @update:model-value="recalculate(draft)" />
+              </div>
+              <div class="field col-12 md:col-4 highlight-field">
+                <label>Total</label>
+                <InputNumber v-model="draft.total" :min="0.01" :min-fraction-digits="2" :max-fraction-digits="2"
+                  size="small" />
+                <small class="text-color-secondary">Cálculo sugerido: {{ money(Number(draft.cantidadM2) *
+                  Number(draft.precioVentaM2)) }}</small>
+              </div>
+            </div>
+            <div class="sale-line-actions flex justify-content-end gap-2">
+              <AppButton v-if="form.lineas.length" type="button" label="Cancelar" severity="secondary" size="small"
+                @click="cancelLine" />
+              <AppButton type="button" size="small"
+                :tooltip="editingLine !== null ? 'Actualizar producto' : 'Agregar producto'" @click="saveLine">
+                <AppIcon :icon="editingLine !== null ? faCheck : faPlus" class="mr-1" />
+                {{ editingLine !== null ? 'Actualizar' : 'Agregar producto' }}
+              </AppButton>
+            </div>
+          </div>
+        </div>
+
+        <div class="table-panel">
+          <DataTable :value="form.lineas" striped-rows class="sale-detail-table">
+            <template #empty>
+              <div class="text-center py-4 text-color-secondary">Todavía no agregaste productos a la venta.</div>
+            </template>
+            <Column header="#" style="width: 3rem">
+              <template #body="{ index }">{{ index + 1 }}</template>
+            </Column>
+            <Column header="Producto">
+              <template #body="{ data: row }"><b>{{ productName(row.tipoCespedId) }}</b></template>
+            </Column>
+            <Column header="Color">
+              <template #body="{ data: row }">{{ row.color || '—' }}</template>
+            </Column>
+            <Column header="Metros" body-class="text-right">
+              <template #body="{ data: row }"><span class="num">{{ row.cantidadM2 }} m²</span></template>
+            </Column>
+            <Column header="Costo / m²" body-class="text-right">
+              <template #body="{ data: row }"><span class="num">{{ money(row.precioCompraM2) }}</span></template>
+            </Column>
+            <Column header="Venta / m²" body-class="text-right">
+              <template #body="{ data: row }"><span class="num">{{ money(row.precioVentaM2) }}</span></template>
+            </Column>
+            <Column header="Total" body-class="text-right">
+              <template #body="{ data: row }"><b class="num">{{ money(row.total) }}</b></template>
+            </Column>
+            <Column header="" style="width: 7rem">
+              <template #body="{ index }">
+                <div class="flex gap-1">
+                  <AppButton text rounded severity="secondary" title="Editar línea" @click="editLine(index)">
+                    <AppIcon :icon="faPen" />
+                  </AppButton>
+                  <AppButton text rounded severity="danger" title="Quitar línea" @click="removeLine(index)">
+                    <AppIcon :icon="faTrash" />
+                  </AppButton>
+                </div>
+              </template>
+            </Column>
+          </DataTable>
+        </div>
+
+        <div class="sale-products-total flex justify-content-between align-items-center">
+          <span>Subtotal de productos</span>
+          <strong>{{ money(totalProductos) }}</strong>
+        </div>
+      </Panel>
+
+      <Panel class="sale-step mb-3">
+        <template #header><span class="font-bold">3. Entrega y pago</span></template>
+        <div class="sale-step-body">
+          <section class="sale-payment-block">
+            <span class="sale-block-label">Estado y cobro</span>
+            <div class="grid formgrid p-fluid sale-payment-grid">
+              <div class="field col-12 md:col-3">
+                <label>Estado</label>
+                <Select v-model="form.estado" :options="estados" size="small" />
+              </div>
+              <div v-if="form.estado === 'Futura'" class="field col-12 md:col-3">
+                <label for="fechaEntrega">Entrega estimada</label>
+                <AppDatePicker id="fechaEntrega" v-model="form.fechaEntregaEstimada" required />
+              </div>
+              <div class="field col-12 md:col-3">
+                <label>Forma de pago</label>
+                <Select v-model="form.formaPago" :options="formasPago" size="small" />
+              </div>
+              <div v-if="form.formaPago === 'Cuotas'" class="field col-12 md:col-3">
+                <label>Cuotas sobre el saldo</label>
+                <InputNumber v-model="form.cantidadCuotas" :min="1" :max="60" size="small" required />
+              </div>
+              <div class="field col-12 md:col-3">
+                <label>Entrega inicial</label>
+                <InputNumber v-model="form.montoEntrega" :min="0" :max="totalProductos" :min-fraction-digits="2"
+                  :max-fraction-digits="2" size="small" required />
+              </div>
+            </div>
+          </section>
+
+          <section class="sale-payment-block">
+            <span class="sale-block-label">Costos e impuestos</span>
+            <div class="grid formgrid p-fluid sale-costs-grid">
+              <div class="field col-12 md:col-4">
+                <label>Envío</label>
+                <InputNumber v-model="form.costoEnvio" :min="0" :min-fraction-digits="2" :max-fraction-digits="2"
+                  size="small" />
+              </div>
+              <div class="field col-12 md:col-4">
+                <label>Otros costos</label>
+                <InputNumber v-model="form.otrosCostos" :min="0" :min-fraction-digits="2" :max-fraction-digits="2"
+                  size="small" />
+              </div>
+              <div class="field col-12 md:col-4">
+                <label>IVA</label>
+                <Select v-model="form.alicuotaIvaId" :options="maestros.alicuotasIva" option-label="nombre"
+                  option-value="id" size="small" required />
+              </div>
+            </div>
+          </section>
+
+          <div class="field col-12 px-0">
+            <label for="observaciones">Observaciones</label>
+            <Textarea id="observaciones" v-model="form.observaciones" rows="2" auto-resize />
+          </div>
+
+          <div class="sale-final-card">
+            <div>
+              <span class="text-color-secondary">Total final de la venta</span>
+              <strong class="block">{{ money(totalVenta) }}</strong>
+            </div>
+            <small>Envío y otros costos impactan rentabilidad, no el importe por productos.</small>
+          </div>
+        </div>
+      </Panel>
+
+      <div class="sale-form-actions flex justify-content-end gap-2">
+        <RouterLink to="/ventas">
+          <AppButton type="button" label="Cancelar" severity="secondary" size="small" />
+        </RouterLink>
+        <AppButton type="submit" :label="saving ? 'Guardando…' : editingId ? 'Guardar cambios' : 'Confirmar venta'"
+          :loading="saving" size="small" />
+      </div>
+    </form>
+
+  </section>
+</template>

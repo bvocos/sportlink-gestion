@@ -1,0 +1,371 @@
+/* Responsive mobile layer — loaded last to override legacy fixed layouts */
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  overflow-x: hidden;
+}
+
+.shell > main {
+  width: 100%;
+  max-width: 100vw;
+}
+
+/* ── Shell & navigation ── */
+@media (max-width: 900px) {
+  .shell {
+    display: block;
+  }
+
+  /* translateX on aside hides fixed children too — slide with left instead */
+  aside {
+    position: fixed !important;
+    top: 0 !important;
+    left: -100% !important;
+    bottom: 0;
+    width: min(280px, 86vw) !important;
+    height: 100vh !important;
+    max-height: 100vh !important;
+    z-index: 6 !important;
+    transform: none !important;
+    transition: left 0.2s ease !important;
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  aside.open {
+    left: 0 !important;
+    transform: none !important;
+  }
+
+  aside nav {
+    overflow-y: auto;
+    flex: 1;
+    min-height: 0;
+  }
+
+  .shell-overlay {
+    z-index: 5;
+  }
+
+  .shell-overlay.open {
+    display: block;
+  }
+
+  /* Toggle lives in the header on mobile — hide the one inside aside */
+  aside .sidebar-toggle {
+    display: none !important;
+  }
+
+  /* Ignore desktop collapsed mode when drawer is open on mobile */
+  .shell.sidebar-collapsed aside {
+    width: min(280px, 86vw) !important;
+    padding: 12px 10px !important;
+  }
+
+  .shell.sidebar-collapsed .brand {
+    display: flex !important;
+  }
+
+  .shell.sidebar-collapsed .nav-label,
+  .shell.sidebar-collapsed nav a span,
+  .shell.sidebar-collapsed .profile b,
+  .shell.sidebar-collapsed .profile small,
+  .shell.sidebar-collapsed .logout span {
+    display: revert !important;
+  }
+
+  .shell.sidebar-collapsed nav a {
+    justify-content: flex-start !important;
+    padding: 7px 10px !important;
+  }
+
+  .shell.sidebar-collapsed .sidebar-head {
+    flex-direction: row !important;
+    justify-content: space-between !important;
+  }
+
+  .header-menu-toggle {
+    flex-shrink: 0;
+    width: 2.25rem;
+    height: 2.25rem;
+    color: #285c3d;
+  }
+
+  header {
+    padding: 0 0.85rem !important;
+    gap: 0.5rem;
+  }
+}
+
+/* ── Header ── */
+@media (max-width: 650px) {
+  header {
+    padding: 0 0.75rem !important;
+    gap: 0.5rem;
+  }
+
+  .header-context h1 {
+    font-size: 0.95rem;
+  }
+
+  .header-tools {
+    flex-shrink: 0;
+  }
+
+  .online-tag :deep(.p-tag) {
+    font-size: 0.65rem;
+    padding: 0.25rem 0.45rem;
+  }
+}
+
+@media (max-width: 420px) {
+  .online-tag :deep(.p-tag-label) {
+    max-width: 4.5rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+/* ── Page toolbars & titles ── */
+@media (max-width: 650px) {
+  .page-toolbar {
+    flex-direction: column;
+    align-items: stretch !important;
+  }
+
+  .page-toolbar > .p-button,
+  .page-toolbar > a .p-button,
+  .page-toolbar .p-button {
+    width: 100%;
+  }
+
+  .page-title.flex,
+  .dashboard-brand .page-title {
+    flex-direction: column;
+    align-items: stretch !important;
+  }
+
+  .page-title .p-button,
+  .page-title a .p-button {
+    width: 100%;
+  }
+}
+
+/* ── Tables ── */
+@media (max-width: 900px) {
+  .table-panel {
+    overflow-x: auto !important;
+    overflow-y: visible;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .page .p-datatable .p-datatable-tbody > tr > td {
+    max-width: none;
+    font-size: 0.82rem;
+  }
+
+  .page .p-datatable .cell-actions,
+  .page .p-datatable .cell-actions-wide {
+    min-width: auto;
+    width: auto;
+  }
+
+  .sale-detail-table {
+    min-width: 720px;
+  }
+}
+
+/* ── Filters ── */
+@media (max-width: 768px) {
+  .filter-form,
+  .filter-form.filter-form-inline {
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+  }
+
+  .filter-form .filter-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.35rem;
+    width: 100%;
+  }
+
+  .filter-form .filter-actions .p-button {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .filter-form-inline .filter-period-hint {
+    white-space: normal;
+  }
+
+  .summary-metrics {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 480px) {
+  .filter-form .filter-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .summary-metrics {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── Dialogs & toasts ── */
+@media (max-width: 650px) {
+  .p-dialog:not(.p-confirmdialog) {
+    width: calc(100vw - 1.5rem) !important;
+    max-width: calc(100vw - 1.5rem) !important;
+  }
+
+  .p-confirmdialog .p-dialog {
+    width: min(440px, calc(100vw - 1.5rem)) !important;
+    max-width: calc(100vw - 1.5rem) !important;
+  }
+
+  .p-toast {
+    width: calc(100vw - 1.5rem) !important;
+    max-width: calc(100vw - 1.5rem) !important;
+    left: 0.75rem !important;
+    right: 0.75rem !important;
+  }
+}
+
+/* ── Inline forms (usuarios, gastos, productos) ── */
+@media (max-width: 768px) {
+  .inline-form-panel,
+  .inline-form-panel-wide {
+    max-width: none;
+    padding: 0.55rem 0.65rem !important;
+  }
+
+  .inline-form-footer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .inline-form-footer .p-button {
+    width: 100%;
+  }
+
+  .inline-form-block-head {
+    flex-wrap: wrap;
+  }
+
+  .inline-form-note {
+    max-width: none;
+  }
+}
+
+/* ── Nueva venta ── */
+@media (max-width: 768px) {
+  .sale-create-page .sale-client-row {
+    flex-wrap: wrap;
+  }
+
+  .sale-create-page .sale-date-field {
+    flex: 1 1 100%;
+    width: 100%;
+  }
+
+  .sale-create-page .sale-line-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .sale-create-page .sale-line-actions .p-button {
+    width: 100%;
+  }
+
+  .sale-create-page .sale-form-actions {
+    display: grid;
+    gap: 0.35rem;
+  }
+
+  .sale-create-page .sale-form-actions .p-button {
+    width: 100%;
+  }
+
+  .sale-create-page .sale-final-card {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .sale-detail-panel .p-panel-header > div {
+    width: 100%;
+  }
+}
+
+/* ── Presupuestos ── */
+@media (max-width: 768px) {
+  .quote-create-page .quote-header,
+  .quote-create-page .sale-step-body.quote-header {
+    grid-template-columns: 1fr !important;
+  }
+
+  .quote-payment {
+    grid-template-columns: 1fr !important;
+  }
+
+  .pdf-preview-head {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+}
+
+/* ── Panel headers ── */
+@media (max-width: 650px) {
+  .p-panel .p-panel-header {
+    flex-wrap: wrap;
+    gap: 0.35rem;
+  }
+}
+
+/* ── Cuotas & row actions ── */
+@media (max-width: 650px) {
+  .cuotas-actions {
+    flex-wrap: wrap;
+  }
+
+  .p-paginator {
+    padding: 0.35rem 0.45rem;
+  }
+
+  .p-paginator .p-paginator-current {
+    font-size: 0.75rem;
+  }
+}
+
+/* ── Dólar widget ── */
+@media (max-width: 380px) {
+  .dolar-widget,
+  .dolar-widget:not(.minimized),
+  .dolar-widget.minimized {
+    left: 0.5rem;
+    right: 0.5rem;
+    width: auto;
+  }
+}
+
+/* ── Safe areas (iOS notch / home indicator) ── */
+@supports (padding: env(safe-area-inset-bottom)) {
+  @media (max-width: 900px) {
+    .page {
+      padding-bottom: calc(6rem + env(safe-area-inset-bottom)) !important;
+    }
+
+    .dolar-widget {
+      bottom: calc(10px + env(safe-area-inset-bottom));
+    }
+  }
+}

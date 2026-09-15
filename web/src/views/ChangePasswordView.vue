@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
+import AppButton from '@/shared/components/AppButton.vue'
+import Message from 'primevue/message'
+import Password from 'primevue/password'
 import { auth } from '@/auth'
 
 const router = useRouter()
@@ -35,15 +38,49 @@ async function submit() {
 
 <template>
   <main class="login-page">
-    <form class="login-card" @submit.prevent="submit">
+    <form class="login-card p-fluid" @submit.prevent="submit">
       <img src="/brand/sportlink-logo.png" alt="Sportlink by Empire">
       <h1>Cambiar contraseña</h1>
       <p>Por seguridad, debés crear una contraseña personal antes de continuar.</p>
-      <div class="field"><label>Contraseña actual</label><input v-model="actual" type="password" autocomplete="current-password" required autofocus></div>
-      <div class="field"><label>Nueva contraseña</label><input v-model="nueva" type="password" autocomplete="new-password" minlength="8" required></div>
-      <div class="field"><label>Confirmar nueva contraseña</label><input v-model="confirmacion" type="password" autocomplete="new-password" minlength="8" required></div>
-      <p v-if="error" class="error">{{ error }}</p>
-      <button class="btn" :disabled="loading">{{ loading ? 'Guardando...' : 'Cambiar contraseña' }}</button>
+      <div class="field">
+        <label for="actual">Contraseña actual</label>
+        <Password
+          id="actual"
+          v-model="actual"
+          :feedback="false"
+          toggle-mask
+          autocomplete="current-password"
+          required
+          autofocus
+          input-class="w-full"
+        />
+      </div>
+      <div class="field">
+        <label for="nueva">Nueva contraseña</label>
+        <Password
+          id="nueva"
+          v-model="nueva"
+          :feedback="false"
+          toggle-mask
+          autocomplete="new-password"
+          required
+          input-class="w-full"
+        />
+      </div>
+      <div class="field">
+        <label for="confirmacion">Confirmar nueva contraseña</label>
+        <Password
+          id="confirmacion"
+          v-model="confirmacion"
+          :feedback="false"
+          toggle-mask
+          autocomplete="new-password"
+          required
+          input-class="w-full"
+        />
+      </div>
+      <Message v-if="error" severity="error" :closable="false">{{ error }}</Message>
+      <AppButton type="submit" :label="loading ? 'Guardando…' : 'Cambiar contraseña'" :loading="loading" class="w-full" />
     </form>
   </main>
 </template>

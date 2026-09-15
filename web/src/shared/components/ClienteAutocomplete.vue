@@ -1,2 +1,70 @@
-<script setup lang="ts">import{computed,ref,watch}from'vue';interface Cliente{id:string;nombreCompleto:string;telefono?:string;localidad?:string;provincia?:string}const props=defineProps<{modelValue:string;clientes:Cliente[]}>();const emit=defineEmits<{(e:'update:modelValue',v:string):void}>();const query=ref(''),open=ref(false),active=ref(0);const norm=(v:string)=>v.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();const results=computed(()=>{const q=norm(query.value.trim());return props.clientes.filter(c=>!q||norm(`${c.nombreCompleto} ${c.telefono??''} ${c.localidad??''}`).includes(q)).slice(0,8)});function select(c:Cliente){emit('update:modelValue',c.id);query.value=c.nombreCompleto;open.value=false}function key(e:KeyboardEvent){if(e.key==='ArrowDown'){e.preventDefault();active.value=Math.min(active.value+1,results.value.length-1)}else if(e.key==='ArrowUp'){e.preventDefault();active.value=Math.max(active.value-1,0)}else if(e.key==='Enter'){e.preventDefault();const c=results.value[active.value];if(c)select(c)}else if(e.key==='Escape')open.value=false}function blur(){window.setTimeout(()=>open.value=false,150)}watch([()=>props.modelValue,()=>props.clientes],()=>{const c=props.clientes.find(x=>x.id===props.modelValue);if(c)query.value=c.nombreCompleto;else if(!props.modelValue)query.value=''},{immediate:true});</script>
-<template><div class="autocomplete"><input v-model="query" type="search" autocomplete="off" placeholder="Escribí nombre, teléfono o localidad" required @focus="open=true;active=0" @input="open=true;active=0;emit('update:modelValue','')" @keydown="key" @blur="blur"><div v-if="open" class="autocomplete-menu"><button v-for="(c,i) in results" :key="c.id" type="button" :class="{active:i===active}" @mousedown.prevent="select(c)"><b>{{c.nombreCompleto}}</b><small>{{c.telefono||'Sin teléfono'}} · {{c.localidad}}</small></button><p v-if="!results.length">No se encontraron clientes.</p></div></div></template>
+<script setup lang="ts">
+import AutoComplete from 'primevue/autocomplete'
+import { ref, watch } from 'vue'
+
+interface Cliente {
+  id: string
+  nombreCompleto: string
+  telefono?: string
+  localidad?: string
+  provincia?: string
+}
+
+const props = defineProps<{
+  modelValue: string
+  clientes: Cliente[]
+  invalid?: boolean
+}>()
+
+const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
+
+const selected = ref<Cliente | null>(null)
+const suggestions = ref<Cliente[]>([])
+
+const norm = (value: string) =>
+  value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+
+function search(event: { query: string }) {
+  const q = norm(event.query.trim())
+  suggestions.value = props.clientes
+    .filter((cliente) => !q || norm(`${cliente.nombreCompleto} ${cliente.telefono ?? ''} ${cliente.localidad ?? ''}`).includes(q))
+    .slice(0, 8)
+}
+
+watch(
+  [() => props.modelValue, () => props.clientes],
+  () => {
+    selected.value = props.clientes.find((cliente) => cliente.id === props.modelValue) ?? null
+  },
+  { immediate: true },
+)
+
+watch(selected, (cliente) => {
+  const next = cliente?.id ?? ''
+  if (next !== props.modelValue) emit('update:modelValue', next)
+})
+</script>
+
+<template>
+  <AutoComplete
+    v-model="selected"
+    :suggestions="suggestions"
+    option-label="nombreCompleto"
+    placeholder="Escribí nombre, teléfono o localidad"
+    empty-search-message="No se encontraron clientes."
+    force-selection
+    dropdown
+    fluid
+    :invalid="invalid"
+    @complete="search"
+  >
+    <template #option="{ option }">
+      <div>
+        <b>{{ option.nombreCompleto }}</b>
+        <small class="block text-color-secondary">
+          {{ option.telefono || 'Sin teléfono' }} · {{ option.localidad }}
+        </small>
+      </div>
+    </template>
+  </AutoComplete>
+</template>

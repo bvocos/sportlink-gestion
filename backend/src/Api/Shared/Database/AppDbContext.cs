@@ -20,6 +20,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, IHttpCo
     public DbSet<RegistroAuditoria> RegistrosAuditoria => Set<RegistroAuditoria>();
     public DbSet<Gasto> Gastos => Set<Gasto>();
     public DbSet<Presupuesto> Presupuestos => Set<Presupuesto>(); public DbSet<PresupuestoLinea> PresupuestoLineas => Set<PresupuestoLinea>();
+
     protected override void OnModelCreating(ModelBuilder b)
     {
         foreach (var t in new[] { typeof(Venta), typeof(Cuota), typeof(MovimientoCaja), typeof(MovimientoStock), typeof(LoteStock), typeof(Rollo), typeof(Gasto), typeof(TipoCesped), typeof(AlicuotaIva), typeof(Configuracion), typeof(Presupuesto), typeof(PresupuestoLinea) })
@@ -85,6 +86,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, IHttpCo
             t.HasCheckConstraint("CK_Rollos_CantidadM2", "[CantidadM2] > 0");
         });
     }
+
     public override async Task<int> SaveChangesAsync(CancellationToken ct = default)
     {
         foreach (var e in ChangeTracker.Entries<IAuditableEntity>()) { if (e.State == EntityState.Added) e.Entity.CreatedAt = DateTimeOffset.UtcNow; if (e.State is EntityState.Added or EntityState.Modified) e.Entity.UpdatedAt = DateTimeOffset.UtcNow; }
@@ -117,6 +119,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, IHttpCo
     }
 
     private static bool IsSensitive(string name) => name.Contains("Password", StringComparison.OrdinalIgnoreCase) || name.Contains("Hash", StringComparison.OrdinalIgnoreCase);
+
     private static object? Printable(object? value) => value is DateOnly date ? date.ToString("yyyy-MM-dd") : value;
     private static string ModuleFor(string entity) => entity switch { "Venta" => "Ventas", "Cuota" => "Cuotas", "MovimientoCaja" => "Caja", "MovimientoStock" or "LoteStock" or "Rollo" => "Stock", "Gasto" => "Gastos", "Presupuesto" or "PresupuestoLinea" => "Presupuestos", "Cliente" => "Clientes", "Usuario" => "Usuarios", "Deposito" or "Sucursal" or "TipoCesped" or "AlicuotaIva" or "Configuracion" => "Administración", _ => entity };
 }
@@ -126,7 +129,6 @@ public static class SeedData
     public static async Task InitializeAsync(IServiceProvider services)
     {
         using var scope = services.CreateScope(); var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        await db.Database.EnsureCreatedAsync();
         await db.Database.ExecuteSqlRawAsync("""
             IF OBJECT_ID(N'dbo.Depositos', N'U') IS NULL
             BEGIN
@@ -203,20 +205,45 @@ public static class SeedData
             END;
             """);
         await db.Database.ExecuteSqlRawAsync("""
-            IF COL_LENGTH('dbo.MovimientosStock','TipoCespedId') IS NULL
-            BEGIN
-                IF NOT EXISTS (SELECT 1 FROM dbo.TiposCesped WHERE Id='7C100000-0000-0000-0000-FFFFFFFFFFFF')
-                    INSERT dbo.TiposCesped(Id,Nombre,Descripcion,PrecioVentaM2,CostoM2,ColoresJson,Activo,CreatedAt)
-                    VALUES('7C100000-0000-0000-0000-FFFFFFFFFFFF',N'Sin asignar (stock histórico)',
-                        N'Movimientos anteriores a la gestión de stock por producto.',0,0,N'[]',0,SYSDATETIMEOFFSET());
+            IF NOT EXISTS (SELECT 1 FROM dbo.TiposCesped WHERE Id='7C100000-0000-0000-0000-FFFFFFFFFFFF')
+                INSERT dbo.TiposCesped(Id,Nombre,Descripcion,PrecioVentaM2,CostoM2,ColoresJson,Activo,CreatedAt)
+                VALUES('7C100000-0000-0000-0000-FFFFFFFFFFFF',N'Sin asignar (stock histórico)',
+                    N'Movimientos anteriores a la gestión de stock por producto.',0,0,N'[]',0,SYSDATETIMEOFFSET());
+            """);
+        await db.Database.ExecuteSqlRawAsync("""
+            IF OBJECT_ID(N'dbo.MovimientosStock', N'U') IS NOT NULL
+               AND COL_LENGTH('dbo.MovimientosStock','TipoCespedId') IS NULL
                 ALTER TABLE dbo.MovimientosStock ADD TipoCespedId UNIQUEIDENTIFIER NULL;
-                UPDATE dbo.MovimientosStock SET TipoCespedId='7C100000-0000-0000-0000-FFFFFFFFFFFF';
+            """);
+        await db.Database.ExecuteSqlRawAsync("""
+            IF OBJECT_ID(N'dbo.MovimientosStock', N'U') IS NOT NULL
+               AND COL_LENGTH('dbo.MovimientosStock','TipoCespedId') IS NOT NULL
+                UPDATE dbo.MovimientosStock SET TipoCespedId='7C100000-0000-0000-0000-FFFFFFFFFFFF' WHERE TipoCespedId IS NULL;
+            """);
+        await db.Database.ExecuteSqlRawAsync("""
+            IF OBJECT_ID(N'dbo.MovimientosStock', N'U') IS NOT NULL
+               AND COL_LENGTH('dbo.MovimientosStock','TipoCespedId') IS NOT NULL
+               AND EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID(N'dbo.MovimientosStock') AND name=N'TipoCespedId' AND is_nullable=1)
                 ALTER TABLE dbo.MovimientosStock ALTER COLUMN TipoCespedId UNIQUEIDENTIFIER NOT NULL;
+            """);
+        await db.Database.ExecuteSqlRawAsync("""
+            IF OBJECT_ID(N'dbo.MovimientosStock', N'U') IS NOT NULL
+               AND COL_LENGTH('dbo.MovimientosStock','TipoCespedId') IS NOT NULL
+               AND NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id=OBJECT_ID(N'dbo.MovimientosStock') AND name=N'IX_MovimientosStock_DepositoId_TipoCespedId')
                 CREATE INDEX IX_MovimientosStock_DepositoId_TipoCespedId ON dbo.MovimientosStock(DepositoId,TipoCespedId);
+            """);
+        await db.Database.ExecuteSqlRawAsync("""
+            IF OBJECT_ID(N'dbo.MovimientosStock', N'U') IS NOT NULL
+               AND COL_LENGTH('dbo.MovimientosStock','TipoCespedId') IS NOT NULL
+               AND NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id=OBJECT_ID(N'dbo.MovimientosStock') AND name=N'IX_MovimientosStock_TipoCespedId')
                 CREATE INDEX IX_MovimientosStock_TipoCespedId ON dbo.MovimientosStock(TipoCespedId);
+            """);
+        await db.Database.ExecuteSqlRawAsync("""
+            IF OBJECT_ID(N'dbo.MovimientosStock', N'U') IS NOT NULL
+               AND COL_LENGTH('dbo.MovimientosStock','TipoCespedId') IS NOT NULL
+               AND NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name=N'FK_MovimientosStock_TiposCesped_TipoCespedId')
                 ALTER TABLE dbo.MovimientosStock ADD CONSTRAINT FK_MovimientosStock_TiposCesped_TipoCespedId
                     FOREIGN KEY(TipoCespedId) REFERENCES dbo.TiposCesped(Id);
-            END;
             """);
         await db.Database.ExecuteSqlRawAsync("""
             IF COL_LENGTH(N'dbo.TiposCesped', N'ControlPorLotes') IS NULL
@@ -409,10 +436,10 @@ public static class SeedData
             IF COL_LENGTH('dbo.PresupuestoLineas','FichaTecnicaUrl') IS NULL
                 ALTER TABLE dbo.PresupuestoLineas ADD FichaTecnicaUrl NVARCHAR(1000) NULL;
             """);
-        if (!await db.AlicuotasIva.AnyAsync()) db.AlicuotasIva.AddRange(new AlicuotaIva { Nombre="IVA 21%", Porcentaje=21 }, new AlicuotaIva { Nombre="IVA 10,5%", Porcentaje=10.5m }, new AlicuotaIva { Nombre="Exento", Porcentaje=0 });
-        if (!await db.TiposCesped.AnyAsync()) db.TiposCesped.AddRange(new TipoCesped { Nombre="Decorativo 20 mm" }, new TipoCesped { Nombre="Premium 35 mm" }, new TipoCesped { Nombre="Deportivo 50 mm" });
-        if (!await db.Configuraciones.AnyAsync()) db.Configuraciones.Add(new Configuracion { Clave="UmbralMuyRentable", ValorDecimal=.30m });
-        if (!await db.Usuarios.AnyAsync()) { var admin=new Usuario{Nombre="Administrador",NombreUsuario="admin",Rol="Administrador",PermisosJson="[]",DebeCambiarPassword=true}; var hasher=scope.ServiceProvider.GetRequiredService<Microsoft.AspNetCore.Identity.IPasswordHasher<Usuario>>(); admin.PasswordHash=hasher.HashPassword(admin,"Admin123!"); db.Usuarios.Add(admin); }
+        if (!await db.AlicuotasIva.AnyAsync()) db.AlicuotasIva.AddRange(new AlicuotaIva { Nombre = "IVA 21%", Porcentaje = 21 }, new AlicuotaIva { Nombre = "IVA 10,5%", Porcentaje = 10.5m }, new AlicuotaIva { Nombre = "Exento", Porcentaje = 0 });
+        if (!await db.TiposCesped.AnyAsync()) db.TiposCesped.AddRange(new TipoCesped { Nombre = "Decorativo 20 mm" }, new TipoCesped { Nombre = "Premium 35 mm" }, new TipoCesped { Nombre = "Deportivo 50 mm" });
+        if (!await db.Configuraciones.AnyAsync()) db.Configuraciones.Add(new Configuracion { Clave = "UmbralMuyRentable", ValorDecimal = .30m });
+        if (!await db.Usuarios.AnyAsync()) { var admin = new Usuario { Nombre = "Administrador", NombreUsuario = "admin", Rol = "Administrador", PermisosJson = "[]", DebeCambiarPassword = true }; var hasher = scope.ServiceProvider.GetRequiredService<Microsoft.AspNetCore.Identity.IPasswordHasher<Usuario>>(); admin.PasswordHash = hasher.HashPassword(admin, "Admin123!"); db.Usuarios.Add(admin); }
         await db.SaveChangesAsync();
         var usuarios = await db.Usuarios.ToListAsync();
         var permisosActualizados = false;

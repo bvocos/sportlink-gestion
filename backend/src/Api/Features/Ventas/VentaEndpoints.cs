@@ -39,9 +39,9 @@ public sealed class RegistrarVentaValidator : AbstractValidator<RegistrarVentaCo
         RuleFor(x => x.PrecioUnitario).GreaterThan(0);
         RuleFor(x => x.PrecioTotal).GreaterThan(0)
             .WithMessage("El importe final de la venta debe ser mayor que cero.");
-        RuleFor(x => x.MontoEntrega).GreaterThan(0)
+        RuleFor(x => x.MontoEntrega).GreaterThanOrEqualTo(0)
             .LessThanOrEqualTo(x => x.PrecioTotal)
-            .WithMessage("La entrega debe ser mayor que cero y no puede superar el total de la venta.");
+            .WithMessage("La entrega no puede ser negativa ni superar el total de la venta.");
         RuleFor(x => x.MontoEntrega).LessThan(x => x.PrecioTotal)
             .When(x => x.FormaPago == FormaPago.Cuotas)
             .WithMessage("En una venta en cuotas la entrega debe ser menor al total para que exista saldo a financiar.");
@@ -552,14 +552,18 @@ public static class VentaEndpoints
             }
         }
 
-        await using var transaction = await db.Database.BeginTransactionAsync(ct);
-        venta.FechaVenta = request.FechaVenta;
-        if (colorChanged) venta.Color = request.Color;
-        var installments = await db.Cuotas.Where(x => x.VentaId == venta.Id).ToListAsync(ct);
-        foreach (var installment in installments)
-            installment.FechaVencimiento = request.FechaVenta.AddMonths(installment.Numero);
-        await db.SaveChangesAsync(ct);
-        await transaction.CommitAsync(ct);
+        var strategy = db.Database.CreateExecutionStrategy();
+        await strategy.ExecuteAsync(async () =>
+        {
+            await using var transaction = await db.Database.BeginTransactionAsync(ct);
+            venta.FechaVenta = request.FechaVenta;
+            if (colorChanged) venta.Color = request.Color;
+            var installments = await db.Cuotas.Where(x => x.VentaId == venta.Id).ToListAsync(ct);
+            foreach (var installment in installments)
+                installment.FechaVencimiento = request.FechaVenta.AddMonths(installment.Numero);
+            await db.SaveChangesAsync(ct);
+            await transaction.CommitAsync(ct);
+        });
 
         var client = await db.Clientes.AsNoTracking().SingleAsync(x => x.Id == venta.ClienteId, ct);
         return Results.Ok(VentaService.ToDto(venta, client, product));
