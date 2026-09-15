@@ -19,8 +19,10 @@ const session: Session = {
   nombre: "Administrador",
   usuario: "admin",
   rol: "Administrador",
-  permisos: ["dashboard"],
+  permisos: { dashboard: { ver: true } },
   debeCambiarPassword: false,
+  sucursalId: null,
+  sucursalNombre: null,
 };
 
 describe("auth.login", () => {

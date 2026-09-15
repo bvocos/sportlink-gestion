@@ -1,6 +1,7 @@
 export type AppIconClass = string
 
 export const faBars = 'fa-solid fa-bars'
+export const faBoxes = 'fa-solid fa-boxes-stacked'
 export const faCalendarDays = 'fa-solid fa-calendar-days'
 export const faCartShopping = 'fa-solid fa-cart-shopping'
 export const faChartColumn = 'fa-solid fa-chart-column'

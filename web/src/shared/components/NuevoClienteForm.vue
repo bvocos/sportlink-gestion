@@ -2,7 +2,6 @@
 import { onMounted, ref } from 'vue'
 import AppButton from '@/shared/components/AppButton.vue'
 import AppDatePicker from '@/shared/components/AppDatePicker.vue'
-import Dialog from 'primevue/dialog'
 import InputText from 'primevue/inputtext'
 import Message from 'primevue/message'
 import Select from 'primevue/select'
@@ -13,9 +12,15 @@ import GeografiaAutocomplete from './GeografiaAutocomplete.vue'
 
 interface GeoOption { id: string; nombre: string }
 
-const emit = defineEmits<{ (e: 'close'): void; (e: 'created', cliente: any): void }>()
+defineProps<{
+  hint?: string
+}>()
 
-const show = ref(true)
+const emit = defineEmits<{
+  cancel: []
+  created: [cliente: any]
+}>()
+
 const provincias = ref<GeoOption[]>([])
 const localidades = ref<GeoOption[]>([])
 const geoAvailable = ref(false)
@@ -25,13 +30,6 @@ const saving = ref(false)
 const error = ref('')
 const geoNotice = ref('')
 const tipos = ['Particular', 'Club', 'Empresa', 'Constructor', 'Revendedor', 'Otro']
-
-const fields = [
-  { key: 'nombre', label: 'Nombre', type: 'text' },
-  { key: 'apellido', label: 'Apellido', type: 'text' },
-  { key: 'telefono', label: 'Teléfono', type: 'tel' },
-  { key: 'correo', label: 'Correo electrónico', type: 'email' },
-] as const
 
 const form = ref({
   nombre: '', apellido: '', telefono: '', correo: '', localidad: '', provincia: '',
@@ -50,6 +48,7 @@ async function loadProvincias() {
     geoNotice.value = 'Georef no está disponible. Podés cargar la ubicación manualmente.'
   }
 }
+
 async function loadLocalidades() {
   localidades.value = []
   if (!form.value.provinciaId) return
@@ -63,6 +62,7 @@ async function loadLocalidades() {
     geoLoading.value = false
   }
 }
+
 async function provinceChanged() {
   const option = provincias.value.find(x => x.id === form.value.provinciaId)
   form.value.provincia = option?.nombre ?? ''
@@ -70,7 +70,9 @@ async function provinceChanged() {
   form.value.localidadId = ''
   await loadLocalidades()
 }
+
 function localitySelected(option: GeoOption) { form.value.localidad = option.nombre }
+
 function useManual() {
   geoMode.value = false
   form.value.provinciaId = ''
@@ -78,6 +80,7 @@ function useManual() {
   localidades.value = []
   geoNotice.value = 'Ubicación en modo manual: se guardarán los nombres sin códigos oficiales.'
 }
+
 function enableOfficial() {
   geoMode.value = true
   geoNotice.value = ''
@@ -87,14 +90,12 @@ function enableOfficial() {
   form.value.localidadId = ''
   localidades.value = []
 }
+
 function message(e: any) {
   const first = Object.values(e.response?.data?.errors ?? {}).flat()[0]
   return first ? String(first) : apiErrorMessage(e, 'No se pudo guardar el cliente.')
 }
-function close() {
-  show.value = false
-  emit('close')
-}
+
 async function save() {
   error.value = ''
   if (!/^\+?[0-9 ()-]{6,30}$/.test(form.value.telefono.trim())) {
@@ -115,41 +116,39 @@ async function save() {
     saving.value = false
   }
 }
+
 onMounted(loadProvincias)
 </script>
 
 <template>
-  <Dialog
-    v-model:visible="show"
-    modal
-    header="Nuevo cliente"
-    :style="{ width: 'min(680px, 96vw)' }"
-    @hide="close"
-  >
-    <p class="mt-0 text-color-secondary">Se guardará y quedará seleccionado en esta venta.</p>
+  <div class="nuevo-cliente-form">
+    <p v-if="hint" class="nuevo-cliente-form-hint text-color-secondary m-0 mb-3">{{ hint }}</p>
+
     <form @submit.prevent="save">
-      <Message v-if="error" severity="error" class="mb-3" :closable="false">{{ error }}</Message>
+      <Message v-if="error" severity="error" class="inline-form-error mb-3" :closable="false">{{ error }}</Message>
       <Message v-if="geoNotice" severity="info" class="mb-3" :closable="false">{{ geoNotice }}</Message>
 
-      <div class="grid formgrid p-fluid">
-        <div v-for="field in fields" :key="field.key" class="field col-12 md:col-6">
-          <label :for="field.key">{{ field.label }}</label>
-          <InputText
-            :id="field.key"
-            v-model="(form as any)[field.key]"
-            :type="field.type"
-            :required="field.key !== 'correo'"
-            :maxlength="field.key === 'telefono' ? 30 : field.key === 'correo' ? 200 : 100"
-          />
+      <div class="p-fluid cliente-form-pairs">
+        <div class="field">
+          <label for="nuevo-cliente-nombre">Nombre</label>
+          <InputText id="nuevo-cliente-nombre" v-model="form.nombre" size="small" maxlength="100" required />
+        </div>
+        <div class="field">
+          <label for="nuevo-cliente-apellido">Apellido</label>
+          <InputText id="nuevo-cliente-apellido" v-model="form.apellido" size="small" maxlength="100" required />
+        </div>
+        <div class="field">
+          <label for="nuevo-cliente-telefono">Teléfono</label>
+          <InputText id="nuevo-cliente-telefono" v-model="form.telefono" type="tel" size="small" maxlength="30" required />
+        </div>
+        <div class="field">
+          <label for="nuevo-cliente-correo">Correo electrónico</label>
+          <InputText id="nuevo-cliente-correo" v-model="form.correo" type="email" size="small" maxlength="200" />
         </div>
 
         <template v-if="geoMode">
-          <div class="col-12"><Tag value="Ubicación oficial de Argentina" severity="success" /></div>
-          <div class="field col-12 md:col-6">
-            <label>País</label>
-            <InputText model-value="Argentina" readonly />
-          </div>
-          <div class="field col-12 md:col-6">
+          <div class="cliente-form-banner"><Tag value="Ubicación oficial de Argentina" severity="success" /></div>
+          <div class="field">
             <label>Provincia</label>
             <Select
               v-model="form.provinciaId"
@@ -157,11 +156,12 @@ onMounted(loadProvincias)
               option-label="nombre"
               option-value="id"
               placeholder="Seleccionar provincia"
+              size="small"
               required
               @change="provinceChanged"
             />
           </div>
-          <div class="field col-12 md:col-6">
+          <div class="field">
             <label>Localidad</label>
             <GeografiaAutocomplete
               v-model="form.localidadId"
@@ -171,44 +171,47 @@ onMounted(loadProvincias)
               @select="localitySelected"
             />
           </div>
-          <div class="field col-12 md:col-6 flex align-items-end">
-            <AppButton type="button" label="Cargar manualmente" severity="secondary" @click="useManual" />
+          <div class="cliente-form-action">
+            <AppButton type="button" label="Cargar manualmente" severity="secondary" size="small" @click="useManual" />
           </div>
         </template>
 
         <template v-else>
-          <div class="col-12"><Tag value="Modo manual: la ubicación se guardará sin códigos oficiales." severity="warn" /></div>
-          <div class="field col-12 md:col-6">
+          <div class="cliente-form-banner"><Tag value="Modo manual: la ubicación se guardará sin códigos oficiales." severity="warn" /></div>
+          <div class="field">
             <label>Provincia</label>
-            <InputText v-model="form.provincia" maxlength="100" required />
+            <InputText v-model="form.provincia" maxlength="100" size="small" required />
           </div>
-          <div class="field col-12 md:col-6">
+          <div class="field">
             <label>Localidad</label>
-            <InputText v-model="form.localidad" maxlength="100" required />
+            <InputText v-model="form.localidad" maxlength="100" size="small" required />
           </div>
-          <div v-if="geoAvailable" class="col-12">
-            <AppButton type="button" label="Usar ubicaciones oficiales de Argentina" severity="secondary" @click="enableOfficial" />
+          <div v-if="geoAvailable" class="cliente-form-action">
+            <AppButton type="button" label="Usar ubicaciones oficiales de Argentina" severity="secondary" size="small" @click="enableOfficial" />
           </div>
         </template>
 
-        <div class="field col-12 md:col-6">
+        <div class="field">
           <label>Tipo</label>
-          <Select v-model="form.tipo" :options="tipos" />
+          <Select v-model="form.tipo" :options="tipos" size="small" />
         </div>
-        <div class="field col-12 md:col-6">
+        <div class="field">
           <label>Primer contacto</label>
           <AppDatePicker v-model="form.fechaPrimerContacto" required />
         </div>
-        <div class="field col-12">
+        <div class="field field-full">
           <label>Observaciones</label>
           <Textarea v-model="form.observaciones" maxlength="1000" rows="3" auto-resize />
         </div>
       </div>
 
-      <div class="flex justify-content-end gap-2 mt-4">
-        <AppButton type="button" label="Cancelar" severity="secondary" @click="close" />
-        <AppButton type="submit" :label="saving ? 'Guardando…' : 'Guardar cliente'" :loading="saving" />
+      <div class="inline-form-footer">
+        <small class="inline-form-note text-color-secondary">Los datos quedan disponibles para ventas y presupuestos.</small>
+        <div class="flex gap-2">
+          <AppButton type="button" label="Cancelar" severity="secondary" size="small" @click="emit('cancel')" />
+          <AppButton type="submit" :label="saving ? 'Guardando…' : 'Guardar cliente'" :loading="saving" size="small" />
+        </div>
       </div>
     </form>
-  </Dialog>
+  </div>
 </template>

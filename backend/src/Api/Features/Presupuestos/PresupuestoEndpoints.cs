@@ -1,4 +1,5 @@
 using Api.Shared.Database;
+using Api.Features.Auth;
 using Microsoft.EntityFrameworkCore;
 using QuestPDF.Fluent;
 using QuestPDF.Helpers;
@@ -16,9 +17,9 @@ public static class PresupuestoEndpoints
     public static void MapPresupuestoEndpoints(this IEndpointRouteBuilder app)
     {
         QuestPDF.Settings.License = LicenseType.Evaluation;
-        var g = app.MapGroup("/api/presupuestos").WithTags("Presupuestos").RequireAuthorization("presupuestos");
-        g.MapGet("/", List); g.MapGet("/filtros", Filters); g.MapGet("/{id:guid}", Get); g.MapPost("/", Create); g.MapPut("/{id:guid}", Update);
-        g.MapDelete("/{id:guid}", Delete); g.MapGet("/{id:guid}/pdf", Pdf);
+        var g = app.MapGroup("/api/presupuestos").WithTags("Presupuestos");
+        g.MapGet("/", List).RequirePermiso("presupuestos", "ver"); g.MapGet("/filtros", Filters).RequirePermiso("presupuestos", "ver"); g.MapGet("/{id:guid}", Get).RequirePermiso("presupuestos", "ver"); g.MapPost("/", Create).RequirePermiso("presupuestos", "crear"); g.MapPut("/{id:guid}", Update).RequirePermiso("presupuestos", "editar");
+        g.MapDelete("/{id:guid}", Delete).RequirePermiso("presupuestos", "eliminar"); g.MapGet("/{id:guid}/pdf", Pdf).RequirePermiso("presupuestos", "ver");
     }
 
     private static IQueryable<Presupuesto> Query(AppDbContext db) => db.Presupuestos.AsNoTracking().Include(x => x.Cliente).Include(x => x.Lineas);

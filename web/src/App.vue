@@ -40,6 +40,8 @@ registerToastHandler((options) => toast.add(options))
 type NavItem = { to: string; label: string; icon: AppIconClass; permission?: string; admin?: boolean }
 type NavGroup = { id: string; label: string; items: NavItem[] }
 
+const faStock: AppIconClass = 'fa-solid fa-boxes-stacked'
+
 const open = ref(false)
 const collapsed = ref(localStorage.getItem('sidebar-collapsed') === 'true')
 const mobile = ref(false)
@@ -54,6 +56,7 @@ const allGroups: NavGroup[] = [
     items: [
       { to: '/', label: 'Inicio', icon: faHouse, permission: 'dashboard' },
       { to: '/ventas', label: 'Ventas', icon: faCartShopping, permission: 'ventas' },
+      { to: '/stock', label: 'Stock', icon: faStock, permission: 'stock' },
       { to: '/presupuestos', label: 'Presupuestos', icon: faFileLines, permission: 'presupuestos' },
       { to: '/entregas', label: 'Entregas', icon: faTruck, permission: 'entregas' },
       { to: '/clientes', label: 'Clientes', icon: faUsers, permission: 'clientes' },

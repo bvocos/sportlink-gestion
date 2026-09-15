@@ -115,6 +115,7 @@ function edit(x: any) {
     precioFinanciadoM2: x.precioFinanciadoM2 ?? x.precioVentaM2,
     costoM2: x.costoM2,
     colores: [...(x.colores ?? [])],
+    controlPorLotes: Boolean(x.controlPorLotes),
     activo: x.activo,
   }
   error.value = ''
@@ -174,6 +175,7 @@ async function toggle(x: any) {
     precioFinanciadoM2: x.precioFinanciadoM2,
     costoM2: x.costoM2,
     colores: x.colores ?? [],
+    controlPorLotes: Boolean(x.controlPorLotes),
     activo: !x.activo,
   })
   await load()
