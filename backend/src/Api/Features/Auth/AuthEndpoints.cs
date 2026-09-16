@@ -46,10 +46,47 @@ public static class AuthEndpoints
         debeCambiarPassword = user.HasClaim("cambiar_password", "true")
     };
 
-    private static ClaimsPrincipal BuildPrincipal(Usuario user)
+    internal static string[] ReadPermissions(Usuario user, ILogger logger)
+    {
+        if (string.IsNullOrWhiteSpace(user.PermisosJson)) return [];
+
+        try
+        {
+            return JsonSerializer.Deserialize<string[]>(user.PermisosJson) ?? [];
+        }
+        catch (JsonException)
+        {
+            try
+            {
+                using var document = JsonDocument.Parse(user.PermisosJson);
+                if (document.RootElement.ValueKind == JsonValueKind.Object)
+                {
+                    return document.RootElement.EnumerateObject()
+                        .Where(permission =>
+                            permission.Value.ValueKind == JsonValueKind.True ||
+                            permission.Value.ValueKind == JsonValueKind.Object &&
+                            permission.Value.TryGetProperty("ver", out var canView) &&
+                            canView.ValueKind == JsonValueKind.True)
+                        .Select(permission => permission.Name)
+                        .ToArray();
+                }
+            }
+            catch (JsonException)
+            {
+                // La advertencia común de abajo identifica el registro para corregirlo manualmente.
+            }
+
+            logger.LogWarning(
+                "El usuario {UsuarioId} tiene PermisosJson en un formato no reconocido. Se usarán permisos vacíos.",
+                user.Id);
+            return [];
+        }
+    }
+
+    private static ClaimsPrincipal BuildPrincipal(Usuario user, ILogger logger)
     {
         var permisos = user.Rol == "Administrador" ? Permissions.All :
-            JsonSerializer.Deserialize<string[]>(user.PermisosJson) ?? [];
+            ReadPermissions(user, logger);
         var claims = new List<Claim>
         {
             new(ClaimTypes.NameIdentifier, user.Id.ToString()),
@@ -67,7 +104,7 @@ public static class AuthEndpoints
             new AuthenticationProperties { IsPersistent = true, ExpiresUtc = DateTimeOffset.UtcNow.AddHours(12) });
 
     private static async Task<IResult> Login(LoginRequest request, AppDbContext db,
-        IPasswordHasher<Usuario> hasher, HttpContext context, CancellationToken ct)
+        IPasswordHasher<Usuario> hasher, ILoggerFactory loggerFactory, HttpContext context, CancellationToken ct)
     {
         var name = request.Usuario.Trim();
         var user = await db.Usuarios.SingleOrDefaultAsync(x => x.NombreUsuario == name && x.Activo, ct);
@@ -95,13 +132,14 @@ public static class AuthEndpoints
         user.IntentosFallidos = 0;
         user.BloqueadoHasta = null;
         await db.SaveChangesAsync(ct);
-        var principal = BuildPrincipal(user);
+        var principal = BuildPrincipal(user, loggerFactory.CreateLogger("Api.Features.Auth.Permissions"));
         await SignIn(context, principal);
         return Results.Ok(Current(principal));
     }
 
     private static async Task<IResult> CambiarPassword(CambiarPasswordRequest request, ClaimsPrincipal current,
-        AppDbContext db, IPasswordHasher<Usuario> hasher, HttpContext context, CancellationToken ct)
+        AppDbContext db, IPasswordHasher<Usuario> hasher, ILoggerFactory loggerFactory, HttpContext context,
+        CancellationToken ct)
     {
         if (!Guid.TryParse(current.FindFirstValue(ClaimTypes.NameIdentifier), out var id))
             return Results.Unauthorized();
@@ -121,18 +159,19 @@ public static class AuthEndpoints
         user.IntentosFallidos = 0;
         user.BloqueadoHasta = null;
         await db.SaveChangesAsync(ct);
-        var principal = BuildPrincipal(user);
+        var principal = BuildPrincipal(user, loggerFactory.CreateLogger("Api.Features.Auth.Permissions"));
         await SignIn(context, principal);
         return Results.Ok(Current(principal));
     }
 
-    private static async Task<IResult> List(AppDbContext db, CancellationToken ct)
+    private static async Task<IResult> List(AppDbContext db, ILoggerFactory loggerFactory, CancellationToken ct)
     {
         var users = await db.Usuarios.AsNoTracking().OrderBy(x => x.Nombre).ToListAsync(ct);
+        var logger = loggerFactory.CreateLogger("Api.Features.Auth.Permissions");
         return Results.Ok(users.Select(x => new
         {
             x.Id, x.Nombre, x.NombreUsuario, x.Rol,
-            permisos = JsonSerializer.Deserialize<string[]>(x.PermisosJson) ?? [],
+            permisos = ReadPermissions(x, logger),
             x.Activo, x.DebeCambiarPassword
         }));
     }
