@@ -45,9 +45,13 @@ public sealed class VentaEndpointIntegrationTests
             Guid clienteId;
             Guid tipoCespedId;
             Guid alicuotaIvaId;
+            Guid sucursalId;
+            Guid depositoId;
             using (var scope = factory.Services.CreateScope())
             {
                 var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                var sucursal = await db.Sucursales.Include(x => x.DepositoPropio)
+                    .SingleAsync(x => x.Nombre == "San Francisco" && x.Activo);
                 var cliente = new Cliente
                 {
                     Nombre = "Cliente", Apellido = "Integracion", Telefono = "3515555555",
@@ -64,9 +68,21 @@ public sealed class VentaEndpointIntegrationTests
                 db.Clientes.Add(cliente);
                 db.TiposCesped.Add(tipo);
                 await db.SaveChangesAsync();
+                db.MovimientosStock.Add(new MovimientoStock
+                {
+                    DepositoId = sucursal.DepositoPropioId,
+                    TipoCespedId = tipo.Id,
+                    Tipo = TipoMovimientoStock.Ingreso,
+                    CantidadM2 = 100m,
+                    Fecha = DateTime.UtcNow,
+                    Usuario = "integracion-test"
+                });
+                await db.SaveChangesAsync();
                 clienteId = cliente.Id;
                 tipoCespedId = tipo.Id;
                 alicuotaIvaId = alicuota.Id;
+                sucursalId = sucursal.Id;
+                depositoId = sucursal.DepositoPropioId;
             }
 
             var login = await client.PostAsJsonAsync("/api/auth/login", new { usuario = "admin", password = "Admin123!" });
@@ -90,6 +106,8 @@ public sealed class VentaEndpointIntegrationTests
                 costoEnvio = 0m,
                 otrosCostos = 0m,
                 alicuotaIvaId,
+                sucursalId,
+                depositoId,
                 color = (string?)null,
                 lineas = new[]
                 {
