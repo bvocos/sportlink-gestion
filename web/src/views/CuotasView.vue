@@ -13,6 +13,7 @@ import Panel from "primevue/panel";
 import Select from "primevue/select";
 import Tag from "primevue/tag";
 import { http, apiErrorMessage } from "@/shared/api/httpClient";
+import { auth } from "@/auth";
 import { formatCurrency as money } from "@/shared/formatters";
 import { downloadCsv } from "@/shared/csv";
 import { confirmAction, notify } from "@/shared/uiFeedback";

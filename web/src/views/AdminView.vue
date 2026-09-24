@@ -39,6 +39,7 @@ const blank = () => ({
   precioFinanciadoM2: 0,
   costoM2: 0,
   colores: [] as string[],
+  controlPorLotes: false,
   activo: true,
 })
 const form = ref(blank())
