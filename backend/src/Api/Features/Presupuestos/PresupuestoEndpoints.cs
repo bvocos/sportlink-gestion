@@ -15,7 +15,6 @@ public static class PresupuestoEndpoints
 {
     public static void MapPresupuestoEndpoints(this IEndpointRouteBuilder app)
     {
-        QuestPDF.Settings.License = LicenseType.Evaluation;
         var g = app.MapGroup("/api/presupuestos").WithTags("Presupuestos").RequireAuthorization("presupuestos");
         g.MapGet("/", List); g.MapGet("/filtros", Filters); g.MapGet("/{id:guid}", Get); g.MapPost("/", Create); g.MapPut("/{id:guid}", Update);
         g.MapDelete("/{id:guid}", Delete); g.MapGet("/{id:guid}/pdf", Pdf);
