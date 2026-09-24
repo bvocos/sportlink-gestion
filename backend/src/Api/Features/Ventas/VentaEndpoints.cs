@@ -87,25 +87,29 @@ public sealed class RegistrarVentaHandler(AppDbContext db, IHttpContextAccessor 
         request = await VentaService.NormalizeLines(db, request, ct);
         var (cliente, tipo, alicuota) = await VentaService.GetReferences(db, request, ct);
         request = VentaService.NormalizeColor(request, tipo);
-        await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
+        var strategy = db.Database.CreateExecutionStrategy();
         var venta = new Venta();
-        request = await VentaService.ResolveControlledLots(db, request, null, venta.Id, ct);
-        VentaService.Apply(venta, request, alicuota.Porcentaje);
-        var stockLines = VentaService.StockLines(request);
-        await VentaService.ValidateStock(db, request.DepositoId, stockLines, ct);
-        db.Ventas.Add(venta);
-        VentaService.CreateInstallments(venta, request);
-        db.MovimientosStock.AddRange(VentaService.CreateStockMovements(venta, stockLines,
-            currentUser.Identity?.Name ?? currentUser.FindFirstValue("usuario") ?? "sistema"));
-        await db.SaveChangesAsync(ct); // La venta debe existir antes de referenciarla desde Caja.
-
-        if (request.MontoEntrega > 0)
+        await strategy.ExecuteAsync(async () =>
         {
-            db.MovimientosCaja.Add(VentaService.CreateCashMovement(venta));
-            await db.SaveChangesAsync(ct);
-        }
+            await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
+            request = await VentaService.ResolveControlledLots(db, request, null, venta.Id, ct);
+            VentaService.Apply(venta, request, alicuota.Porcentaje);
+            var stockLines = VentaService.StockLines(request);
+            await VentaService.ValidateStock(db, request.DepositoId, stockLines, ct);
+            db.Ventas.Add(venta);
+            VentaService.CreateInstallments(venta, request);
+            db.MovimientosStock.AddRange(VentaService.CreateStockMovements(venta, stockLines,
+                currentUser.Identity?.Name ?? currentUser.FindFirstValue("usuario") ?? "sistema"));
+            await db.SaveChangesAsync(ct); // La venta debe existir antes de referenciarla desde Caja.
 
-        await transaction.CommitAsync(ct);
+            if (request.MontoEntrega > 0)
+            {
+                db.MovimientosCaja.Add(VentaService.CreateCashMovement(venta));
+                await db.SaveChangesAsync(ct);
+            }
+
+            await transaction.CommitAsync(ct);
+        });
         return VentaService.ToDto(venta, cliente, tipo);
     }
 }
@@ -299,7 +303,7 @@ public static class VentaEndpoints
     public static void MapVentaEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/api/ventas").WithTags("Ventas");
-        group.MapPost("/", async (RegistrarVentaCommand command, ISender sender, CancellationToken ct) =>
+        group.MapPost("/", async (RegistrarVentaCommand command, ISender sender, ILogger<RegistrarVentaHandler> logger, CancellationToken ct) =>
         {
             try { return Results.Created("/api/ventas", await sender.Send(command, ct)); }
             catch (ValidationException exception)
@@ -320,6 +324,11 @@ public static class VentaEndpoints
             catch (VentaScopeException exception)
             {
                 return Results.ValidationProblem(new Dictionary<string, string[]> { ["sucursal"] = [exception.Message] });
+            }
+            catch (Exception exception)
+            {
+                logger.LogError(exception, "Unhandled exception in POST /api/ventas");
+                return Results.Problem(detail: exception.Message, title: exception.GetType().Name, statusCode: 500);
             }
         }).RequirePermiso("ventas", "crear");
         group.MapGet("/", List).RequirePermiso("ventas", "ver");
