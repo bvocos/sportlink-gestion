@@ -14,11 +14,11 @@ BEGIN
 END;
 
 IF NOT EXISTS (SELECT 1 FROM dbo.Depositos WHERE Nombre = N'San Francisco')
-    INSERT dbo.Depositos(Id, Nombre, Activo)
-    VALUES ('7a100000-0000-0000-0000-000000000001', N'San Francisco', 1);
+    INSERT dbo.Depositos(Id, Nombre, Activo, CreatedAt)
+    VALUES ('7a100000-0000-0000-0000-000000000001', N'San Francisco', 1, SYSDATETIMEOFFSET());
 IF NOT EXISTS (SELECT 1 FROM dbo.Depositos WHERE Nombre = N'Buenos Aires')
-    INSERT dbo.Depositos(Id, Nombre, Activo)
-    VALUES ('7a100000-0000-0000-0000-000000000002', N'Buenos Aires', 1);
+    INSERT dbo.Depositos(Id, Nombre, Activo, CreatedAt)
+    VALUES ('7a100000-0000-0000-0000-000000000002', N'Buenos Aires', 1, SYSDATETIMEOFFSET());
 
 IF OBJECT_ID(N'dbo.Sucursales', N'U') IS NULL
 BEGIN
@@ -38,12 +38,12 @@ BEGIN
 END;
 
 IF NOT EXISTS (SELECT 1 FROM dbo.Sucursales WHERE Nombre = N'San Francisco')
-    INSERT dbo.Sucursales(Id, Nombre, DepositoPropioId, PuntoVentaAfip, Activo)
-    SELECT '7b100000-0000-0000-0000-000000000001', N'San Francisco', Id, NULL, 1
+    INSERT dbo.Sucursales(Id, Nombre, DepositoPropioId, PuntoVentaAfip, Activo, CreatedAt)
+    SELECT '7b100000-0000-0000-0000-000000000001', N'San Francisco', Id, NULL, 1, SYSDATETIMEOFFSET()
     FROM dbo.Depositos WHERE Nombre = N'San Francisco';
 IF NOT EXISTS (SELECT 1 FROM dbo.Sucursales WHERE Nombre = N'Buenos Aires')
-    INSERT dbo.Sucursales(Id, Nombre, DepositoPropioId, PuntoVentaAfip, Activo)
-    SELECT '7b100000-0000-0000-0000-000000000002', N'Buenos Aires', Id, NULL, 1
+    INSERT dbo.Sucursales(Id, Nombre, DepositoPropioId, PuntoVentaAfip, Activo, CreatedAt)
+    SELECT '7b100000-0000-0000-0000-000000000002', N'Buenos Aires', Id, NULL, 1, SYSDATETIMEOFFSET()
     FROM dbo.Depositos WHERE Nombre = N'Buenos Aires';
 
 IF COL_LENGTH(N'dbo.Usuarios', N'SucursalId') IS NULL

@@ -36,7 +36,7 @@ public sealed class VentaEndpointIntegrationTests
                 .UseSqlServer(databaseConnection, sql => sql.EnableRetryOnFailure())
                 .Options;
             await using (var schema = new AppDbContext(options))
-                await schema.Database.EnsureCreatedAsync();
+                await schema.Database.MigrateAsync();
 
             await using var factory = new VentaApiFactory(databaseConnection);
             using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
