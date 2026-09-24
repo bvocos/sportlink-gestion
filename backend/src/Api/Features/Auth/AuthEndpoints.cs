@@ -140,7 +140,7 @@ public static class AuthEndpoints
         return Results.Ok(users.Select(x => new
         {
             x.Id, x.Nombre, x.NombreUsuario, x.Rol,
-            permisos = PermisosMatriz.DesdeJson(x.PermisosJson),
+            permisos = PermisosMatriz.ToDictionary(PermisosMatriz.DesdeJson(x.PermisosJson)),
             x.Activo, x.DebeCambiarPassword, x.SucursalId,
             sucursalNombre = x.Sucursal != null ? x.Sucursal.Nombre : null
         }));

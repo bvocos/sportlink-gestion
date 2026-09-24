@@ -129,6 +129,18 @@ function hasModuleAccess(moduleKey: string) {
   return permissionValue(moduleKey, 'ver')
 }
 
+function buildPermisosPayload(source: PermissionForm) {
+  const permisos: Record<string, unknown> = {}
+  for (const module of permissionModules) {
+    const actions = source[module.key]
+    if (actions && typeof actions === 'object' && !Array.isArray(actions))
+      permisos[module.key] = { ...(actions as Record<string, boolean>) }
+  }
+  permisos['ventas.verMontos'] = source['ventas.verMontos'] === true
+  permisos['cuotas.verMontos'] = source['cuotas.verMontos'] === true
+  return permisos
+}
+
 const items = ref<any[]>([])
 const sucursales = ref<any[]>([])
 const showForm = ref(false)
@@ -221,7 +233,9 @@ async function save() {
   error.value = ''
   try {
     const { repetirPassword: _, ...payload } = form.value
+    payload.permisos = buildPermisosPayload(form.value.permisos) as PermissionForm
     if (payload.rol === 'Administrador') payload.sucursalId = null
+    if (!payload.password) delete (payload as { password?: string }).password
     if (editing.value) await http.put(`/usuarios/${editing.value}`, payload)
     else await http.post('/usuarios', payload)
     cancelForm()

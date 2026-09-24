@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using System.Text.Json;
 using Api.Features.Auth;
 using Microsoft.AspNetCore.Authorization;
 using Api.Features.Ventas;
@@ -8,6 +9,22 @@ namespace Api.Tests;
 
 public sealed class PermissionMatrixTests
 {
+    [Fact]
+    public void ListResponse_Permisos_SerializesWithoutError()
+    {
+        var matrix = PermisosMatriz.DesdeJson("[\"ventas\",\"clientes\"]");
+        var json = JsonSerializer.Serialize(new { permisos = PermisosMatriz.ToDictionary(matrix) });
+        Assert.Contains("\"ventas\"", json, StringComparison.Ordinal);
+        Assert.Contains("ventas.verMontos", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DesdeJson_InvalidPayload_ReturnsEmptyMatrix()
+    {
+        var matrix = PermisosMatriz.DesdeJson("{\"ventas\":true}");
+        Assert.False(matrix.Puede("ventas", "ver"));
+    }
+
     [Fact]
     public void LegacyVentas_GetsEverySalesActionAndAmounts()
     {

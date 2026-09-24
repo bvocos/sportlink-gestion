@@ -70,10 +70,27 @@ public sealed class PermisosMatriz
     public static PermisosMatriz DesdeJson(string? json)
     {
         if (string.IsNullOrWhiteSpace(json)) return new();
-        using var document = JsonDocument.Parse(json);
-        if (document.RootElement.ValueKind == JsonValueKind.Array)
-            return DesdeModulosLegacy(document.RootElement.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.String).Select(x => x.GetString()!));
-        return JsonSerializer.Deserialize<PermisosMatriz>(json) ?? new();
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            if (document.RootElement.ValueKind == JsonValueKind.Array)
+                return DesdeModulosLegacy(document.RootElement.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.String).Select(x => x.GetString()!));
+            return JsonSerializer.Deserialize<PermisosMatriz>(json) ?? new();
+        }
+        catch (JsonException)
+        {
+            return new();
+        }
+    }
+
+    public static Dictionary<string, object> ToDictionary(PermisosMatriz permisos)
+    {
+        var result = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (modulo, acciones) in permisos.Modulos)
+            result[modulo] = acciones;
+        foreach (var (modulo, permitido) in permisos.Montos)
+            result[$"{modulo}.verMontos"] = permitido;
+        return result;
     }
 
     public static PermisosMatriz DesdeClaims(ClaimsPrincipal user)
