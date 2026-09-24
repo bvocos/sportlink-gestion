@@ -138,9 +138,10 @@ public static class AuthEndpoints
         return Results.Ok(Current(principal));
     }
 
-    private static async Task<IResult> List(AppDbContext db, CancellationToken ct)
+    private static async Task<IResult> List(AppDbContext db, ILoggerFactory loggerFactory, CancellationToken ct)
     {
         var users = await db.Usuarios.AsNoTracking().OrderBy(x => x.Nombre).ToListAsync(ct);
+        var logger = loggerFactory.CreateLogger("Api.Features.Auth.Permissions");
         return Results.Ok(users.Select(x => new
         {
             x.Id, x.Nombre, x.NombreUsuario, x.Rol,
@@ -156,7 +157,7 @@ public static class AuthEndpoints
         if (!request.SucursalId.HasValue)
             return new() { ["sucursalId"] = ["La sucursal es obligatoria para usuarios que no son administradores."] };
         if (!await db.Sucursales.AnyAsync(x => x.Id == request.SucursalId.Value && x.Activo, ct))
-            return new() { ["sucursalId"] = ["Seleccion? una sucursal activa."] };
+            return new() { ["sucursalId"] = ["Seleccioná una sucursal activa."] };
         return null;
     }
 

@@ -13,7 +13,7 @@ import Select from "primevue/select";
 import Tag from "primevue/tag";
 import Textarea from "primevue/textarea";
 import AppIcon from "@/shared/components/AppIcon.vue";
-import { faPen, faTrash } from "@/shared/icons";
+import { faPen, faTrash, faTruck } from "@/shared/icons";
 import { http, apiErrorMessage } from "@/shared/api/httpClient";
 import ClienteAutocomplete from "@/shared/components/ClienteAutocomplete.vue";
 import { formatCurrency as money } from "@/shared/formatters";
@@ -357,10 +357,15 @@ onMounted(load);
             <div class="flex gap-1 flex-wrap">
               <AppButton
                 v-if="!['Entregada', 'Cancelada'].includes(v.estado)"
-                label="Entregar"
-                size="small"
+                text
+                rounded
+                severity="success"
+                tooltip="Entrega"
+                aria-label="Entrega"
                 @click="deliver(v.id)"
-              />
+              >
+                <AppIcon :icon="faTruck" />
+              </AppButton>
               <RouterLink :to="`/ventas/${v.id}/editar`">
                 <AppButton text rounded severity="secondary" aria-label="Editar venta">
                   <AppIcon :icon="faPen" />

@@ -28,9 +28,11 @@ const pendientes = ref<any[]>([]),
   editingDueDate = ref<any | null>(null),
   dueDate = ref(""),
   dueDateError = ref(""),
-  totalPendiente = ref(0),
+  totalPendiente = ref<number | null>(0),
   cantidadPendiente = ref(0),
   resumenLoading = ref(false);
+const sucursalFiltro = ref("");
+const isAdmin = computed(() => auth.state.user?.rol === "Administrador");
 let resumenTimer: ReturnType<typeof setTimeout> | undefined;
 let resumenRequest = 0;
 const payment = ref({
@@ -65,8 +67,8 @@ const visible = computed(() => {
 
 async function load() {
   const [p, a] = await Promise.all([
-    http.get("/cuotas/pendientes"),
-    http.get("/cuotas/abonadas"),
+    http.get("/cuotas/pendientes", { params: { sucursalId: sucursalFiltro.value || undefined } }),
+    http.get("/cuotas/abonadas", { params: { sucursalId: sucursalFiltro.value || undefined } }),
   ]);
   pendientes.value = p.data;
   abonadas.value = a.data;
@@ -79,7 +81,7 @@ async function loadPendingSummary() {
   try {
     const r = await http.get("/cuotas/pendientes/resumen", { params: { buscar: searchQuery(clienteFiltro.value) ?? undefined } });
     if (request === resumenRequest) {
-      totalPendiente.value = Number(r.data.totalPendiente ?? 0);
+      totalPendiente.value = r.data.totalPendiente == null ? null : Number(r.data.totalPendiente);
       cantidadPendiente.value = Number(r.data.cantidad ?? 0);
     }
   } catch (e) {

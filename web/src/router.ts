@@ -9,6 +9,7 @@ const permissionRoutes: Record<string, string> = {
   clientes: '/clientes',
   cuotas: '/cuotas',
   caja: '/caja',
+  stock: '/stock',
   gastos: '/gastos',
   rentabilidad: '/rentabilidad',
   administracion: '/admin'
@@ -22,6 +23,7 @@ const routes = [
   { path: '/ventas', component: () => import('./views/VentasView.vue'), meta: { permission: 'ventas', title: 'Ventas' } },
   { path: '/ventas/nueva', component: () => import('./views/NuevaVentaView.vue'), meta: { permission: 'ventas', title: 'Nueva venta' } },
   { path: '/ventas/:id/editar', component: () => import('./views/NuevaVentaView.vue'), meta: { permission: 'ventas', title: 'Editar venta' } },
+  { path: '/stock', name: 'stock', component: () => import('./views/StockView.vue'), meta: { permission: 'stock', title: 'Stock' } },
   { path: '/presupuestos', component: () => import('./views/PresupuestosView.vue'), meta: { permission: 'presupuestos', title: 'Presupuestos' } },
   { path: '/presupuestos/nuevo', component: () => import('./views/NuevoPresupuestoView.vue'), meta: { permission: 'presupuestos', title: 'Nuevo presupuesto' } },
   { path: '/presupuestos/:id/editar', component: () => import('./views/NuevoPresupuestoView.vue'), meta: { permission: 'presupuestos', title: 'Editar presupuesto' } },
@@ -41,7 +43,7 @@ function landingPage() {
   if (!user) return '/login'
   if (user.debeCambiarPassword) return '/cambiar-password'
   if (user.rol === 'Administrador') return '/'
-  const permission = Object.keys(permissionRoutes).find(value => user.permisos.includes(value))
+  const permission = Object.keys(permissionRoutes).find(value => auth.can(value, 'ver'))
   return permission ? permissionRoutes[permission] : '/sin-acceso'
 }
 
@@ -62,7 +64,10 @@ router.beforeEach(async to => {
     return landingPage()
 
   const permission = to.meta.permission as string | undefined
-  if (permission && !auth.can(permission))
+  if (permission && !auth.can(permission, 'ver'))
+    return landingPage()
+  const action = to.meta.action as string | undefined
+  if (permission && action && !auth.can(permission, action))
     return landingPage()
   return true
 })

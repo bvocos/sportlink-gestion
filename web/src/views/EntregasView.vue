@@ -1,13 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import AppButton from '@/shared/components/AppButton.vue'
+import Column from 'primevue/column'
+import DataTable from 'primevue/datatable'
 import Message from 'primevue/message'
-import Panel from 'primevue/panel'
-import Skeleton from 'primevue/skeleton'
 import Tag from 'primevue/tag'
-import AppIcon from '@/shared/components/AppIcon.vue'
-import { faCalendarDays } from '@/shared/icons'
-import { http } from '@/shared/api/httpClient'
+import { http, apiErrorMessage } from '@/shared/api/httpClient'
+import { pluralize } from '@/shared/formatters'
 
 const items = ref<any[]>([])
 const loading = ref(false)
@@ -16,22 +15,50 @@ const loadError = ref('')
 async function load() {
   loading.value = true
   loadError.value = ''
-  try { items.value = (await http.get('/ventas/proximas-entregas')).data }
-  catch { loadError.value = 'No se pudieron cargar las próximas entregas.' }
-  finally { loading.value = false }
+  try {
+    items.value = (await http.get('/ventas/proximas-entregas')).data
+  } catch (e: any) {
+    loadError.value = apiErrorMessage(e, 'No se pudieron cargar las próximas entregas.')
+  } finally {
+    loading.value = false
+  }
 }
 
 onMounted(load)
-const totalM2 = computed(() => items.value.reduce((sum, x) => sum + x.cantidadM2, 0))
+
+const totalM2 = computed(() =>
+  items.value.reduce((sum, item) => sum + Number(item.cantidadM2 ?? 0), 0),
+)
+
 function timing(days: number) {
-  return days < 0 ? `Atrasada ${Math.abs(days)} días` : days === 0 ? 'Entrega hoy' : days === 1 ? 'Mañana' : `En ${days} días`
+  if (days < 0) return `Atrasada ${Math.abs(days)} días`
+  if (days === 0) return 'Entrega hoy'
+  if (days === 1) return 'Mañana'
+  return `En ${days} días`
+}
+
+function timingSeverity(days: number) {
+  if (days < 0) return 'danger'
+  if (days <= 3) return 'warn'
+  return 'info'
+}
+
+function formatDate(value: string) {
+  return new Date(`${value}T00:00:00`).toLocaleDateString('es-AR', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  })
 }
 </script>
 
 <template>
-  <section class="page">
-    <div class="page-toolbar mb-3">
+  <section class="page compact-page">
+    <div class="page-toolbar flex justify-content-between align-items-center flex-wrap gap-2">
       <p class="page-desc text-color-secondary m-0">Agenda rápida de ventas futuras y metros comprometidos.</p>
+      <RouterLink to="/ventas/nueva">
+        <AppButton label="Nueva venta" icon="pi pi-plus" size="small" />
+      </RouterLink>
     </div>
 
     <Message v-if="loadError" severity="error" class="mb-3" :closable="false">
@@ -39,64 +66,57 @@ function timing(days: number) {
       <AppButton label="Reintentar" size="small" severity="secondary" class="ml-2" @click="load" />
     </Message>
 
-    <div v-else-if="loading" class="grid delivery-metrics" role="status" aria-label="Cargando entregas">
-      <Panel v-for="n in 2" :key="n" class="col-12 md:col-6">
-        <Skeleton height="5rem" />
-      </Panel>
-    </div>
-
     <template v-else>
-      <div class="grid delivery-metrics mb-4">
-        <Panel class="col-12 md:col-6 card metric">
+      <div class="summary-metrics">
+        <article class="card metric">
           <small>Entregas pendientes</small>
-          <strong class="block text-3xl">{{ items.length }}</strong>
-          <em class="text-color-secondary">Operaciones programadas</em>
-        </Panel>
-        <Panel class="col-12 md:col-6 card metric">
+          <strong>{{ items.length }}</strong>
+          <em>Operaciones programadas</em>
+        </article>
+        <article class="card metric">
           <small>Superficie comprometida</small>
-          <strong class="block text-3xl">{{ totalM2 }} m²</strong>
-          <em class="text-color-secondary">Para planificación y logística</em>
-        </Panel>
+          <strong>{{ totalM2.toLocaleString('es-AR') }} m²</strong>
+          <em>Para planificación y logística</em>
+        </article>
       </div>
 
-      <div class="delivery-list">
-        <Panel v-for="item in items" :key="item.id" class="delivery-card mb-3">
-          <div class="flex flex-wrap align-items-center justify-content-between gap-3">
-            <div class="delivery-date flex align-items-center gap-3">
-              <AppIcon :icon="faCalendarDays" />
-              <div>
-                <small class="text-color-secondary">FECHA ESTIMADA</small>
-                <strong class="block">
-                  {{ new Date(item.fechaEntregaEstimada + 'T00:00:00').toLocaleDateString('es-AR', { day: '2-digit', month: 'long', year: 'numeric' }) }}
-                </strong>
-              </div>
+      <div class="table-panel">
+        <p class="page-desc text-color-secondary m-0 mb-2 px-1">
+          {{ pluralize(items.length, 'entrega programada', 'entregas programadas') }}
+        </p>
+        <DataTable :value="items" :loading="loading" striped-rows>
+          <template #empty>
+            <div class="text-center py-5">
+              <p class="font-bold mb-2">No hay entregas programadas</p>
+              <p class="text-color-secondary mb-3">Cuando una venta quede con fecha futura, va a aparecer acá.</p>
+              <RouterLink to="/ventas/nueva">
+                <AppButton label="Nueva venta" icon="pi pi-plus" size="small" />
+              </RouterLink>
             </div>
-            <Tag :value="timing(item.diasRestantes)" :severity="item.diasRestantes <= 3 ? 'warn' : 'info'" />
-          </div>
-          <div class="delivery-info grid mt-3">
-            <div class="col-12 md:col-4">
-              <small class="text-color-secondary">Cliente</small>
-              <b class="block">{{ item.cliente }}</b>
-            </div>
-            <div class="col-12 md:col-4">
-              <small class="text-color-secondary">Producto</small>
-              <b class="block">{{ item.tipoCesped }}</b>
-            </div>
-            <div class="col-12 md:col-4">
-              <small class="text-color-secondary">Superficie</small>
-              <b class="block">{{ item.cantidadM2 }} m²</b>
-            </div>
-          </div>
-          <p v-if="item.observaciones" class="delivery-note mt-3 mb-0">{{ item.observaciones }}</p>
-        </Panel>
-
-        <Panel v-if="!items.length" class="text-center py-5">
-          <p class="font-bold mb-2">No hay entregas programadas</p>
-          <p class="text-color-secondary mb-3">Cuando una venta quede con fecha futura, va a aparecer acá.</p>
-          <RouterLink to="/ventas/nueva">
-            <AppButton label="Nueva venta" icon="pi pi-plus" />
-          </RouterLink>
-        </Panel>
+          </template>
+          <Column header="Fecha estimada">
+            <template #body="{ data }">
+              <b>{{ formatDate(data.fechaEntregaEstimada) }}</b>
+            </template>
+          </Column>
+          <Column header="Plazo">
+            <template #body="{ data }">
+              <Tag :value="timing(data.diasRestantes)" :severity="timingSeverity(data.diasRestantes)" />
+            </template>
+          </Column>
+          <Column header="Cliente" body-class="cell-wrap">
+            <template #body="{ data }"><b>{{ data.cliente }}</b></template>
+          </Column>
+          <Column header="Producto" body-class="cell-wrap">
+            <template #body="{ data }">{{ data.tipoCesped }}</template>
+          </Column>
+          <Column header="Superficie" body-class="cell-num">
+            <template #body="{ data }">{{ data.cantidadM2 }} m²</template>
+          </Column>
+          <Column header="Observaciones" body-class="cell-wrap">
+            <template #body="{ data }">{{ data.observaciones || '—' }}</template>
+          </Column>
+        </DataTable>
       </div>
     </template>
   </section>

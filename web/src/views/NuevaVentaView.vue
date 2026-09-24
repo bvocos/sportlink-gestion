@@ -16,7 +16,7 @@ import { faCheck, faPen, faPlus, faTrash } from '@/shared/icons'
 import { http, apiErrorMessage } from '@/shared/api/httpClient'
 import { formatCurrency as money } from '@/shared/formatters'
 import ClienteAutocomplete from '@/shared/components/ClienteAutocomplete.vue'
-import NuevoClienteModal from '@/shared/components/NuevoClienteModal.vue'
+import NuevoClienteForm from '@/shared/components/NuevoClienteForm.vue'
 import { auth } from '@/auth'
 
 const router = useRouter()
@@ -152,13 +152,27 @@ onMounted(load)
 
       <Panel class="sale-step mb-3">
         <template #header><span class="font-bold">1. Cliente</span></template>
-        <div class="sale-client-row">
+        <article v-if="showNewClient" class="card inline-form-panel inline-form-panel-wide">
+          <NuevoClienteForm
+            hint="Se guardará y quedará seleccionado en esta venta."
+            @cancel="showNewClient = false"
+            @created="clientCreated"
+          />
+        </article>
+        <div v-else class="sale-client-row">
           <div class="field sale-client-field">
             <label>Cliente</label>
             <div class="sale-client-picker">
               <ClienteAutocomplete v-model="form.clienteId" :clientes="clientes" class="flex-1" />
-              <AppButton v-if="auth.can('clientes')" type="button" severity="secondary" size="small"
-                title="Agregar nuevo cliente" aria-label="Agregar nuevo cliente" @click="showNewClient = true">
+              <AppButton
+                v-if="auth.can('clientes')"
+                type="button"
+                severity="secondary"
+                size="small"
+                tooltip="Nuevo cliente"
+                aria-label="Nuevo cliente"
+                @click="showNewClient = true"
+              >
                 <AppIcon :icon="faPlus" />
               </AppButton>
             </div>
@@ -357,6 +371,5 @@ onMounted(load)
       </div>
     </form>
 
-    <NuevoClienteModal v-if="showNewClient" @close="showNewClient = false" @created="clientCreated" />
   </section>
 </template>

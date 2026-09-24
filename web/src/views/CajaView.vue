@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref, onMounted } from "vue";
+import { computed, ref, onMounted } from "vue";
 import AppButton from "@/shared/components/AppButton.vue";
+import Panel from "primevue/panel";
 import Column from "primevue/column";
 import DataTable from "primevue/datatable";
 import Dialog from "primevue/dialog";
@@ -12,8 +13,11 @@ import { http, apiErrorMessage } from "@/shared/api/httpClient";
 import { formatCurrency as money } from "@/shared/formatters";
 import { downloadCsv } from "@/shared/csv";
 import { auth } from "@/auth";
+import SucursalFilter from "@/shared/components/SucursalFilter.vue";
 import { TABLE_ROWS, TABLE_ROWS_OPTIONS } from "@/shared/tablePagination";
 
+const sucursalFiltro = ref("");
+const isAdmin = computed(() => auth.state.user?.rol === "Administrador");
 const data = ref<any>({ saldo: 0, movimientos: [] }),
   show = ref(false),
   error = ref(""),
@@ -22,13 +26,13 @@ const data = ref<any>({ saldo: 0, movimientos: [] }),
   editingMovement = ref<any | null>(null),
   observation = ref(""),
   observationError = ref("");
-const form = ref({ tipo: "Ingreso", monto: 0, concepto: "" });
+const form = ref({ tipo: "Ingreso", monto: 0, concepto: "", sucursalId: null as string | null });
 
 async function load() {
   loading.value = true;
   loadError.value = "";
   try {
-    data.value = (await http.get("/caja")).data;
+    data.value = (await http.get("/caja", { params: { sucursalId: sucursalFiltro.value || undefined } })).data;
   } catch (e: any) {
     loadError.value = apiErrorMessage(e, "No se pudo cargar la caja.");
   } finally {
@@ -37,7 +41,7 @@ async function load() {
 }
 
 function openForm(tipo: "Ingreso" | "Retiro") {
-  form.value = { tipo, monto: 0, concepto: "" };
+  form.value = { tipo, monto: 0, concepto: "", sucursalId: isAdmin ? (sucursalFiltro.value || data.value.sucursales?.[0]?.id || null) : auth.state.user?.sucursalId??null };
   error.value = "";
   show.value = true;
 }
@@ -115,6 +119,10 @@ onMounted(load);
         <AppButton label="Retirar dinero" severity="danger" @click="openForm('Retiro')" />
       </div>
     </div>
+
+    <Panel v-if="isAdmin" class="filter-panel mb-3">
+      <SucursalFilter v-model="sucursalFiltro" @change="load" />
+    </Panel>
 
     <Message v-if="loadError" severity="error" class="mb-3" :closable="false">
       {{ loadError }}
