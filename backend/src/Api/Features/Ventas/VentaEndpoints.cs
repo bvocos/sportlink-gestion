@@ -302,6 +302,13 @@ public static class VentaEndpoints
         group.MapPost("/", async (RegistrarVentaCommand command, ISender sender, CancellationToken ct) =>
         {
             try { return Results.Created("/api/ventas", await sender.Send(command, ct)); }
+            catch (ValidationException exception)
+            {
+                var errors = exception.Errors
+                    .GroupBy(e => e.PropertyName, StringComparer.OrdinalIgnoreCase)
+                    .ToDictionary(g => g.Key, g => g.Select(e => e.ErrorMessage).ToArray());
+                return Results.ValidationProblem(errors);
+            }
             catch (StockInsuficienteException exception)
             {
                 return Results.Conflict(new { message = $"Stock insuficiente de {exception.Producto}. Faltan {exception.Faltante:0.##} m²." });

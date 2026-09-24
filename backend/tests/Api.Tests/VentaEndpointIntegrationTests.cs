@@ -115,7 +115,9 @@ public sealed class VentaEndpointIntegrationTests
                 }
             });
 
-            Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+            var responseBody = await response.Content.ReadAsStringAsync();
+            Assert.True(response.StatusCode == HttpStatusCode.Created,
+                $"Expected 201 Created but got {(int)response.StatusCode} {response.StatusCode}. Body: {responseBody}");
             using var verificationScope = factory.Services.CreateScope();
             var verificationDb = verificationScope.ServiceProvider.GetRequiredService<AppDbContext>();
             Assert.Equal(1, await verificationDb.Ventas.CountAsync());
