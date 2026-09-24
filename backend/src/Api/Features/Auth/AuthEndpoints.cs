@@ -48,6 +48,43 @@ public static class AuthEndpoints
         sucursalNombre = user.FindFirstValue("sucursal_nombre")
     };
 
+    internal static string[] ReadPermissions(Usuario user, ILogger logger)
+    {
+        if (string.IsNullOrWhiteSpace(user.PermisosJson)) return [];
+
+        try
+        {
+            return JsonSerializer.Deserialize<string[]>(user.PermisosJson) ?? [];
+        }
+        catch (JsonException)
+        {
+            try
+            {
+                using var document = JsonDocument.Parse(user.PermisosJson);
+                if (document.RootElement.ValueKind == JsonValueKind.Object)
+                {
+                    return document.RootElement.EnumerateObject()
+                        .Where(permission =>
+                            permission.Value.ValueKind == JsonValueKind.True ||
+                            permission.Value.ValueKind == JsonValueKind.Object &&
+                            permission.Value.TryGetProperty("ver", out var canView) &&
+                            canView.ValueKind == JsonValueKind.True)
+                        .Select(permission => permission.Name)
+                        .ToArray();
+                }
+            }
+            catch (JsonException)
+            {
+                // La advertencia de abajo identifica el registro para corregirlo manualmente.
+            }
+
+            logger.LogWarning(
+                "El usuario {UsuarioId} tiene PermisosJson en un formato no reconocido. Se usar?n permisos vac?os.",
+                user.Id);
+            return [];
+        }
+    }
+
     private static ClaimsPrincipal BuildPrincipal(Usuario user, ILogger logger)
     {
         _ = logger;
@@ -138,10 +175,9 @@ public static class AuthEndpoints
         return Results.Ok(Current(principal));
     }
 
-    private static async Task<IResult> List(AppDbContext db, ILoggerFactory loggerFactory, CancellationToken ct)
+    private static async Task<IResult> List(AppDbContext db, CancellationToken ct)
     {
         var users = await db.Usuarios.AsNoTracking().OrderBy(x => x.Nombre).ToListAsync(ct);
-        var logger = loggerFactory.CreateLogger("Api.Features.Auth.Permissions");
         return Results.Ok(users.Select(x => new
         {
             x.Id, x.Nombre, x.NombreUsuario, x.Rol,
@@ -157,7 +193,7 @@ public static class AuthEndpoints
         if (!request.SucursalId.HasValue)
             return new() { ["sucursalId"] = ["La sucursal es obligatoria para usuarios que no son administradores."] };
         if (!await db.Sucursales.AnyAsync(x => x.Id == request.SucursalId.Value && x.Activo, ct))
-            return new() { ["sucursalId"] = ["Seleccioná una sucursal activa."] };
+            return new() { ["sucursalId"] = ["Seleccion? una sucursal activa."] };
         return null;
     }
 
