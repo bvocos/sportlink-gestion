@@ -2,11 +2,13 @@
 import { computed, onMounted, ref } from 'vue'
 import AppButton from '@/shared/components/AppButton.vue'
 import Message from 'primevue/message'
+import Panel from 'primevue/panel'
 import Skeleton from 'primevue/skeleton'
 import { http } from '@/shared/api/httpClient'
 import { formatCurrency as money, pluralize } from '@/shared/formatters'
 import { auth } from '@/auth'
 import MiniSparkline from '@/shared/components/MiniSparkline.vue'
+import SucursalFilter from '@/shared/components/SucursalFilter.vue'
 import DashboardLineChart from '@/shared/components/DashboardLineChart.vue'
 import DashboardBarChart from '@/shared/components/DashboardBarChart.vue'
 import DashboardMixChart from '@/shared/components/DashboardMixChart.vue'
@@ -32,12 +34,14 @@ const emptyData = (): DashboardData => ({
 const data = ref<DashboardData>(emptyData())
 const loading = ref(false)
 const loadError = ref('')
+const sucursalId = ref('')
+const isAdmin = computed(() => auth.state.user?.rol === 'Administrador')
 
 async function load() {
   loading.value = true
   loadError.value = ''
   try {
-    const response = await http.get('/dashboard')
+    const response = await http.get('/dashboard', { params: { sucursalId: sucursalId.value || undefined } })
     data.value = response.data
   } catch (error: any) {
     loadError.value = error?.response?.data?.errors?.fechas?.[0] || 'No se pudo cargar el inicio del sistema.'
@@ -82,6 +86,10 @@ onMounted(load)
         </RouterLink>
       </div>
     </div>
+
+    <Panel v-if="isAdmin" class="filter-panel mb-3">
+      <SucursalFilter v-model="sucursalId" @change="load" />
+    </Panel>
 
     <Message v-if="loadError" severity="error" class="my-3" :closable="false">
       {{ loadError }}

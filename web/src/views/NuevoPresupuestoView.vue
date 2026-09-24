@@ -14,7 +14,7 @@ import AppIcon from '@/shared/components/AppIcon.vue'
 import { faPlus, faTrash } from '@/shared/icons'
 import { http, apiErrorMessage } from '@/shared/api/httpClient'
 import ClienteAutocomplete from '@/shared/components/ClienteAutocomplete.vue'
-import NuevoClienteModal from '@/shared/components/NuevoClienteModal.vue'
+import NuevoClienteForm from '@/shared/components/NuevoClienteForm.vue'
 import { auth } from '@/auth'
 import { notify } from '@/shared/uiFeedback'
 
@@ -176,7 +176,14 @@ onBeforeUnmount(closePreview)
 
       <Panel class="sale-step mb-3">
         <template #header><span class="font-bold">1. Cliente y vigencia</span></template>
-        <div class="grid formgrid p-fluid sale-step-body quote-header">
+        <article v-if="showNewClient" class="card inline-form-panel inline-form-panel-wide">
+          <NuevoClienteForm
+            hint="Se guardará y quedará seleccionado en este presupuesto."
+            @cancel="showNewClient = false"
+            @created="clientCreated"
+          />
+        </article>
+        <div v-else class="grid formgrid p-fluid sale-step-body quote-header">
           <div class="field col-12 md:col-6">
             <label>Cliente</label>
             <div class="sale-client-picker flex gap-2">
@@ -185,8 +192,9 @@ onBeforeUnmount(closePreview)
                 v-if="auth.can('clientes')"
                 type="button"
                 severity="secondary"
-                title="Agregar nuevo cliente"
-                aria-label="Agregar nuevo cliente"
+                size="small"
+                tooltip="Nuevo cliente"
+                aria-label="Nuevo cliente"
                 @click="showNewClient = true"
               >
                 <AppIcon :icon="faPlus" />
@@ -345,6 +353,5 @@ onBeforeUnmount(closePreview)
       />
     </div>
 
-    <NuevoClienteModal v-if="showNewClient" @close="showNewClient = false" @created="clientCreated" />
   </section>
 </template>

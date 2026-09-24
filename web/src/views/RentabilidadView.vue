@@ -9,6 +9,8 @@ import Message from 'primevue/message'
 import Panel from 'primevue/panel'
 import Select from 'primevue/select'
 import Tag from 'primevue/tag'
+import { auth } from '@/auth'
+import SucursalFilter from '@/shared/components/SucursalFilter.vue'
 import { http, apiErrorMessage } from '@/shared/api/httpClient'
 import { formatCurrency as money, pluralize } from '@/shared/formatters'
 import { downloadBlob, downloadCsv } from '@/shared/csv'
@@ -23,6 +25,8 @@ const exporting = ref(false)
 const loadError = ref('')
 const defaultRange = monthRange()
 const buscar = ref('')
+const sucursalId = ref('')
+const isAdmin = computed(() => auth.state.user?.rol === 'Administrador')
 const desde = ref(defaultRange.desde)
 const hasta = ref(defaultRange.hasta)
 const filterPeriodLabel = computed(() => formatDateRangeLabel(desde.value, hasta.value))
@@ -48,7 +52,7 @@ const estadosFinancieros = [
 ]
 
 function hasActiveFilters() {
-  return !!(searchQuery(buscar.value) || estadoFinanciero.value)
+  return !!(searchQuery(buscar.value) || desde.value || hasta.value || estadoFinanciero.value || sucursalId.value)
 }
 function financialStatusSeverity(status: string) {
   return ({
@@ -69,6 +73,7 @@ async function load(reset = false) {
         desde: desde.value || undefined,
         hasta: hasta.value || undefined,
         estadoFinanciero: estadoFinanciero.value || undefined,
+        sucursalId: sucursalId.value || undefined,
         page: page.value,
         pageSize: pageSize.value,
       },
@@ -88,6 +93,7 @@ function clearFilters() {
   desde.value = range.desde
   hasta.value = range.hasta
   estadoFinanciero.value = ''
+  sucursalId.value = ''
   load(true)
 }
 function onPage(event: DataTablePageEvent) {
@@ -120,6 +126,7 @@ async function exportAll() {
         desde: desde.value || undefined,
         hasta: hasta.value || undefined,
         estadoFinanciero: estadoFinanciero.value || undefined,
+        sucursalId: sucursalId.value || undefined,
       },
       responseType: 'blob',
     })
@@ -132,7 +139,7 @@ async function exportAll() {
 }
 onMounted(() => load())
 useDebouncedSearch(buscar, () => load(true))
-useImmediateFilters([desde, hasta, estadoFinanciero], () => load(true))
+useImmediateFilters([desde, hasta, estadoFinanciero, sucursalId], () => load(true))
 </script>
 
 <template>
@@ -166,6 +173,9 @@ useImmediateFilters([desde, hasta, estadoFinanciero], () => load(true))
         <div class="field col-12 md:col-3">
           <label>Estado financiero</label>
           <Select v-model="estadoFinanciero" :options="estadosFinancieros" option-label="label" option-value="value" />
+        </div>
+        <div v-if="isAdmin" class="field col-12 md:col-3">
+          <SucursalFilter v-model="sucursalId" />
         </div>
         <div class="field col-12 md:col-2 filter-actions flex align-items-end">
           <AppButton type="button" label="Limpiar" icon="pi pi-filter-slash" severity="secondary" @click="clearFilters" />
