@@ -145,6 +145,7 @@ const items = ref<any[]>([])
 const sucursales = ref<any[]>([])
 const showForm = ref(false)
 const editing = ref<string | null>(null)
+const changingPassword = ref(false)
 const saving = ref(false)
 const error = ref('')
 const loading = ref(false)
@@ -192,12 +193,14 @@ async function load() {
 function cancelForm() {
   showForm.value = false
   editing.value = null
+  changingPassword.value = false
   form.value = blank()
   error.value = ''
 }
 
 function create() {
   editing.value = null
+  changingPassword.value = false
   form.value = blank()
   error.value = ''
   showForm.value = true
@@ -205,6 +208,7 @@ function create() {
 
 function edit(x: any) {
   editing.value = x.id
+  changingPassword.value = false
   form.value = {
     nombre: x.nombre,
     nombreUsuario: x.nombreUsuario,
@@ -217,6 +221,14 @@ function edit(x: any) {
   }
   error.value = ''
   showForm.value = true
+}
+
+function togglePasswordChange() {
+  changingPassword.value = !changingPassword.value
+  if (!changingPassword.value) {
+    form.value.password = ''
+    form.value.repetirPassword = ''
+  }
 }
 
 async function save() {
@@ -235,7 +247,8 @@ async function save() {
     const { repetirPassword: _, ...payload } = form.value
     payload.permisos = buildPermisosPayload(form.value.permisos) as PermissionForm
     if (payload.rol === 'Administrador') payload.sucursalId = null
-    if (!payload.password) delete (payload as { password?: string }).password
+    if (!payload.password || (editing.value && !changingPassword.value))
+      delete (payload as { password?: string }).password
     if (editing.value) await http.put(`/usuarios/${editing.value}`, payload)
     else await http.post('/usuarios', payload)
     cancelForm()
@@ -370,20 +383,20 @@ onMounted(async () => {
               <label for="nombreUsuario">Usuario</label>
               <InputText id="nombreUsuario" v-model="form.nombreUsuario" size="small" required />
             </div>
-            <div class="field col-12 md:col-4">
-              <label for="password">Contraseña {{ editing ? '(opcional)' : '' }}</label>
+            <div v-if="!editing || changingPassword" class="field col-12 md:col-4">
+              <label for="password">Contraseña</label>
               <Password
                 id="password"
                 v-model="form.password"
                 :feedback="false"
                 toggle-mask
                 autocomplete="new-password"
-                :required="!editing"
+                required
                 size="small"
                 input-class="w-full"
               />
             </div>
-            <div class="field col-12 md:col-4">
+            <div v-if="!editing || changingPassword" class="field col-12 md:col-4">
               <label for="repetirPassword">Repetir contraseña</label>
               <Password
                 id="repetirPassword"
@@ -391,9 +404,18 @@ onMounted(async () => {
                 :feedback="false"
                 toggle-mask
                 autocomplete="new-password"
-                :required="!editing || !!form.password"
+                required
                 size="small"
                 input-class="w-full"
+              />
+            </div>
+            <div v-if="editing" class="field col-12 md:col-4 flex align-items-end">
+              <AppButton
+                type="button"
+                :label="changingPassword ? 'Mantener contraseña actual' : 'Cambiar contraseña'"
+                severity="secondary"
+                size="small"
+                @click="togglePasswordChange"
               />
             </div>
           </div>
