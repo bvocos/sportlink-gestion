@@ -7,7 +7,6 @@ import Skeleton from 'primevue/skeleton'
 import { http } from '@/shared/api/httpClient'
 import { formatCurrency as money, pluralize } from '@/shared/formatters'
 import { auth } from '@/auth'
-import MiniSparkline from '@/shared/components/MiniSparkline.vue'
 import SucursalFilter from '@/shared/components/SucursalFilter.vue'
 import DashboardLineChart from '@/shared/components/DashboardLineChart.vue'
 import DashboardBarChart from '@/shared/components/DashboardBarChart.vue'
@@ -50,12 +49,6 @@ async function load() {
   }
 }
 
-const series = (field: keyof Omit<DashboardSeriesPoint, 'fecha'>) =>
-  computed(() => data.value.series.map((point) => Number(point[field])))
-const billingSeries = series('facturacion')
-const finishedSeries = series('finalizadas')
-const activeSeries = series('enCurso')
-const profitSeries = series('gananciaNeta')
 const hasChartData = computed(() => data.value.series.some((point) =>
   point.facturacion || point.finalizadas || point.enCurso || point.gananciaNeta,
 ))
@@ -108,29 +101,25 @@ onMounted(load)
     <template v-else>
       <p class="dashboard-period">Resultados del mes: {{ periodLabel }}</p>
       <div class="dashboard-metrics">
-        <article class="card metric chart-metric featured">
+        <article class="card metric featured">
           <small>Facturación del mes</small>
           <strong>{{ money(data.total.facturacion) }}</strong>
           <em>{{ pluralize(data.total.cantidad, 'venta', 'ventas') }} no canceladas</em>
-          <MiniSparkline :values="billingSeries" />
         </article>
-        <article class="card metric chart-metric finished">
+        <article class="card metric finished">
           <small>Ventas finalizadas</small>
           <strong>{{ money(data.finalizadas.facturacion) }}</strong>
           <em>{{ pluralize(data.finalizadas.cantidad, 'operación entregada', 'operaciones entregadas') }}</em>
-          <MiniSparkline :values="finishedSeries" color="#2f7d4b" />
         </article>
-        <article class="card metric chart-metric active">
+        <article class="card metric active">
           <small>Ventas en curso</small>
           <strong>{{ money(data.enCurso.facturacion) }}</strong>
           <em>{{ pluralize(data.enCurso.cantidad, 'operación pendiente', 'operaciones pendientes') }}</em>
-          <MiniSparkline :values="activeSeries" color="#c27a22" />
         </article>
-        <article class="card metric chart-metric profit">
+        <article class="card metric profit">
           <small>Ganancia neta estimada</small>
           <strong :class="{ negative: data.total.gananciaNeta < 0 }">{{ money(data.total.gananciaNeta) }}</strong>
           <em>Sobre las ventas del mes</em>
-          <MiniSparkline :values="profitSeries" color="#5372c8" />
         </article>
         <article class="card metric">
           <small>Metros vendidos</small>
