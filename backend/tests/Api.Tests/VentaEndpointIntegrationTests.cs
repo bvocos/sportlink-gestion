@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
@@ -36,7 +37,7 @@ public sealed class VentaEndpointIntegrationTests
                 .UseSqlServer(databaseConnection, sql => sql.EnableRetryOnFailure())
                 .Options;
             await using (var schema = new AppDbContext(options))
-                await schema.Database.MigrateAsync();
+                await schema.Database.EnsureCreatedAsync();
 
             await using var factory = new VentaApiFactory(databaseConnection);
             using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
@@ -138,6 +139,13 @@ public sealed class VentaEndpointIntegrationTests
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
             builder.UseEnvironment("Development");
+            builder.ConfigureAppConfiguration((_, config) =>
+            {
+                config.AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["SkipDatabaseMigrations"] = "true"
+                });
+            });
             builder.ConfigureServices(services =>
             {
                 services.RemoveAll<DbContextOptions<AppDbContext>>();
