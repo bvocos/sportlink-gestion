@@ -855,6 +855,23 @@
   max-width: 100%;
 }
 
+.stock-zone-body {
+  padding: 0.65rem;
+}
+
+.stock-zone-body > .filter-panel {
+  margin-bottom: 0 !important;
+}
+
+.stock-zone-body > .table-panel {
+  margin-top: 0;
+}
+
+.stock-zone-summary {
+  max-width: none !important;
+  margin-inline: 0 !important;
+}
+
 .stock-movement-filters-grid {
   display: grid;
   grid-template-columns: 9.5rem 9.5rem 9rem 9rem auto;

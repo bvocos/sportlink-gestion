@@ -368,176 +368,203 @@ onMounted(load)
       </div>
 
       <template v-else>
-        <div class="summary-metrics">
-          <article class="card metric">
-            <small>Stock total</small>
-            <strong>{{ meters(totalStockM2) }}</strong>
-            <em>{{ pluralize(depositos.length, 'depósito', 'depósitos') }} habilitados</em>
-          </article>
-        </div>
+        <!-- ── ZONA 1: Disponibilidad ─────────────────────────────────── -->
+        <Panel header="Disponibilidad por depósito" toggleable class="mb-3">
+          <div class="stock-zone-body">
+            <div class="summary-metrics stock-zone-summary mb-3">
+              <article class="card metric">
+                <small>Stock total</small>
+                <strong>{{ meters(totalStockM2) }}</strong>
+                <em>{{ pluralize(depositos.length, 'depósito', 'depósitos') }} habilitados</em>
+              </article>
+            </div>
 
-        <div class="stock-cards mb-3">
-          <article v-for="deposito in depositos" :key="deposito.id" class="card stock-deposit-card">
-            <h3 class="m-0 mb-2">{{ deposito.nombre }}</h3>
-            <div class="stock-product-list">
-              <div v-for="producto in deposito.productos" :key="producto.tipoCespedId" class="stock-product-row">
-                <span>
-                  {{ producto.nombre }}
-                  <Tag v-if="producto.controlPorLotes" value="Por lotes" severity="info" class="ml-1" />
-                </span>
-                <b :class="{ negative: producto.stockActualM2 < 0 }">{{ meters(producto.stockActualM2) }}</b>
-                <AppButton
-                  v-if="producto.controlPorLotes"
-                  class="stock-lot-link"
-                  :label="expandedLots[lotKey(deposito.id, producto.tipoCespedId)] ? 'Ocultar lotes' : 'Ver lotes'"
-                  text
-                  size="small"
-                  @click="toggleLots(deposito.id, producto.tipoCespedId)"
-                />
-                <div v-if="expandedLots[lotKey(deposito.id, producto.tipoCespedId)]" class="stock-lots">
-                  <small v-if="lotsLoading[lotKey(deposito.id, producto.tipoCespedId)]">Cargando lotes…</small>
-                  <div v-for="lote in lotsByProduct[lotKey(deposito.id, producto.tipoCespedId)]" :key="lote.id" class="stock-lot">
-                    <b>{{ lote.color || 'Sin color' }} · {{ meters(lote.cantidadM2) }}</b>
-                    <span v-for="rollo in lote.rollos" :key="rollo.id">{{ rollo.posicion }}: {{ rollo.codigoBarra }} ({{ meters(rollo.cantidadM2) }})</span>
+            <Panel
+              v-for="deposito in depositos"
+              :key="deposito.id"
+              :header="deposito.nombre"
+              toggleable
+              class="mb-2"
+            >
+              <DataTable :value="deposito.productos" size="small" striped-rows>
+                <Column header="Producto">
+                  <template #body="{ data }">
+                    {{ data.nombre }}
+                    <Tag v-if="data.controlPorLotes" value="Por lotes" severity="info" class="ml-1" />
+                  </template>
+                </Column>
+                <Column header="Stock actual" body-class="cell-num">
+                  <template #body="{ data }">
+                    <b :class="{ negative: data.stockActualM2 < 0 }">{{ meters(data.stockActualM2) }}</b>
+                  </template>
+                </Column>
+                <Column header="Lotes" body-class="cell-num">
+                  <template #body="{ data }">
+                    <AppButton
+                      v-if="data.controlPorLotes"
+                      class="stock-lot-link"
+                      :label="expandedLots[lotKey(deposito.id, data.tipoCespedId)] ? 'Ocultar lotes' : 'Ver lotes'"
+                      text
+                      size="small"
+                      @click="toggleLots(deposito.id, data.tipoCespedId)"
+                    />
+                    <span v-else class="text-color-secondary">—</span>
+                  </template>
+                </Column>
+                <Column header="">
+                  <template #body="{ data }">
+                    <div v-if="expandedLots[lotKey(deposito.id, data.tipoCespedId)]" class="stock-lots">
+                      <small v-if="lotsLoading[lotKey(deposito.id, data.tipoCespedId)]">Cargando lotes…</small>
+                      <div v-for="lote in lotsByProduct[lotKey(deposito.id, data.tipoCespedId)]" :key="lote.id" class="stock-lot">
+                        <b>{{ lote.color || 'Sin color' }} · {{ meters(lote.cantidadM2) }}</b>
+                        <span v-for="rollo in lote.rollos" :key="rollo.id">{{ rollo.posicion }}: {{ rollo.codigoBarra }} ({{ meters(rollo.cantidadM2) }})</span>
+                      </div>
+                      <small v-if="!lotsLoading[lotKey(deposito.id, data.tipoCespedId)] && !lotsByProduct[lotKey(deposito.id, data.tipoCespedId)]?.length">
+                        No hay lotes disponibles.
+                      </small>
+                    </div>
+                  </template>
+                </Column>
+              </DataTable>
+            </Panel>
+
+            <!-- Búsqueda por código de barra -->
+            <Panel class="filter-panel">
+              <div class="filter-form filter-form-inline flex gap-3 align-items-end">
+                <div class="field flex-1">
+                  <label for="barcode">Buscar trazabilidad por código de barra</label>
+                  <InputText id="barcode" v-model.trim="barcode" maxlength="150" placeholder="Escaneá o escribí el código" />
+                </div>
+                <div style="padding-bottom:1px">
+                  <AppButton label="Buscar" :loading="barcodeLoading" @click="searchBarcode" />
+                </div>
+              </div>
+            </Panel>
+
+            <Message v-if="barcodeError" severity="error" class="mt-2" :closable="false">{{ barcodeError }}</Message>
+
+            <Panel v-if="barcodeResult" class="mt-2">
+              <template #header>
+                <div class="flex justify-content-between align-items-center w-full gap-2 flex-wrap">
+                  <div>
+                    <span class="font-bold">Rollo {{ barcodeResult.rollo.codigoBarra }}</span>
+                    <small class="block text-color-secondary">{{ barcodeResult.lote.tipoCespedNombre }} · {{ barcodeResult.lote.depositoNombre }}</small>
                   </div>
-                  <small v-if="!lotsLoading[lotKey(deposito.id, producto.tipoCespedId)] && !lotsByProduct[lotKey(deposito.id, producto.tipoCespedId)]?.length">
-                    No hay lotes disponibles.
-                  </small>
+                  <Tag
+                    :value="barcodeResult.lote.estado"
+                    :severity="barcodeResult.lote.estado === 'Disponible' ? 'success' : barcodeResult.lote.estado === 'Vendido' ? 'warn' : 'secondary'"
+                  />
                 </div>
+              </template>
+              <div class="barcode-detail">
+                <p class="mt-0"><b>Color:</b> {{ barcodeResult.lote.color || 'Sin color' }}</p>
+                <p><b>Posición encontrada:</b> {{ barcodeResult.rollo.posicion }} · {{ meters(barcodeResult.rollo.cantidadM2) }}</p>
+                <p><b>Lote completo:</b></p>
+                <div class="roll-code-list">
+                  <span v-for="rollo in barcodeResult.lote.rollos" :key="rollo.id">
+                    {{ rollo.posicion }} · {{ rollo.codigoBarra }} · {{ meters(rollo.cantidadM2) }}
+                  </span>
+                </div>
+                <p v-if="barcodeResult.venta"><b>Venta:</b> {{ barcodeResult.venta.cliente }} · {{ barcodeResult.venta.fechaVenta }}</p>
               </div>
-            </div>
-          </article>
-        </div>
-
-        <Panel class="filter-panel mb-3">
-          <div class="grid formgrid p-fluid filter-form">
-            <div class="field col-12 md:col-8">
-              <label for="barcode">Buscar trazabilidad por código de barra</label>
-              <InputText id="barcode" v-model.trim="barcode" maxlength="150" placeholder="Escaneá o escribí el código" />
-            </div>
-            <div class="field col-12 md:col-4 flex align-items-end">
-              <AppButton label="Buscar" :loading="barcodeLoading" class="w-full" @click="searchBarcode" />
-            </div>
+            </Panel>
           </div>
         </Panel>
 
-        <Message v-if="barcodeError" severity="error" class="mb-3" :closable="false">{{ barcodeError }}</Message>
+        <!-- ── ZONA 2: Movimientos ─────────────────────────────────────── -->
+        <Panel header="Movimientos de stock" toggleable>
+          <div class="stock-zone-body">
+            <Panel class="filter-panel mb-3">
+              <form class="filter-form stock-movement-filters" @submit.prevent="applyFilters">
+                <div class="stock-movement-filters-grid">
+                  <div class="field">
+                    <label for="stock-filter-deposito">Depósito</label>
+                    <Select
+                      id="stock-filter-deposito"
+                      v-model="filters.depositoId"
+                      :options="depositoFilterOptions"
+                      option-label="nombre"
+                      option-value="id"
+                      size="small"
+                      @change="ensureFilterProduct"
+                    />
+                  </div>
+                  <div class="field">
+                    <label for="stock-filter-producto">Producto</label>
+                    <Select
+                      id="stock-filter-producto"
+                      v-model="filters.tipoCespedId"
+                      :options="productoFilterOptions"
+                      option-label="nombre"
+                      option-value="tipoCespedId"
+                      size="small"
+                    />
+                  </div>
+                  <div class="field">
+                    <label for="stock-filter-desde">Desde</label>
+                    <AppDatePicker id="stock-filter-desde" v-model="filters.desde" size="small" />
+                  </div>
+                  <div class="field">
+                    <label for="stock-filter-hasta">Hasta</label>
+                    <AppDatePicker id="stock-filter-hasta" v-model="filters.hasta" size="small" />
+                  </div>
+                  <div class="field stock-filter-actions">
+                    <label class="stock-filter-actions-label" aria-hidden="true">&nbsp;</label>
+                    <div class="flex gap-1 flex-nowrap">
+                      <AppButton type="submit" icon="pi pi-check" aria-label="Aplicar filtros" size="small" />
+                      <AppButton type="button" icon="pi pi-filter-slash" severity="secondary" aria-label="Restablecer filtros" size="small" @click.prevent="clearFilters" />
+                    </div>
+                  </div>
+                </div>
+              </form>
+            </Panel>
 
-        <Panel v-if="barcodeResult" class="mb-3">
-          <template #header>
-            <div class="flex justify-content-between align-items-center w-full gap-2 flex-wrap">
-              <div>
-                <span class="font-bold">Rollo {{ barcodeResult.rollo.codigoBarra }}</span>
-                <small class="block text-color-secondary">{{ barcodeResult.lote.tipoCespedNombre }} · {{ barcodeResult.lote.depositoNombre }}</small>
-              </div>
-              <Tag
-                :value="barcodeResult.lote.estado"
-                :severity="barcodeResult.lote.estado === 'Disponible' ? 'success' : barcodeResult.lote.estado === 'Vendido' ? 'warn' : 'secondary'"
-              />
+            <div class="table-panel">
+              <p class="page-desc text-color-secondary m-0 mb-2 px-1">
+                {{ pluralize(total, 'movimiento registrado', 'movimientos registrados') }}
+              </p>
+              <DataTable
+                :value="movimientos"
+                :loading="loading"
+                lazy
+                paginator
+                :rows="pageSize"
+                :total-records="total"
+                :first="first"
+                :rows-per-page-options="TABLE_ROWS_OPTIONS"
+                striped-rows
+                @page="onPage"
+              >
+                <template #empty>
+                  <div class="text-center py-5 text-color-secondary">No hay movimientos para los filtros seleccionados.</div>
+                </template>
+                <Column header="Fecha">
+                  <template #body="{ data }">{{ new Date(data.fecha).toLocaleString('es-AR') }}</template>
+                </Column>
+                <Column header="Depósito">
+                  <template #body="{ data }"><b>{{ data.depositoNombre }}</b></template>
+                </Column>
+                <Column field="tipoCespedNombre" header="Producto" />
+                <Column header="Tipo">
+                  <template #body="{ data }">
+                    <Tag :value="data.tipo" :severity="movementSeverity(data.tipo)" />
+                  </template>
+                </Column>
+                <Column field="usuario" header="Usuario" />
+                <Column header="Observaciones" body-class="cell-wrap">
+                  <template #body="{ data }">{{ data.observaciones || '—' }}</template>
+                </Column>
+                <Column header="Cantidad" body-class="cell-num">
+                  <template #body="{ data }">
+                    <b :class="{ negative: data.cantidadConSigno < 0 }">
+                      {{ data.cantidadConSigno > 0 ? '+ ' : '− ' }}{{ meters(Math.abs(data.cantidadConSigno)) }}
+                    </b>
+                  </template>
+                </Column>
+              </DataTable>
             </div>
-          </template>
-          <div class="barcode-detail">
-            <p class="mt-0"><b>Color:</b> {{ barcodeResult.lote.color || 'Sin color' }}</p>
-            <p><b>Posición encontrada:</b> {{ barcodeResult.rollo.posicion }} · {{ meters(barcodeResult.rollo.cantidadM2) }}</p>
-            <p><b>Lote completo:</b></p>
-            <div class="roll-code-list">
-              <span v-for="rollo in barcodeResult.lote.rollos" :key="rollo.id">
-                {{ rollo.posicion }} · {{ rollo.codigoBarra }} · {{ meters(rollo.cantidadM2) }}
-              </span>
-            </div>
-            <p v-if="barcodeResult.venta"><b>Venta:</b> {{ barcodeResult.venta.cliente }} · {{ barcodeResult.venta.fechaVenta }}</p>
           </div>
         </Panel>
-
-        <Panel class="filter-panel mb-3">
-          <form class="filter-form stock-movement-filters" @submit.prevent="applyFilters">
-            <div class="stock-movement-filters-grid">
-              <div class="field">
-                <label for="stock-filter-deposito">Depósito</label>
-                <Select
-                  id="stock-filter-deposito"
-                  v-model="filters.depositoId"
-                  :options="depositoFilterOptions"
-                  option-label="nombre"
-                  option-value="id"
-                  size="small"
-                  @change="ensureFilterProduct"
-                />
-              </div>
-              <div class="field">
-                <label for="stock-filter-producto">Producto</label>
-                <Select
-                  id="stock-filter-producto"
-                  v-model="filters.tipoCespedId"
-                  :options="productoFilterOptions"
-                  option-label="nombre"
-                  option-value="tipoCespedId"
-                  size="small"
-                />
-              </div>
-              <div class="field">
-                <label for="stock-filter-desde">Desde</label>
-                <AppDatePicker id="stock-filter-desde" v-model="filters.desde" size="small" />
-              </div>
-              <div class="field">
-                <label for="stock-filter-hasta">Hasta</label>
-                <AppDatePicker id="stock-filter-hasta" v-model="filters.hasta" size="small" />
-              </div>
-              <div class="field stock-filter-actions">
-                <label class="stock-filter-actions-label" aria-hidden="true">&nbsp;</label>
-                <div class="flex gap-1 flex-nowrap">
-                  <AppButton type="submit" icon="pi pi-check" aria-label="Aplicar filtros" size="small" />
-                  <AppButton type="button" icon="pi pi-filter-slash" severity="secondary" aria-label="Restablecer filtros" size="small" @click.prevent="clearFilters" />
-                </div>
-              </div>
-            </div>
-          </form>
-        </Panel>
-
-        <div class="table-panel">
-          <p class="page-desc text-color-secondary m-0 mb-2 px-1">
-            {{ pluralize(total, 'movimiento registrado', 'movimientos registrados') }}
-          </p>
-          <DataTable
-            :value="movimientos"
-            :loading="loading"
-            lazy
-            paginator
-            :rows="pageSize"
-            :total-records="total"
-            :first="first"
-            :rows-per-page-options="TABLE_ROWS_OPTIONS"
-            striped-rows
-            @page="onPage"
-          >
-            <template #empty>
-              <div class="text-center py-5 text-color-secondary">No hay movimientos para los filtros seleccionados.</div>
-            </template>
-            <Column header="Fecha">
-              <template #body="{ data }">{{ new Date(data.fecha).toLocaleString('es-AR') }}</template>
-            </Column>
-            <Column header="Depósito">
-              <template #body="{ data }"><b>{{ data.depositoNombre }}</b></template>
-            </Column>
-            <Column field="tipoCespedNombre" header="Producto" />
-            <Column header="Tipo">
-              <template #body="{ data }">
-                <Tag :value="data.tipo" :severity="movementSeverity(data.tipo)" />
-              </template>
-            </Column>
-            <Column field="usuario" header="Usuario" />
-            <Column header="Observaciones" body-class="cell-wrap">
-              <template #body="{ data }">{{ data.observaciones || '—' }}</template>
-            </Column>
-            <Column header="Cantidad" body-class="cell-num">
-              <template #body="{ data }">
-                <b :class="{ negative: data.cantidadConSigno < 0 }">
-                  {{ data.cantidadConSigno > 0 ? '+ ' : '− ' }}{{ meters(Math.abs(data.cantidadConSigno)) }}
-                </b>
-              </template>
-            </Column>
-          </DataTable>
-        </div>
       </template>
     </template>
   </section>
