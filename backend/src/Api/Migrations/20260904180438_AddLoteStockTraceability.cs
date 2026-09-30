@@ -11,12 +11,11 @@ namespace Api.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.AddColumn<bool>(
-                name: "ControlPorLotes",
-                table: "TiposCesped",
-                type: "bit",
-                nullable: false,
-                defaultValue: false);
+            // Idempotente: agrega ControlPorLotes solo si no existe en la base destino
+            migrationBuilder.Sql("""
+                IF COL_LENGTH('dbo.TiposCesped', 'ControlPorLotes') IS NULL
+                    ALTER TABLE dbo.TiposCesped ADD ControlPorLotes bit NOT NULL CONSTRAINT DF_TiposCesped_ControlPorLotes DEFAULT 0;
+                """);
 
             migrationBuilder.CreateTable(
                 name: "LotesStock",

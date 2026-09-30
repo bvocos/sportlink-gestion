@@ -13,17 +13,19 @@ namespace Api.Migrations
             // SQL Server compila todo el batch antes de ejecutar IF — separar pasos evita
             // "Invalid column name 'TipoCespedId'" al referenciar la columna recién creada.
 
+        // EXEC() difiere la compilación del INSERT al momento de ejecución,
+        // evitando error 207 cuando PrecioContadoM2/PrecioFinanciadoM2 no existen aún en la base destino.
         migrationBuilder.Sql("""
             IF NOT EXISTS (SELECT 1 FROM dbo.TiposCesped WHERE Id = '7C100000-0000-0000-0000-FFFFFFFFFFFF')
             BEGIN
                 IF COL_LENGTH('dbo.TiposCesped', 'PrecioContadoM2') IS NOT NULL
-                        INSERT dbo.TiposCesped(Id, Nombre, Descripcion, PrecioVentaM2, PrecioContadoM2, PrecioFinanciadoM2, CostoM2, ColoresJson, Activo, CreatedAt)
-                        VALUES ('7C100000-0000-0000-0000-FFFFFFFFFFFF', N'Sin asignar (stock histórico)',
-                            N'Movimientos anteriores a la gestión de stock por producto.', 0, 0, 0, 0, N'[]', 0, SYSDATETIMEOFFSET());
-                    ELSE
-                        INSERT dbo.TiposCesped(Id, Nombre, Descripcion, PrecioVentaM2, CostoM2, ColoresJson, Activo, CreatedAt)
-                        VALUES ('7C100000-0000-0000-0000-FFFFFFFFFFFF', N'Sin asignar (stock histórico)',
-                            N'Movimientos anteriores a la gestión de stock por producto.', 0, 0, N'[]', 0, SYSDATETIMEOFFSET());
+                    EXEC(N'INSERT dbo.TiposCesped(Id, Nombre, Descripcion, PrecioVentaM2, PrecioContadoM2, PrecioFinanciadoM2, CostoM2, ColoresJson, Activo, CreatedAt)
+                           VALUES (''7C100000-0000-0000-0000-FFFFFFFFFFFF'', N''Sin asignar (stock histórico)'',
+                               N''Movimientos anteriores a la gestión de stock por producto.'', 0, 0, 0, 0, N''[]'', 0, SYSDATETIMEOFFSET())')
+                ELSE
+                    INSERT dbo.TiposCesped(Id, Nombre, Descripcion, PrecioVentaM2, CostoM2, ColoresJson, Activo, CreatedAt)
+                    VALUES ('7C100000-0000-0000-0000-FFFFFFFFFFFF', N'Sin asignar (stock histórico)',
+                        N'Movimientos anteriores a la gestión de stock por producto.', 0, 0, N'[]', 0, SYSDATETIMEOFFSET());
             END;
             """);
 
