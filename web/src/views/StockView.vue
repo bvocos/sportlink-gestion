@@ -25,6 +25,7 @@ const movimientos = ref<any[]>([])
 const loading = ref(false)
 const loadError = ref('')
 const showForm = ref(false)
+const formMode = ref<'ingreso' | 'ajuste'>('ingreso')
 const saving = ref(false)
 const saveError = ref('')
 const page = ref(1)
@@ -32,7 +33,7 @@ const pageSize = ref(TABLE_ROWS)
 const total = ref(0)
 const first = computed(() => tableFirst(page.value, pageSize.value))
 const filters = ref({ depositoId: '', tipoCespedId: '', desde: '', hasta: '' })
-const form = ref({ depositoId: '', tipoCespedId: '', color: '', cantidadM2: 0, observaciones: '', rollos: newRolls() })
+const form = ref({ depositoId: '', tipoCespedId: '', color: '', cantidadM2: 0, nuevoStockM2: 0, observaciones: '', rollos: newRolls() })
 const expandedLots = ref<Record<string, boolean>>({})
 const lotsByProduct = ref<Record<string, any[]>>({})
 const lotsLoading = ref<Record<string, boolean>>({})
@@ -44,7 +45,10 @@ const barcodeInputs = ref<Record<string, HTMLInputElement | null>>({})
 
 const isAdmin = computed(() => auth.state.user?.rol === 'Administrador')
 const depositosIngreso = computed(() => depositos.value.filter(x => x.permiteRegistrarIngreso))
-const productosIngreso = computed(() => depositos.value.find(x => x.id === form.value.depositoId)?.productos ?? [])
+const productosIngreso = computed(() => {
+  const products = depositos.value.find(x => x.id === form.value.depositoId)?.productos ?? []
+  return formMode.value === 'ajuste' ? products.filter(x => !x.controlPorLotes) : products
+})
 const selectedProduct = computed(() => productosIngreso.value.find(x => x.tipoCespedId === form.value.tipoCespedId))
 const depositoFilterOptions = computed(() => [{ id: '', nombre: 'Todos los depósitos' }, ...depositos.value])
 const productoFilterOptions = computed(() => [{ tipoCespedId: '', nombre: 'Todos los productos' }, ...productosFiltro.value])
@@ -85,6 +89,7 @@ function ensureIngresoProduct() {
     form.value.tipoCespedId = productosIngreso.value[0]?.tipoCespedId ?? ''
   }
   form.value.color = selectedProduct.value?.colores[0] ?? ''
+  form.value.nuevoStockM2 = Number(selectedProduct.value?.stockActualM2 ?? 0)
   form.value.rollos = newRolls()
 }
 
@@ -128,11 +133,29 @@ function cancelForm() {
 }
 
 function openIngreso() {
+  formMode.value = 'ingreso'
   form.value = {
     depositoId: depositosIngreso.value[0]?.id ?? '',
     tipoCespedId: '',
     color: '',
     cantidadM2: 0,
+    nuevoStockM2: 0,
+    observaciones: '',
+    rollos: newRolls(),
+  }
+  ensureIngresoProduct()
+  saveError.value = ''
+  showForm.value = true
+}
+
+function openAjuste() {
+  formMode.value = 'ajuste'
+  form.value = {
+    depositoId: depositosIngreso.value[0]?.id ?? '',
+    tipoCespedId: '',
+    color: '',
+    cantidadM2: 0,
+    nuevoStockM2: 0,
     observaciones: '',
     rollos: newRolls(),
   }
@@ -145,6 +168,17 @@ async function saveIngreso() {
   saving.value = true
   saveError.value = ''
   try {
+    if (formMode.value === 'ajuste') {
+      await http.post('/stock/ajustes', {
+        depositoId: form.value.depositoId,
+        tipoCespedId: form.value.tipoCespedId,
+        nuevoStockM2: form.value.nuevoStockM2,
+        observaciones: form.value.observaciones,
+      })
+      cancelForm()
+      await Promise.all([loadStock(), loadMovimientos(true)])
+      return
+    }
     const controlled = selectedProduct.value?.controlPorLotes
     await http.post(controlled ? '/stock/lotes' : '/stock/ingresos', controlled
       ? {
@@ -165,7 +199,7 @@ async function saveIngreso() {
     lotsByProduct.value = {}
     await Promise.all([loadStock(), loadMovimientos(true)])
   } catch (e: any) {
-    saveError.value = apiErrorMessage(e, 'No se pudo registrar el ingreso de stock.')
+    saveError.value = apiErrorMessage(e, formMode.value === 'ajuste' ? 'No se pudo ajustar el stock.' : 'No se pudo registrar el ingreso de stock.')
   } finally {
     saving.value = false
   }
@@ -239,7 +273,7 @@ onMounted(load)
     <div class="page-toolbar flex justify-content-between align-items-center flex-wrap gap-2">
       <p class="page-desc text-color-secondary m-0">
         {{ showForm
-          ? 'Registrar ingreso de stock'
+          ? (formMode === 'ajuste' ? 'Ajustar stock' : 'Registrar ingreso de stock')
           : 'Disponibilidad de césped y trazabilidad de los depósitos habilitados.' }}
       </p>
       <AppButton
@@ -250,14 +284,25 @@ onMounted(load)
         size="small"
         @click="cancelForm"
       />
-      <AppButton
-        v-else-if="auth.can('stock', 'crear')"
-        label="Registrar ingreso"
-        icon="pi pi-plus"
-        size="small"
-        :disabled="!depositosIngreso.length"
-        @click="openIngreso"
-      />
+      <div v-else class="flex gap-2">
+        <AppButton
+          v-if="auth.can('stock', 'editar')"
+          label="Ajustar stock"
+          icon="pi pi-pencil"
+          severity="secondary"
+          size="small"
+          :disabled="!depositosIngreso.length"
+          @click="openAjuste"
+        />
+        <AppButton
+          v-if="auth.can('stock', 'crear')"
+          label="Registrar ingreso"
+          icon="pi pi-plus"
+          size="small"
+          :disabled="!depositosIngreso.length"
+          @click="openIngreso"
+        />
+      </div>
     </div>
 
     <Message v-if="loadError && !showForm" severity="error" class="mb-3" :closable="false">
@@ -271,7 +316,7 @@ onMounted(load)
 
         <section class="inline-form-block">
           <header class="inline-form-block-head">
-            <span>1. Origen del ingreso</span>
+            <span>1. {{ formMode === 'ajuste' ? 'Stock a ajustar' : 'Origen del ingreso' }}</span>
           </header>
           <div class="grid formgrid p-fluid inline-form-grid">
             <div class="field col-12 md:col-6">
@@ -286,7 +331,7 @@ onMounted(load)
                 size="small"
                 @change="ensureIngresoProduct"
               />
-              <small v-if="!isAdmin" class="text-color-secondary">Sólo podés ingresar stock en el depósito de tu sucursal.</small>
+              <small v-if="!isAdmin" class="text-color-secondary">Sólo podés modificar stock en el depósito de tu sucursal.</small>
             </div>
             <div class="field col-12 md:col-6">
               <label>Producto</label>
@@ -306,9 +351,28 @@ onMounted(load)
 
         <section class="inline-form-block">
           <header class="inline-form-block-head">
-            <span>2. Detalle del ingreso</span>
+            <span>2. {{ formMode === 'ajuste' ? 'Resultado del ajuste' : 'Detalle del ingreso' }}</span>
           </header>
-          <template v-if="selectedProduct?.controlPorLotes">
+          <template v-if="formMode === 'ajuste'">
+            <Message severity="info" class="mb-3" :closable="false">
+              Indicá la existencia física real. El sistema registrará automáticamente la diferencia como un movimiento de ajuste.
+            </Message>
+            <div class="grid formgrid p-fluid inline-form-grid">
+              <div class="field col-12 md:col-4">
+                <label>Stock actual</label>
+                <InputNumber :model-value="selectedProduct?.stockActualM2 ?? 0" suffix=" m²" disabled />
+              </div>
+              <div class="field col-12 md:col-4">
+                <label>Nuevo stock (m²)</label>
+                <InputNumber v-model="form.nuevoStockM2" :min="0" :min-fraction-digits="2" :max-fraction-digits="2" required />
+              </div>
+              <div class="field col-12 md:col-4">
+                <label>Diferencia</label>
+                <InputNumber :model-value="form.nuevoStockM2 - Number(selectedProduct?.stockActualM2 ?? 0)" suffix=" m²" disabled />
+              </div>
+            </div>
+          </template>
+          <template v-else-if="selectedProduct?.controlPorLotes">
             <Message severity="info" class="mb-3" :closable="false">
               Este producto se controla por lotes: registrá exactamente los rollos A, B y C.
             </Message>
@@ -346,15 +410,26 @@ onMounted(load)
           </div>
           <div class="field col-12">
             <label>Observaciones</label>
-            <Textarea v-model="form.observaciones" maxlength="500" rows="3" placeholder="Ej.: recepción de rollos del proveedor" auto-resize />
+            <Textarea
+              v-model="form.observaciones"
+              maxlength="500"
+              rows="3"
+              :required="formMode === 'ajuste'"
+              :placeholder="formMode === 'ajuste' ? 'Motivo obligatorio del ajuste' : 'Ej.: recepción de rollos del proveedor'"
+              auto-resize
+            />
           </div>
         </section>
 
         <div class="inline-form-footer">
-          <small class="inline-form-note text-color-secondary">El ingreso impacta stock y movimientos del depósito seleccionado.</small>
+          <small class="inline-form-note text-color-secondary">
+            {{ formMode === 'ajuste'
+              ? 'El ajuste quedará registrado con usuario, fecha, diferencia y motivo.'
+              : 'El ingreso impacta stock y movimientos del depósito seleccionado.' }}
+          </small>
           <div class="flex gap-2">
             <AppButton type="button" label="Cancelar" severity="secondary" size="small" @click="cancelForm" />
-            <AppButton type="submit" label="Registrar ingreso" :loading="saving" size="small" />
+            <AppButton type="submit" :label="formMode === 'ajuste' ? 'Guardar ajuste' : 'Registrar ingreso'" :loading="saving" size="small" />
           </div>
         </div>
       </form>

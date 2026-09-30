@@ -39,9 +39,31 @@ public sealed class StockRulesTests
     [Theory]
     [InlineData(TipoMovimientoStock.Ingreso, 100, 100)]
     [InlineData(TipoMovimientoStock.Ajuste, 100, 100)]
+    [InlineData(TipoMovimientoStock.AjusteSalida, 100, -100)]
     [InlineData(TipoMovimientoStock.SalidaPorVenta, 100, -100)]
     public void Ledger_aplica_el_signo_segun_el_tipo(TipoMovimientoStock tipo, decimal cantidad, decimal expected) =>
         Assert.Equal(expected, StockEndpoints.SignedQuantity(tipo, cantidad));
+
+    [Theory]
+    [InlineData(100, 125, TipoMovimientoStock.Ajuste, 25)]
+    [InlineData(100, 70, TipoMovimientoStock.AjusteSalida, 30)]
+    public void Ajuste_crea_un_movimiento_por_la_diferencia(decimal actual, decimal nuevo,
+        TipoMovimientoStock tipo, decimal cantidad)
+    {
+        var movement = StockEndpoints.CreateAdjustment(Guid.NewGuid(), Guid.NewGuid(), actual, nuevo,
+            "tester", "Conteo físico", DateTime.UtcNow);
+
+        Assert.NotNull(movement);
+        Assert.Equal(tipo, movement.Tipo);
+        Assert.Equal(cantidad, movement.CantidadM2);
+        Assert.Equal(nuevo - actual, StockEndpoints.SignedQuantity(movement.Tipo, movement.CantidadM2));
+        Assert.Equal("Conteo físico", movement.Observaciones);
+    }
+
+    [Fact]
+    public void Ajuste_sin_diferencia_no_crea_movimiento() =>
+        Assert.Null(StockEndpoints.CreateAdjustment(Guid.NewGuid(), Guid.NewGuid(), 100, 100,
+            "tester", "Conteo físico", DateTime.UtcNow));
 
     [Theory]
     [InlineData(100, 80, 0)]

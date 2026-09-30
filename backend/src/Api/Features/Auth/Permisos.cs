@@ -62,6 +62,9 @@ public sealed class PermisosMatriz
         {
             if (!Permissions.Catalogo.TryGetValue(modulo, out var acciones)) continue;
             result.Modulos[modulo] = acciones.ToDictionary(x => x, _ => true, StringComparer.OrdinalIgnoreCase);
+            // Los permisos legacy existían antes de que se habilitaran ajustes manuales.
+            // No se concede una capacidad sensible nueva de forma implícita.
+            if (modulo.Equals("stock", StringComparison.OrdinalIgnoreCase)) result.Modulos[modulo]["editar"] = false;
             if (Permissions.ModulosConMontos.Contains(modulo, StringComparer.OrdinalIgnoreCase)) result.Montos[modulo] = true;
         }
         return result;
@@ -157,7 +160,7 @@ public static class Permissions
         ["dashboard"] = ["ver"], ["ventas"] = ["ver", "crear", "editar", "eliminar"], ["entregas"] = ["ver"],
         ["presupuestos"] = ["ver", "crear", "editar", "eliminar"], ["clientes"] = ["ver", "crear", "editar", "eliminar"],
         ["cuotas"] = ["ver", "editar", "registrarPago", "anularPago"], ["caja"] = ["ver", "crear", "editar"],
-        ["gastos"] = ["ver", "crear", "editar", "eliminar"], ["rentabilidad"] = ["ver"], ["stock"] = ["ver", "crear"],
+        ["gastos"] = ["ver", "crear", "editar", "eliminar"], ["rentabilidad"] = ["ver"], ["stock"] = ["ver", "crear", "editar"],
         ["administracion"] = ["ver", "crear", "editar"]
     };
     public static readonly string[] ModulosConMontos = ["ventas", "cuotas"];

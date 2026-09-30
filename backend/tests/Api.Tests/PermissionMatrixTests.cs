@@ -38,6 +38,16 @@ public sealed class PermissionMatrixTests
     }
 
     [Fact]
+    public void LegacyStockPermission_DoesNotGrantManualAdjustments()
+    {
+        var matrix = PermisosMatriz.DesdeJson("[\"stock\"]");
+
+        Assert.True(matrix.Puede("stock", "ver"));
+        Assert.True(matrix.Puede("stock", "crear"));
+        Assert.False(matrix.Puede("stock", "editar"));
+    }
+
+    [Fact]
     public async Task Administrator_IsAlwaysAuthorized()
     {
         var identity = new ClaimsIdentity([new Claim(ClaimTypes.Role, "Administrador")], "test");

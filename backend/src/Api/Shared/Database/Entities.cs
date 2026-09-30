@@ -7,7 +7,7 @@ public enum FormaPago { Cuotas, Contado, Transferencia, Cheque, Otros }
 public enum EstadoVenta { Confirmada, Futura, Entregada, Cancelada }
 public enum EstadoCuota { Pendiente, Pagada, PagadaParcial, Vencida }
 public enum TipoMovimiento { Ingreso, Retiro }
-public enum TipoMovimientoStock { Ingreso, Ajuste, SalidaPorVenta }
+public enum TipoMovimientoStock { Ingreso, Ajuste, AjusteSalida, SalidaPorVenta }
 public enum EstadoLoteStock { Disponible, Vendido }
 public enum EstadoPresupuesto { Borrador, Enviado, Aceptado, Rechazado, Vencido }
 public sealed class Deposito : AuditableEntity

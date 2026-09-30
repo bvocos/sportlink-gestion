@@ -8,6 +8,7 @@ using Microsoft.EntityFrameworkCore;
 namespace Api.Features.Stock;
 
 public record IngresoStockRequest(Guid DepositoId, Guid TipoCespedId, decimal CantidadM2, string? Observaciones);
+public record AjusteStockRequest(Guid DepositoId, Guid TipoCespedId, decimal NuevoStockM2, string? Observaciones);
 public record RolloLoteRequest(char Posicion, string CodigoBarra, decimal CantidadM2);
 public record IngresoLoteRequest(Guid DepositoId, Guid TipoCespedId, string? Color, IReadOnlyList<RolloLoteRequest>? Rollos, string? Observaciones);
 internal record StockAuthorizationFailure(int StatusCode, string Message);
@@ -23,6 +24,7 @@ public static class StockEndpoints
         group.MapGet("/movimientos", GetMovimientos).RequirePermiso("stock", "ver");
         group.MapPost("/ingresos", RegisterIngreso).RequirePermiso("stock", "crear");
         group.MapPost("/lotes", RegisterLote).RequirePermiso("stock", "crear");
+        group.MapPost("/ajustes", RegisterAjuste).RequirePermiso("stock", "editar");
         group.MapGet("/lotes", GetLotes).RequirePermiso("stock", "ver");
         group.MapGet("/lotes/buscar-por-codigo", SearchByBarcode).RequirePermiso("stock", "ver");
     }
@@ -33,7 +35,25 @@ public static class StockEndpoints
         return depositoPropioId.HasValue && depositoPropioId.Value == depositoId ? null : new(StatusCodes.Status403Forbidden, RestrictedDepositMessage);
     }
 
-    internal static decimal SignedQuantity(TipoMovimientoStock tipo, decimal cantidadM2) => tipo == TipoMovimientoStock.SalidaPorVenta ? -cantidadM2 : cantidadM2;
+    internal static decimal SignedQuantity(TipoMovimientoStock tipo, decimal cantidadM2) =>
+        tipo is TipoMovimientoStock.SalidaPorVenta or TipoMovimientoStock.AjusteSalida ? -cantidadM2 : cantidadM2;
+
+    internal static MovimientoStock? CreateAdjustment(Guid depositoId, Guid tipoCespedId, decimal stockActual,
+        decimal nuevoStock, string usuario, string observaciones, DateTime fecha)
+    {
+        var diferencia = nuevoStock - stockActual;
+        if (diferencia == 0) return null;
+        return new MovimientoStock
+        {
+            DepositoId = depositoId,
+            TipoCespedId = tipoCespedId,
+            Tipo = diferencia > 0 ? TipoMovimientoStock.Ajuste : TipoMovimientoStock.AjusteSalida,
+            CantidadM2 = Math.Abs(diferencia),
+            Fecha = fecha,
+            Usuario = usuario,
+            Observaciones = observaciones
+        };
+    }
 
     internal static Dictionary<string, string[]> ValidateRolls(IReadOnlyList<RolloLoteRequest>? rolls)
     {
@@ -95,7 +115,7 @@ public static class StockEndpoints
             productos = db.TiposCesped.AsNoTracking().Where(p => p.Activo).OrderBy(p => p.Nombre).Select(p => new
             {
                 tipoCespedId = p.Id, nombre = p.Nombre, p.ControlPorLotes, p.ColoresJson,
-                stockActualM2 = db.MovimientosStock.Where(m => m.DepositoId == x.Id && m.TipoCespedId == p.Id).Sum(m => (decimal?)(m.Tipo == TipoMovimientoStock.SalidaPorVenta ? -m.CantidadM2 : m.CantidadM2)) ?? 0m
+                stockActualM2 = db.MovimientosStock.Where(m => m.DepositoId == x.Id && m.TipoCespedId == p.Id).Sum(m => (decimal?)(m.Tipo == TipoMovimientoStock.SalidaPorVenta || m.Tipo == TipoMovimientoStock.AjusteSalida ? -m.CantidadM2 : m.CantidadM2)) ?? 0m
             }).ToList()
         }).ToListAsync(ct);
         return Results.Ok(deposits.Select(x => new { x.Id, x.Nombre, productos = x.productos.Select(p => new { p.tipoCespedId, p.nombre, p.ControlPorLotes, colores = DeserializeColors(p.ColoresJson), p.stockActualM2 }), permiteRegistrarIngreso = isAdmin || ownDepositId == x.Id }));
@@ -111,7 +131,7 @@ public static class StockEndpoints
         if (desde.HasValue) query = query.Where(x => x.Fecha >= desde.Value.Date);
         if (hasta.HasValue) { var end = hasta.Value.Date.AddDays(1); query = query.Where(x => x.Fecha < end); }
         var total = await query.CountAsync(ct);
-        var items = await query.OrderByDescending(x => x.Fecha).Skip((page - 1) * pageSize).Take(pageSize).Select(x => new { x.Id, x.DepositoId, depositoNombre = x.Deposito.Nombre, x.TipoCespedId, tipoCespedNombre = x.TipoCesped.Nombre, x.Tipo, x.CantidadM2, cantidadConSigno = x.Tipo == TipoMovimientoStock.SalidaPorVenta ? -x.CantidadM2 : x.CantidadM2, x.Fecha, x.Usuario, x.Observaciones, x.VentaId }).ToListAsync(ct);
+        var items = await query.OrderByDescending(x => x.Fecha).Skip((page - 1) * pageSize).Take(pageSize).Select(x => new { x.Id, x.DepositoId, depositoNombre = x.Deposito.Nombre, x.TipoCespedId, tipoCespedNombre = x.TipoCesped.Nombre, tipo = x.Tipo == TipoMovimientoStock.AjusteSalida ? TipoMovimientoStock.Ajuste : x.Tipo, x.CantidadM2, cantidadConSigno = x.Tipo == TipoMovimientoStock.SalidaPorVenta || x.Tipo == TipoMovimientoStock.AjusteSalida ? -x.CantidadM2 : x.CantidadM2, x.Fecha, x.Usuario, x.Observaciones, x.VentaId }).ToListAsync(ct);
         return Results.Ok(new { items, total, page, pageSize, totalPages = (int)Math.Ceiling(total / (double)pageSize) });
     }
 
@@ -131,6 +151,45 @@ public static class StockEndpoints
         var movement = new MovimientoStock { DepositoId = deposit.Id, TipoCespedId = product.Id, Tipo = TipoMovimientoStock.Ingreso, CantidadM2 = request.CantidadM2, Fecha = DateTime.UtcNow, Usuario = UserName(currentUser), Observaciones = string.IsNullOrWhiteSpace(observations) ? null : observations };
         db.MovimientosStock.Add(movement); await db.SaveChangesAsync(ct);
         return Results.Created($"/api/stock/movimientos/{movement.Id}", new { movement.Id, movement.DepositoId, movement.TipoCespedId, movement.CantidadM2, movement.Fecha });
+    }
+
+    private static async Task<IResult> RegisterAjuste(AjusteStockRequest request, ClaimsPrincipal currentUser, AppDbContext db, CancellationToken ct)
+    {
+        var observations = request.Observaciones?.Trim();
+        var errors = new Dictionary<string, string[]>();
+        if (request.NuevoStockM2 < 0) errors["nuevoStockM2"] = ["El stock resultante no puede ser negativo."];
+        if (string.IsNullOrWhiteSpace(observations)) errors["observaciones"] = ["Indicá el motivo del ajuste."];
+        else if (observations.Length > 500) errors["observaciones"] = ["Las observaciones no pueden superar 500 caracteres."];
+        if (errors.Count > 0) return Results.ValidationProblem(errors);
+
+        var deposit = await db.Depositos.AsNoTracking().SingleOrDefaultAsync(x => x.Id == request.DepositoId && x.Activo, ct);
+        if (deposit is null) return Results.ValidationProblem(new Dictionary<string, string[]> { ["depositoId"] = ["Seleccioná un depósito activo."] });
+        var product = await db.TiposCesped.AsNoTracking().SingleOrDefaultAsync(x => x.Id == request.TipoCespedId && x.Activo, ct);
+        if (product is null) return Results.ValidationProblem(new Dictionary<string, string[]> { ["tipoCespedId"] = ["Seleccioná un producto activo."] });
+        if (product.ControlPorLotes) return Results.ValidationProblem(new Dictionary<string, string[]> { ["tipoCespedId"] = ["El stock de este producto se controla mediante lotes y no admite ajustes manuales."] });
+
+        var failure = ValidateIngresoScope(currentUser, request.DepositoId, await SucursalDepositoService.GetOwnDepositId(currentUser, db, ct));
+        if (failure is not null) return Results.Problem(statusCode: failure.StatusCode, title: "Acceso denegado", detail: failure.Message);
+
+        var currentStock = await db.MovimientosStock
+            .Where(x => x.DepositoId == request.DepositoId && x.TipoCespedId == request.TipoCespedId)
+            .SumAsync(x => (decimal?)(x.Tipo == TipoMovimientoStock.SalidaPorVenta || x.Tipo == TipoMovimientoStock.AjusteSalida ? -x.CantidadM2 : x.CantidadM2), ct) ?? 0m;
+        var movement = CreateAdjustment(request.DepositoId, request.TipoCespedId, currentStock,
+            request.NuevoStockM2, UserName(currentUser), observations!, DateTime.UtcNow);
+        if (movement is null) return Results.ValidationProblem(new Dictionary<string, string[]> { ["nuevoStockM2"] = ["El nuevo stock debe ser diferente del stock actual."] });
+
+        db.MovimientosStock.Add(movement);
+        await db.SaveChangesAsync(ct);
+        return Results.Created($"/api/stock/movimientos/{movement.Id}", new
+        {
+            movement.Id,
+            movement.DepositoId,
+            movement.TipoCespedId,
+            stockAnteriorM2 = currentStock,
+            stockActualM2 = request.NuevoStockM2,
+            diferenciaM2 = SignedQuantity(movement.Tipo, movement.CantidadM2),
+            movement.Fecha
+        });
     }
 
     private static async Task<IResult> RegisterLote(IngresoLoteRequest request, ClaimsPrincipal currentUser, AppDbContext db, CancellationToken ct)

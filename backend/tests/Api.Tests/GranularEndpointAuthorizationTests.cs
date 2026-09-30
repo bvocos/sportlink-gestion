@@ -37,6 +37,19 @@ public sealed class GranularEndpointAuthorizationTests
         Assert.False(edit.EndpointExecuted);
     }
 
+    [Fact]
+    public async Task StockCrear_CannotAdjust_WithoutStockEditPermission()
+    {
+        var create = await Execute("stock", "crear", "stock.crear");
+        var adjust = await Execute("stock", "editar", "stock.crear");
+        var allowedAdjust = await Execute("stock", "editar", "stock.editar");
+
+        Assert.True(create.EndpointExecuted);
+        Assert.Equal(StatusCodes.Status403Forbidden, adjust.StatusCode);
+        Assert.False(adjust.EndpointExecuted);
+        Assert.True(allowedAdjust.EndpointExecuted);
+    }
+
     private static async Task<(int StatusCode, bool EndpointExecuted)> Execute(string modulo, string accion, params string[] claims)
     {
         var services = new ServiceCollection();

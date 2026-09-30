@@ -118,7 +118,7 @@ internal static class VentaService
 {
     public static Task<decimal> StockActual(AppDbContext db, Guid depositoId, Guid tipoCespedId, CancellationToken ct) =>
         db.MovimientosStock.Where(x => x.DepositoId == depositoId && x.TipoCespedId == tipoCespedId)
-            .SumAsync(x => x.Tipo == TipoMovimientoStock.SalidaPorVenta ? -x.CantidadM2 : x.CantidadM2, ct);
+            .SumAsync(x => x.Tipo == TipoMovimientoStock.SalidaPorVenta || x.Tipo == TipoMovimientoStock.AjusteSalida ? -x.CantidadM2 : x.CantidadM2, ct);
 
     internal static decimal StockShortage(decimal stockActual, decimal cantidadSolicitada) =>
         Math.Max(cantidadSolicitada - stockActual, 0);
@@ -403,7 +403,7 @@ public static class VentaEndpoints
                 {
                     tipoCespedId = p.Id, nombre = p.Nombre,
                     stockActualM2 = db.MovimientosStock.Where(m => m.DepositoId == x.Id && m.TipoCespedId == p.Id)
-                        .Sum(m => (decimal?)(m.Tipo == TipoMovimientoStock.SalidaPorVenta ? -m.CantidadM2 : m.CantidadM2)) ?? 0m
+                        .Sum(m => (decimal?)(m.Tipo == TipoMovimientoStock.SalidaPorVenta || m.Tipo == TipoMovimientoStock.AjusteSalida ? -m.CantidadM2 : m.CantidadM2)) ?? 0m
                 }).ToList()
             }).ToListAsync(ct)
         };
