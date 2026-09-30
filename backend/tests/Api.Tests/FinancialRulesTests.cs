@@ -36,6 +36,13 @@ public sealed class FinancialRulesTests
     }
 
     [Fact]
+    public void SaleValidation_AllowsZeroInitialPayment()
+    {
+        var result = new RegistrarVentaValidator().Validate(Sale(FormaPago.Cuotas, 3, 0m));
+        Assert.DoesNotContain(result.Errors, x => x.PropertyName == nameof(RegistrarVentaCommand.MontoEntrega));
+    }
+
+    [Fact]
     public void PaidSale_AllowsChangingOnlySaleDate()
     {
         var original = Sale(FormaPago.Cuotas, 3);

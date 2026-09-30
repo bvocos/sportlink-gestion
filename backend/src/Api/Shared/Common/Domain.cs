@@ -6,6 +6,11 @@ public interface IAuditableEntity
     DateTimeOffset? UpdatedAt { get; set; }
 }
 
+public interface ISucursalScoped
+{
+    Guid SucursalId { get; set; }
+}
+
 public abstract class AuditableEntity : IAuditableEntity
 {
     public Guid Id { get; set; } = Guid.NewGuid();

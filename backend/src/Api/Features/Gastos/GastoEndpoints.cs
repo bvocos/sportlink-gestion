@@ -1,4 +1,5 @@
 using Api.Shared.Database;
+using Api.Features.Auth;
 using Microsoft.EntityFrameworkCore;
 
 namespace Api.Features.Gastos;
@@ -9,11 +10,11 @@ public static class GastoEndpoints
 {
     public static void MapGastoEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/gastos").WithTags("Gastos").RequireAuthorization("gastos");
-        group.MapGet("/", List);
-        group.MapPost("/", Create);
-        group.MapPut("/{id:guid}", Update);
-        group.MapDelete("/{id:guid}", Delete);
+        var group = app.MapGroup("/api/gastos").WithTags("Gastos");
+        group.MapGet("/", List).RequirePermiso("gastos", "ver");
+        group.MapPost("/", Create).RequirePermiso("gastos", "crear");
+        group.MapPut("/{id:guid}", Update).RequirePermiso("gastos", "editar");
+        group.MapDelete("/{id:guid}", Delete).RequirePermiso("gastos", "eliminar");
     }
 
     private static async Task<IResult> List(DateOnly? desde, DateOnly? hasta, string? buscar, int page, int pageSize, AppDbContext db, CancellationToken ct)

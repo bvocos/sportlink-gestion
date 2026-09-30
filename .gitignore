@@ -17,6 +17,7 @@ web/*.js
 .agents/
 .codex/
 .tmp/
+tmp/
 
 # Secrets and local overrides
 .env

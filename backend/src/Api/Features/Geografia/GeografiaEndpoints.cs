@@ -1,5 +1,6 @@
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Caching.Memory;
+using Api.Features.Auth;
 
 namespace Api.Features.Geografia;
 
@@ -51,15 +52,15 @@ public static class GeografiaEndpoints
 {
     public static void MapGeografiaEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/geografia").WithTags("Geografía").RequireAuthorization("clientes");
+        var group = app.MapGroup("/api/geografia").WithTags("Geografía");
         group.MapGet("/provincias", async (GeografiaService service, CancellationToken ct) =>
-            Results.Ok(await service.GetProvincias(ct)));
+            Results.Ok(await service.GetProvincias(ct))).RequirePermiso("clientes", "ver");
         group.MapGet("/localidades", async (string provincia, GeografiaService service, CancellationToken ct) =>
         {
             if (string.IsNullOrWhiteSpace(provincia))
                 return Results.ValidationProblem(new Dictionary<string, string[]>
                     { ["provincia"] = ["Seleccioná una provincia."] });
             return Results.Ok(await service.GetLocalidades(provincia, ct));
-        });
+        }).RequirePermiso("clientes", "ver");
     }
 }

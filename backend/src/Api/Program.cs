@@ -11,6 +11,9 @@ using Api.Features.Rentabilidad;
 using Api.Features.Ventas;
 using Api.Features.Geografia;
 using Api.Features.Gastos;
+using Api.Features.Presupuestos;
+using Api.Features.Sucursales;
+using Api.Features.Stock;
 using Api.Shared.Behaviors;
 using Api.Shared.Database;
 using FluentValidation;
@@ -19,11 +22,18 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.AspNetCore.Authorization;
 using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.ConfigureHttpJsonOptions(o => o.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
-builder.Services.AddDbContext<AppDbContext>(o => o.UseSqlServer(builder.Configuration.GetConnectionString("Default")));
+builder.Services.AddDbContext<AppDbContext>(o =>
+    o.UseSqlServer(
+        builder.Configuration.GetConnectionString("Default"),
+        sql => sql.EnableRetryOnFailure(
+            maxRetryCount: 5,
+            maxRetryDelay: TimeSpan.FromSeconds(30),
+            errorNumbersToAdd: null)));
 builder.Services.AddMediatR(c => c.RegisterServicesFromAssemblyContaining<Program>());
 builder.Services.AddTransient(typeof(IPipelineBehavior<,>), typeof(ValidationBehavior<,>));
 builder.Services.AddValidatorsFromAssemblyContaining<Program>();
@@ -64,9 +74,9 @@ builder.Services.AddAuthorization(o=>
 {
     o.FallbackPolicy=new Microsoft.AspNetCore.Authorization.AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build();
     o.AddPolicy("Administrador",p=>p.RequireRole("Administrador"));
-    foreach(var permiso in Permissions.All)
-        o.AddPolicy(permiso,p=>p.RequireAssertion(context=>context.User.IsInRole("Administrador")||context.User.HasClaim("permiso",permiso)));
 });
+builder.Services.AddSingleton<IAuthorizationHandler, PermisoHandler>();
+builder.Services.AddSingleton<IAuthorizationPolicyProvider, PermisoPolicyProvider>();
 builder.Services.AddCors(o => o.AddDefaultPolicy(p => p.WithOrigins(builder.Configuration.GetSection("AllowedOrigins").Get<string[]>() ?? ["http://localhost:5173"]).AllowAnyHeader().AllowAnyMethod()));
 
 var app = builder.Build();
@@ -123,7 +133,17 @@ app.MapRentabilidadEndpoints();
 app.MapMaestroEndpoints();
 app.MapGeografiaEndpoints();
 app.MapGastoEndpoints();
+app.MapPresupuestoEndpoints();
+app.MapSucursalEndpoints();
+app.MapStockEndpoints();
 app.MapFallbackToFile("index.html").AllowAnonymous();
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    var skipMigrations = app.Configuration.GetValue<bool>("SkipDatabaseMigrations");
+    if (!skipMigrations)
+        await db.Database.MigrateAsync();
+}
 await SeedData.InitializeAsync(app.Services);
 app.Run();
 public partial class Program { }
