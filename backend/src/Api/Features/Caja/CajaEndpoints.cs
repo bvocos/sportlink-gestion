@@ -48,26 +48,31 @@ public static class CajaEndpoints
             errors["sucursalId"] = ["La sucursal seleccionada no existe o está inactiva."];
         if (errors.Count > 0) return Results.ValidationProblem(errors);
 
-        await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
-        if (request.Tipo == TipoMovimiento.Retiro)
+        var executionStrategy = db.Database.CreateExecutionStrategy();
+        return await executionStrategy.ExecuteAsync(async () =>
         {
-            var saldo = await db.MovimientosCaja.Where(x => x.SucursalId == sucursalId!.Value)
-                .SumAsync(x => x.Tipo == TipoMovimiento.Ingreso ? x.Monto : -x.Monto, ct);
-            var withdrawalError = ValidateWithdrawal(request.Tipo, request.Monto, saldo);
-            if (withdrawalError is not null)
-                return Results.ValidationProblem(new Dictionary<string, string[]> { ["monto"] = [withdrawalError] });
-        }
+            await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
+            if (request.Tipo == TipoMovimiento.Retiro)
+            {
+                var saldo = await db.MovimientosCaja.Where(x => x.SucursalId == sucursalId!.Value)
+                    .SumAsync(x => x.Tipo == TipoMovimiento.Ingreso ? x.Monto : -x.Monto, ct);
+                var withdrawalError = ValidateWithdrawal(request.Tipo, request.Monto, saldo);
+                if (withdrawalError is not null)
+                    return (IResult)Results.ValidationProblem(
+                        new Dictionary<string, string[]> { ["monto"] = [withdrawalError] });
+            }
 
-        var movement = new MovimientoCaja
-        {
-            Tipo = request.Tipo, Monto = request.Monto, Concepto = concepto!,
-            Usuario = currentUser.Identity?.Name ?? currentUser.FindFirstValue("usuario") ?? "sistema",
-            Fecha = DateTimeOffset.UtcNow, SucursalId = sucursalId!.Value
-        };
-        db.MovimientosCaja.Add(movement);
-        await db.SaveChangesAsync(ct);
-        await transaction.CommitAsync(ct);
-        return Results.Created($"/api/caja/movimientos/{movement.Id}", movement);
+            var movement = new MovimientoCaja
+            {
+                Tipo = request.Tipo, Monto = request.Monto, Concepto = concepto!,
+                Usuario = currentUser.Identity?.Name ?? currentUser.FindFirstValue("usuario") ?? "sistema",
+                Fecha = DateTimeOffset.UtcNow, SucursalId = sucursalId!.Value
+            };
+            db.MovimientosCaja.Add(movement);
+            await db.SaveChangesAsync(ct);
+            await transaction.CommitAsync(ct);
+            return (IResult)Results.Created($"/api/caja/movimientos/{movement.Id}", movement);
+        });
     }
 
     private static async Task<IResult> ActualizarObservacion(Guid id, ActualizarObservacionRequest request,
