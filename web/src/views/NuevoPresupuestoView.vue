@@ -53,8 +53,8 @@ watch(() => form.value.fecha, (fecha) => { form.value.validezHasta = addDay(fech
 
 const subtotalContado = computed(() => form.value.lineas.reduce((s, l) => s + Number(l.cantidadM2 || 0) * Number(l.precioContadoM2 || 0), 0))
 const subtotalFinanciado = computed(() => form.value.lineas.reduce((s, l) => s + Number(l.cantidadM2 || 0) * Number(l.precioFinanciadoM2 || 0), 0))
-const contado = computed(() => subtotalContado.value * (1 - Number(form.value.descuentoContadoPorcentaje) / 100) * (1 + Number(form.value.ivaContadoPorcentaje) / 100))
-const financiado = computed(() => subtotalFinanciado.value * (1 + Number(form.value.ivaFinanciadoPorcentaje) / 100))
+const contado = computed(() => subtotalContado.value * (1 - Number(form.value.descuentoContadoPorcentaje) / 100))
+const financiado = computed(() => subtotalFinanciado.value)
 const entregaConIva = computed(() => Number(form.value.entregaFinanciada) * 1.21)
 const saldoFinanciado = computed(() => financiado.value - entregaConIva.value)
 const usd = (v: number) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'USD' }).format(v)

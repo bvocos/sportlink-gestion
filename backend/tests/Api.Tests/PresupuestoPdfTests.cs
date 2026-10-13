@@ -6,14 +6,14 @@ namespace Api.Tests;
 public sealed class PresupuestoPdfTests
 {
     [Fact]
-    public void Totals_UseEachProductsCashAndFinancedPriceIndependently()
+    public void Totals_UseConfiguredPricesWithoutAddingInformationalTaxPercentages()
     {
         var quote = new Presupuesto { DescuentoContadoPorcentaje = 5, IvaContadoPorcentaje = 10.5m, IvaFinanciadoPorcentaje = 21, EntregaFinanciada = 1000,
             Lineas = [new PresupuestoLinea { CantidadM2 = 200, PrecioContadoM2 = 21.5m, PrecioFinanciadoM2 = 23, TotalContado = 4300, TotalFinanciado = 4600 }] };
         var totals = PresupuestoCalculator.Calculate(quote);
         Assert.Equal(4300, totals.SubtotalContado); Assert.Equal(4600, totals.SubtotalFinanciado);
-        Assert.Equal(4513.925m, totals.TotalContado); Assert.Equal(5566, totals.TotalFinanciado);
-        Assert.Equal(1210, totals.EntregaConIva); Assert.Equal(4356, totals.SaldoFinanciado);
+        Assert.Equal(4085, totals.TotalContado); Assert.Equal(4600, totals.TotalFinanciado);
+        Assert.Equal(1210, totals.EntregaConIva); Assert.Equal(3390, totals.SaldoFinanciado);
     }
 
     [Fact]

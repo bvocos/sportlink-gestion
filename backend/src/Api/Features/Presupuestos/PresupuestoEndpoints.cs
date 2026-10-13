@@ -45,7 +45,7 @@ public static class PresupuestoEndpoints
         if (r.Lineas.Count == 0 || r.Lineas.Any(x => x.CantidadM2 <= 0 || x.PrecioContadoM2 <= 0 || x.PrecioFinanciadoM2 <= 0)) return "Agregá al menos un producto con metros y precios válidos.";
         if (r.DescuentoContadoPorcentaje is < 0 or > 100 || r.IvaContadoPorcentaje < 0 || r.IvaFinanciadoPorcentaje < 0) return "Revisá descuentos e impuestos.";
         if (r.EntregaFinanciada < 0) return "Revisá la financiación.";
-        var totalFinanciado = r.Lineas.Sum(x => x.CantidadM2 * x.PrecioFinanciadoM2) * (1 + r.IvaFinanciadoPorcentaje / 100m);
+        var totalFinanciado = r.Lineas.Sum(x => x.CantidadM2 * x.PrecioFinanciadoM2);
         if (r.EntregaFinanciada * 1.21m > totalFinanciado) return "La entrega más IVA 21% no puede superar el total financiado.";
         return null;
     }
@@ -94,8 +94,8 @@ internal static class PresupuestoCalculator
     internal static PresupuestoTotales Calculate(Presupuesto p)
     {
         var subtotalContado = p.Lineas.Sum(x => x.TotalContado); var subtotalFinanciado = p.Lineas.Sum(x => x.TotalFinanciado);
-        var contado = subtotalContado * (1 - p.DescuentoContadoPorcentaje / 100m) * (1 + p.IvaContadoPorcentaje / 100m);
-        var financiado = subtotalFinanciado * (1 + p.IvaFinanciadoPorcentaje / 100m);
+        var contado = subtotalContado * (1 - p.DescuentoContadoPorcentaje / 100m);
+        var financiado = subtotalFinanciado;
         var entregaConIva = p.EntregaFinanciada * (1 + IvaEntregaPorcentaje / 100m);
         return new(subtotalContado, subtotalFinanciado, contado, financiado, entregaConIva, financiado - entregaConIva);
     }
