@@ -55,8 +55,8 @@ const subtotalContado = computed(() => form.value.lineas.reduce((s, l) => s + Nu
 const subtotalFinanciado = computed(() => form.value.lineas.reduce((s, l) => s + Number(l.cantidadM2 || 0) * Number(l.precioFinanciadoM2 || 0), 0))
 const contado = computed(() => subtotalContado.value * (1 - Number(form.value.descuentoContadoPorcentaje) / 100))
 const financiado = computed(() => subtotalFinanciado.value)
-const entregaConIva = computed(() => Number(form.value.entregaFinanciada) * 1.21)
-const saldoFinanciado = computed(() => financiado.value - entregaConIva.value)
+const entregaInicial = computed(() => Number(form.value.entregaFinanciada))
+const saldoFinanciado = computed(() => financiado.value - entregaInicial.value)
 const usd = (v: number) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'USD' }).format(v)
 
 function product(l: any) { return productos.value.find(x => x.id === l.tipoCespedId) }
@@ -140,13 +140,13 @@ async function save() {
   saving.value = true
   try {
     if (!form.value.lineas.every(l => l.tipoCespedId && l.cantidadM2 > 0 && l.precioContadoM2 > 0 && l.precioFinanciadoM2 > 0)) throw new Error('lines')
-    if (entregaConIva.value > financiado.value) throw new Error('deposit')
+    if (entregaInicial.value > financiado.value) throw new Error('deposit')
     id.value ? await http.put(`/presupuestos/${id.value}`, form.value) : await http.post('/presupuestos', form.value)
     await router.push('/presupuestos')
   } catch (e: any) {
     const details = Object.values(e.response?.data?.errors ?? {}).flat().map(String)
     error.value = e.message === 'lines' ? 'Completá producto, metros y ambos precios en todas las líneas.'
-      : e.message === 'deposit' ? 'La entrega más IVA 21% no puede superar el total financiado.'
+      : e.message === 'deposit' ? 'La entrega inicial no puede superar el total financiado.'
       : details[0] ?? apiErrorMessage(e, 'Revisá los datos ingresados.')
   } finally {
     saving.value = false
@@ -309,13 +309,13 @@ onBeforeUnmount(closePreview)
                 <InputNumber v-model="form.ivaFinanciadoPorcentaje" :min="0" :min-fraction-digits="2" :max-fraction-digits="2" />
               </div>
               <div class="field col-12 md:col-6">
-                <label>Entrega sin IVA (USD)</label>
+                <label>Entrega inicial (USD)</label>
                 <InputNumber v-model="form.entregaFinanciada" :min="0" :min-fraction-digits="2" :max-fraction-digits="2" />
-                <small class="text-color-secondary">En el PDF figurará este monto + IVA 21%.</small>
+                <small class="text-color-secondary">El importe ingresado ya incluye IVA.</small>
               </div>
             </div>
             <strong class="text-xl">{{ usd(financiado) }}</strong>
-            <small class="text-color-secondary block">Entrega con IVA 21%: {{ usd(entregaConIva) }} · Saldo a financiar: {{ usd(saldoFinanciado) }}</small>
+            <small class="text-color-secondary block">Entrega inicial: {{ usd(entregaInicial) }} · Saldo a financiar: {{ usd(saldoFinanciado) }}</small>
           </article>
         </div>
         <div class="field quote-notes mt-3">

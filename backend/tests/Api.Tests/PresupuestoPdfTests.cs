@@ -13,7 +13,7 @@ public sealed class PresupuestoPdfTests
         var totals = PresupuestoCalculator.Calculate(quote);
         Assert.Equal(4300, totals.SubtotalContado); Assert.Equal(4600, totals.SubtotalFinanciado);
         Assert.Equal(4085, totals.TotalContado); Assert.Equal(4600, totals.TotalFinanciado);
-        Assert.Equal(1210, totals.EntregaConIva); Assert.Equal(3390, totals.SaldoFinanciado);
+        Assert.Equal(1000, totals.EntregaInicial); Assert.Equal(3600, totals.SaldoFinanciado);
     }
 
     [Fact]

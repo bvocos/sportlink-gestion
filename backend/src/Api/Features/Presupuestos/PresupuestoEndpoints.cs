@@ -28,7 +28,7 @@ public static class PresupuestoEndpoints
         var totals = PresupuestoCalculator.Calculate(x);
         return new { x.Id, x.Numero, x.ClienteId, cliente = $"{x.Cliente.Nombre} {x.Cliente.Apellido}".Trim(), x.Fecha, x.ValidezHasta, estado = x.Estado.ToString(),
             x.DescuentoContadoPorcentaje, x.IvaContadoPorcentaje, x.IvaFinanciadoPorcentaje, x.EntregaFinanciada, x.Observaciones,
-            totals.SubtotalContado, totals.SubtotalFinanciado, totals.TotalContado, totals.TotalFinanciado, totals.EntregaConIva, totals.SaldoFinanciado,
+            totals.SubtotalContado, totals.SubtotalFinanciado, totals.TotalContado, totals.TotalFinanciado, totals.EntregaInicial, totals.SaldoFinanciado,
             lineas = x.Lineas.Select(l => new { l.Id, l.TipoCespedId, l.Producto, l.Descripcion, l.DescripcionPresupuesto, l.EspecificacionesPresupuesto, l.FichaTecnicaUrl, l.Color, l.CantidadM2, l.PrecioContadoM2, l.PrecioFinanciadoM2, l.TotalContado, l.TotalFinanciado }) };
     }
     private static async Task<IResult> List(AppDbContext db, CancellationToken ct) => Results.Ok((await Query(db).OrderByDescending(x => x.Numero).ToListAsync(ct)).Select(Dto));
@@ -46,7 +46,7 @@ public static class PresupuestoEndpoints
         if (r.DescuentoContadoPorcentaje is < 0 or > 100 || r.IvaContadoPorcentaje < 0 || r.IvaFinanciadoPorcentaje < 0) return "Revisá descuentos e impuestos.";
         if (r.EntregaFinanciada < 0) return "Revisá la financiación.";
         var totalFinanciado = r.Lineas.Sum(x => x.CantidadM2 * x.PrecioFinanciadoM2);
-        if (r.EntregaFinanciada * 1.21m > totalFinanciado) return "La entrega más IVA 21% no puede superar el total financiado.";
+        if (r.EntregaFinanciada > totalFinanciado) return "La entrega inicial no puede superar el total financiado.";
         return null;
     }
     private static async Task Apply(Presupuesto p, PresupuestoRequest r, AppDbContext db, CancellationToken ct)
@@ -87,17 +87,16 @@ public static class PresupuestoEndpoints
     }
 }
 
-internal sealed record PresupuestoTotales(decimal SubtotalContado, decimal SubtotalFinanciado, decimal TotalContado, decimal TotalFinanciado, decimal EntregaConIva, decimal SaldoFinanciado);
+internal sealed record PresupuestoTotales(decimal SubtotalContado, decimal SubtotalFinanciado, decimal TotalContado, decimal TotalFinanciado, decimal EntregaInicial, decimal SaldoFinanciado);
 internal static class PresupuestoCalculator
 {
-    internal const decimal IvaEntregaPorcentaje = 21m;
     internal static PresupuestoTotales Calculate(Presupuesto p)
     {
         var subtotalContado = p.Lineas.Sum(x => x.TotalContado); var subtotalFinanciado = p.Lineas.Sum(x => x.TotalFinanciado);
         var contado = subtotalContado * (1 - p.DescuentoContadoPorcentaje / 100m);
         var financiado = subtotalFinanciado;
-        var entregaConIva = p.EntregaFinanciada * (1 + IvaEntregaPorcentaje / 100m);
-        return new(subtotalContado, subtotalFinanciado, contado, financiado, entregaConIva, financiado - entregaConIva);
+        var entregaInicial = p.EntregaFinanciada;
+        return new(subtotalContado, subtotalFinanciado, contado, financiado, entregaInicial, financiado - entregaInicial);
     }
 }
 
@@ -145,7 +144,7 @@ internal static class PresupuestoPdf
                         box.Item().PaddingTop(5).Row(r =>
                         {
                             r.RelativeItem().Border(1).BorderColor(Lime).Padding(9).Column(x => { x.Item().Text("OPCIÓN CONTADO").FontColor(Green).Bold(); x.Item().Text(Usd(cash)).FontSize(16).Bold().FontColor(Green); x.Item().Text($"Descuento {p.DescuentoContadoPorcentaje:N2}% · IVA {p.IvaContadoPorcentaje:N2}%").FontSize(7).FontColor(Colors.Grey.Darken1); });
-                            r.ConstantItem(8); r.RelativeItem().Background(Green).Padding(9).Column(x => { x.Item().Text("OPCIÓN FINANCIADA").FontColor(Lime).Bold(); x.Item().Text(Usd(financed)).FontSize(16).Bold().FontColor(Colors.White); x.Item().Text($"Entrega: {Usd(p.EntregaFinanciada)} + IVA 21% = {Usd(totals.EntregaConIva)}").FontSize(7).FontColor(Colors.White); x.Item().Text($"Saldo: {Usd(financedBalance)} · IVA {p.IvaFinanciadoPorcentaje:N2}% incluido").FontSize(7).FontColor(Colors.Grey.Lighten2); });
+                            r.ConstantItem(8); r.RelativeItem().Background(Green).Padding(9).Column(x => { x.Item().Text("OPCIÓN FINANCIADA").FontColor(Lime).Bold(); x.Item().Text(Usd(financed)).FontSize(16).Bold().FontColor(Colors.White); x.Item().Text($"Entrega inicial: {Usd(totals.EntregaInicial)} · IVA incluido").FontSize(7).FontColor(Colors.White); x.Item().Text($"Saldo: {Usd(financedBalance)} · IVA {p.IvaFinanciadoPorcentaje:N2}% incluido").FontSize(7).FontColor(Colors.Grey.Lighten2); });
                         });
                         box.Item().Text("Importes expresados exclusivamente en dólares estadounidenses (USD).").FontSize(7).Bold().FontColor(Orange);
                         box.Item().Background("#A8F5F5F5").Padding(7).Column(x =>
