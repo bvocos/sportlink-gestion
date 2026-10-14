@@ -47,6 +47,7 @@ public sealed class VentaEndpointIntegrationTests
             Guid alicuotaIvaId;
             Guid sucursalId;
             Guid depositoId;
+            Guid depositoSecundarioId;
             using (var scope = factory.Services.CreateScope())
             {
                 var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
@@ -64,11 +65,19 @@ public sealed class VentaEndpointIntegrationTests
                     Nombre = $"Producto {Guid.NewGuid():N}", PrecioVentaM2 = 20m,
                     PrecioContadoM2 = 20m, PrecioFinanciadoM2 = 22m, CostoM2 = 10m, Activo = true
                 };
+                var depositoSecundario = new Deposito
+                {
+                    SucursalId = sucursal.Id, Nombre = $"Secundario {Guid.NewGuid():N}", Activo = true
+                };
                 var alicuota = await db.AlicuotasIva.FirstAsync();
                 var admin = await db.Usuarios.SingleAsync(x => x.NombreUsuario == "admin");
                 admin.DebeCambiarPassword = false;
                 db.Clientes.Add(cliente);
+                db.Depositos.Add(depositoSecundario);
                 db.TiposCesped.Add(tipo);
+                await db.SaveChangesAsync();
+                tipo.Depositos.Add(new TipoCespedDeposito { DepositoId = sucursal.DepositoPropioId });
+                tipo.Depositos.Add(new TipoCespedDeposito { DepositoId = depositoSecundario.Id });
                 await db.SaveChangesAsync();
                 db.MovimientosStock.Add(new MovimientoStock
                 {
@@ -85,11 +94,28 @@ public sealed class VentaEndpointIntegrationTests
                 alicuotaIvaId = alicuota.Id;
                 sucursalId = sucursal.Id;
                 depositoId = sucursal.DepositoPropioId;
+                depositoSecundarioId = depositoSecundario.Id;
             }
 
             var login = await client.PostAsJsonAsync("/api/auth/login", new { usuario = "admin", password = "Admin123!" });
             Assert.Equal(HttpStatusCode.OK, login.StatusCode);
             client.DefaultRequestHeaders.Add("X-Sucursal-Id", sucursalId.ToString());
+
+            var stock = await client.GetFromJsonAsync<System.Text.Json.JsonElement>("/api/stock");
+            var secondaryStock = stock.EnumerateArray().Single(x => x.GetProperty("id").GetGuid() == depositoSecundarioId);
+            Assert.Contains(secondaryStock.GetProperty("productos").EnumerateArray(),
+                x => x.GetProperty("tipoCespedId").GetGuid() == tipoCespedId);
+
+            var saleFilters = await client.GetFromJsonAsync<System.Text.Json.JsonElement>("/api/ventas/filtros");
+            var secondarySaleDeposit = saleFilters.GetProperty("depositos").EnumerateArray()
+                .Single(x => x.GetProperty("id").GetGuid() == depositoSecundarioId);
+            Assert.Contains(secondarySaleDeposit.GetProperty("productos").EnumerateArray(),
+                x => x.GetProperty("tipoCespedId").GetGuid() == tipoCespedId);
+
+            var quoteFilters = await client.GetFromJsonAsync<System.Text.Json.JsonElement>("/api/presupuestos/filtros");
+            var quoteProduct = quoteFilters.GetProperty("productos").EnumerateArray()
+                .Single(x => x.GetProperty("id").GetGuid() == tipoCespedId);
+            Assert.Contains(quoteProduct.GetProperty("depositoIds").EnumerateArray(), x => x.GetGuid() == depositoSecundarioId);
 
             var response = await client.PostAsJsonAsync("/api/ventas", new
             {

@@ -23,6 +23,7 @@ const router = useRouter()
 const id = computed(() => String(route.params.id ?? ''))
 const clientes = ref<any[]>([])
 const productos = ref<any[]>([])
+const depositos = ref<any[]>([])
 const saving = ref(false)
 const error = ref('')
 const loading = ref(false)
@@ -44,12 +45,18 @@ function addDay(value: string) {
 const blankLine = () => ({ tipoCespedId: '', color: '', cantidadM2: 1, precioContadoM2: 0, precioFinanciadoM2: 0 })
 const initialDate = today.toISOString().slice(0, 10)
 const form = ref({
-  clienteId: '', fecha: initialDate, validezHasta: addDay(initialDate),
+  clienteId: '', depositoId: '', fecha: initialDate, validezHasta: addDay(initialDate),
   descuentoContadoPorcentaje: 0, ivaContadoPorcentaje: 10.5, ivaFinanciadoPorcentaje: 21,
   entregaFinanciada: 0, observaciones: '', lineas: [blankLine()],
 })
 
 watch(() => form.value.fecha, (fecha) => { form.value.validezHasta = addDay(fecha) })
+watch(() => form.value.depositoId, () => {
+  for (const line of form.value.lineas) {
+    if (line.tipoCespedId && !productosDisponibles.value.some((x: any) => x.id === line.tipoCespedId))
+      Object.assign(line, blankLine())
+  }
+})
 
 const subtotalContado = computed(() => form.value.lineas.reduce((s, l) => s + Number(l.cantidadM2 || 0) * Number(l.precioContadoM2 || 0), 0))
 const subtotalFinanciado = computed(() => form.value.lineas.reduce((s, l) => s + Number(l.cantidadM2 || 0) * Number(l.precioFinanciadoM2 || 0), 0))
@@ -58,8 +65,10 @@ const financiado = computed(() => subtotalFinanciado.value)
 const entregaInicial = computed(() => Number(form.value.entregaFinanciada))
 const saldoFinanciado = computed(() => financiado.value - entregaInicial.value)
 const usd = (v: number) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'USD' }).format(v)
+const productosDisponibles = computed(() => productos.value.filter((x: any) =>
+  (x.depositoIds?.length ? x.depositoIds : [x.depositoId]).includes(form.value.depositoId)))
 
-function product(l: any) { return productos.value.find(x => x.id === l.tipoCespedId) }
+function product(l: any) { return productosDisponibles.value.find(x => x.id === l.tipoCespedId) }
 function selectProduct(l: any) {
   const p = product(l)
   if (p) { l.precioContadoM2 = p.precioContadoM2; l.precioFinanciadoM2 = p.precioFinanciadoM2; l.color = '' }
@@ -79,11 +88,13 @@ async function load() {
     const f = (await http.get('/presupuestos/filtros')).data
     clientes.value = f.clientes
     productos.value = f.productos
+    depositos.value = f.depositos ?? []
+    form.value.depositoId = depositos.value[0]?.id ?? ''
     if (id.value) {
       const p = (await http.get(`/presupuestos/${id.value}`)).data
       presupuestoNumero.value = p.numero
       form.value = {
-        clienteId: p.clienteId, fecha: p.fecha, validezHasta: addDay(p.fecha),
+        clienteId: p.clienteId, depositoId: p.depositoId, fecha: p.fecha, validezHasta: addDay(p.fecha),
         descuentoContadoPorcentaje: p.descuentoContadoPorcentaje, ivaContadoPorcentaje: p.ivaContadoPorcentaje,
         ivaFinanciadoPorcentaje: p.ivaFinanciadoPorcentaje, entregaFinanciada: p.entregaFinanciada,
         observaciones: p.observaciones ?? '',
@@ -174,6 +185,12 @@ onBeforeUnmount(closePreview)
     <form v-else @submit.prevent="save">
       <Message v-if="error" severity="error" class="mb-3" :closable="false">{{ error }}</Message>
 
+      <div class="field mb-3" style="max-width: 28rem">
+        <label for="depositoPresupuesto">Depósito del presupuesto</label>
+        <Select id="depositoPresupuesto" v-model="form.depositoId" :options="depositos" option-label="nombre"
+          option-value="id" placeholder="Seleccionar depósito" class="w-full" required />
+      </div>
+
       <Panel class="sale-step mb-3">
         <template #header><span class="font-bold">1. Cliente y vigencia</span></template>
         <article v-if="showNewClient" class="card inline-form-panel inline-form-panel-wide">
@@ -230,7 +247,7 @@ onBeforeUnmount(closePreview)
               <label>Producto</label>
               <Select
                 v-model="l.tipoCespedId"
-                :options="productos"
+                :options="productosDisponibles"
                 option-label="nombre"
                 option-value="id"
                 placeholder="Seleccionar producto"

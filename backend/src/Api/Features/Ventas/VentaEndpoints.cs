@@ -389,8 +389,8 @@ public static class VentaEndpoints
 
     private static async Task<object> Filters(ClaimsPrincipal user, AppDbContext db, CancellationToken ct)
     {
-        var ownDepositId = await SucursalDepositoService.GetOwnDepositId(user, db, ct);
         var depositQuery = SucursalDepositoService.VisibleDeposits(db.Depositos.AsNoTracking().Where(x => x.Activo), user);
+        var visibleDepositIds = depositQuery.Select(x => x.Id);
         return new
         {
         clientes = await db.Clientes.AsNoTracking().WhereVisibleParaUsuario(user).OrderBy(x => x.Apellido).ThenBy(x => x.Nombre)
@@ -402,7 +402,8 @@ public static class VentaEndpoints
                 x.Telefono,
                 x.Localidad
             }).ToListAsync(ct),
-        tiposCesped = await db.TiposCesped.AsNoTracking().Where(x => x.DepositoId == ownDepositId || x.Depositos.Any(d => d.DepositoId == ownDepositId)).OrderBy(x => x.Nombre)
+        tiposCesped = await db.TiposCesped.AsNoTracking().Where(x => x.Activo &&
+            (visibleDepositIds.Contains(x.DepositoId) || x.Depositos.Any(d => visibleDepositIds.Contains(d.DepositoId)))).OrderBy(x => x.Nombre)
             .Select(x => new { x.Id, x.Nombre, x.Activo }).ToListAsync(ct),
         sucursales = await db.Sucursales.AsNoTracking().Where(x => x.Activo && x.Id == user.SucursalId()).OrderBy(x => x.Nombre)
             .Select(x => new { x.Id, x.Nombre }).ToListAsync(ct),
