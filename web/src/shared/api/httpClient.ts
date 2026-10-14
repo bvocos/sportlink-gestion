@@ -1,7 +1,7 @@
 import axios from'axios'
 export const http=axios.create({baseURL:import.meta.env.VITE_API_BASE_URL??'/api',timeout:15000,withCredentials:true})
 http.interceptors.request.use(config=>{
-  const selected=JSON.parse(localStorage.getItem('active-sucursal')||'null') as {id?:string}|null
+  const selected=typeof window==='undefined'?null:JSON.parse(window.localStorage.getItem('active-sucursal')||'null') as {id?:string}|null
   if(selected?.id)config.headers['X-Sucursal-Id']=selected.id
   return config
 })
