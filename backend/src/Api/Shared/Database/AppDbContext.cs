@@ -397,7 +397,11 @@ public static class SeedData
         await db.Database.ExecuteSqlRawAsync("""
             IF NOT EXISTS (SELECT 1 FROM dbo.TiposCesped WHERE Id='7C100000-0000-0000-0000-FFFFFFFFFFFF')
             BEGIN
-                IF COL_LENGTH('dbo.TiposCesped','PrecioContadoM2') IS NOT NULL
+                IF COL_LENGTH('dbo.TiposCesped','DepositoId') IS NOT NULL
+                    EXEC(N'INSERT dbo.TiposCesped(Id,DepositoId,Nombre,Descripcion,PrecioVentaM2,PrecioContadoM2,PrecioFinanciadoM2,CostoM2,ColoresJson,ControlPorLotes,Activo,CreatedAt)
+                        VALUES(''7C100000-0000-0000-0000-FFFFFFFFFFFF'',''7a100000-0000-0000-0000-000000000001'',N''Sin asignar (stock histórico)'',
+                        N''Movimientos anteriores a la gestión de stock por producto.'',0,0,0,0,N''[]'',0,0,SYSDATETIMEOFFSET())');
+                ELSE IF COL_LENGTH('dbo.TiposCesped','PrecioContadoM2') IS NOT NULL
                     INSERT dbo.TiposCesped(Id,Nombre,Descripcion,PrecioVentaM2,PrecioContadoM2,PrecioFinanciadoM2,CostoM2,ColoresJson,ControlPorLotes,Activo,CreatedAt)
                     VALUES('7C100000-0000-0000-0000-FFFFFFFFFFFF',N'Sin asignar (stock histórico)',
                         N'Movimientos anteriores a la gestión de stock por producto.',0,0,0,0,N'[]',0,0,SYSDATETIMEOFFSET());
