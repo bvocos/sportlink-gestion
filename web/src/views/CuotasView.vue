@@ -31,7 +31,7 @@ interface ComprobanteData {
   empresa: ComprobanteEmpresa;
   cliente: { nombreCompleto: string; domicilio: string; localidad: string; telefono: string; categoriaFiscal: string; cuit: string };
   cuota: { numero: number; totalCuotas: number | null; producto: string };
-  pago: { importe: number; medioPago: string; importeEnLetras: string };
+  pago: { importe: number; medioPago: string; importeEnLetras: string; cotizacionDolarBlueVenta: number | null };
 }
 
 const pendientes = ref<any[]>([]),
@@ -225,6 +225,16 @@ function fmtFecha(iso: string) {
   return iso?.slice(0, 10).split("-").reverse().join("/") ?? "";
 }
 
+function usd(value: number) {
+  return `USD ${value.toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function textoCotizacion(venta: number | null) {
+  return venta == null
+    ? "La cotización del dólar blue no estaba disponible al momento de emitir el comprobante."
+    : `El cambio del dólar es de ARS ${venta.toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} por USD según el momento de emitir el comprobante.`;
+}
+
 function padStart(n: number, len: number) {
   return String(n).padStart(len, "0");
 }
@@ -262,6 +272,7 @@ function printComprobante() {
   .rec-pay-desc{flex:1;padding:5px}
   .rec-pay-sep{width:1px;background:#222}
   .rec-pay-amount{width:115px;padding:5px;text-align:right;font-weight:bold}
+  .rec-exchange{border-bottom:1px solid #ddd;padding:5px;font-size:8pt}
   .rec-empty-row{border-bottom:1px solid #ddd;height:14px}
   .rec-total-row{display:flex;border-top:1px solid #222}
   .rec-total-spacer{flex:1}
@@ -270,8 +281,8 @@ function printComprobante() {
   .rec-total-label{flex:1;padding:4px;text-align:right;font-weight:bold;border-right:1px solid #222}
   .rec-total-amount{width:115px;padding:4px;text-align:right;font-weight:bold}
   .rec-letras{border-top:1px solid #222;padding:8px;font-size:8.5pt}
-  .rec-son{border-top:1px solid #222;display:flex;justify-content:flex-end;padding:8px;gap:16px;font-weight:bold;font-size:11pt}
-  .rec-son-num{text-align:right;font-size:9pt}
+  .rec-final-total{border-top:1px solid #222;display:flex;justify-content:flex-end;align-items:center;padding:8px;gap:16px;font-weight:bold;font-size:11pt}
+  .rec-final-total-value{min-width:115px;text-align:right;font-size:12pt}
   @media print{body{margin:0}}
 </style></head><body>${content}</body></html>`);
   win.document.close();
@@ -414,15 +425,16 @@ onBeforeUnmount(() => { if (resumenTimer) clearTimeout(resumenTimer); });
           <div class="rec-pay-row rec-row">
             <div class="rec-pay-desc">{{ comprobante.pago.medioPago.toUpperCase() }}</div>
             <div class="rec-pay-sep"></div>
-            <div class="rec-pay-amount">{{ money(comprobante.pago.importe) }}</div>
+            <div class="rec-pay-amount">{{ usd(comprobante.pago.importe) }}</div>
           </div>
+          <div class="rec-exchange">{{ textoCotizacion(comprobante.pago.cotizacionDolarBlueVenta) }}</div>
           <div v-for="n in 3" :key="n" class="rec-empty-row"></div>
           <div class="rec-total-row">
             <div class="rec-total-spacer"></div>
             <div class="rec-total-sep"></div>
             <div class="rec-total-box">
               <div class="rec-total-label">TOTAL RECIBIDO:</div>
-              <div class="rec-total-amount">{{ money(comprobante.pago.importe) }}</div>
+              <div class="rec-total-amount">{{ usd(comprobante.pago.importe) }}</div>
             </div>
           </div>
 
@@ -431,13 +443,10 @@ onBeforeUnmount(() => { if (resumenTimer) clearTimeout(resumenTimer); });
             Recibimos la suma de <b>{{ comprobante.pago.importeEnLetras }}</b> en concepto de los items detallados anteriormente
           </div>
 
-          <!-- SON -->
-          <div class="rec-son">
-            <span>SON:</span>
-            <div class="rec-son-num">
-              <div>$</div>
-              <div>{{ comprobante.pago.importe.toLocaleString("es-AR", { minimumFractionDigits: 2 }) }}</div>
-            </div>
+          <!-- Total -->
+          <div class="rec-final-total">
+            <span>TOTAL:</span>
+            <span class="rec-final-total-value">{{ usd(comprobante.pago.importe) }}</span>
           </div>
         </div>
       </template>

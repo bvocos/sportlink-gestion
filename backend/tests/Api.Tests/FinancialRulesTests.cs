@@ -201,6 +201,32 @@ public sealed class FinancialRulesTests
         Assert.Null(CuotaEndpoints.ValidateDueDate(new DateOnly(2026, 9, 15)));
 
     [Theory]
+    [InlineData(511.11, "quinientos once dólares con once centavos")]
+    [InlineData(1.01, "un dólar con un centavo")]
+    [InlineData(0, "cero dólares con cero centavos")]
+    [InlineData(2.999, "tres dólares con cero centavos")]
+    public void AmountInWords_ExpressesUsdAndSpellsOutCents(decimal amount, string expected) =>
+        Assert.Equal(expected, NumerosEnLetras.ConvertirDolares(amount));
+
+    [Fact]
+    public void ReceiptPdf_IsGeneratedWithUsdTotalAndExchangeRate()
+    {
+        var data = new ReciboData(
+            10, 1, new DateOnly(2026, 9, 25), new EmpresaConfig(),
+            new ReciboClienteDto("VOCOS, BRUNO", "", "San Francisco, Córdoba", "03564577202", "CONSUMIDOR FINAL", ""),
+            new ReciboCuotaDto(6, 9, "Padelgrass 12mm"),
+            new ReciboPagoDto(511.11m, "Transferencia", NumerosEnLetras.ConvertirDolares(511.11m), 1555m));
+        var assets = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../src/Api/Assets"));
+
+        var pdf = CuotaReciboPdf.Generate(data, assets);
+
+        Assert.True(pdf.Length > 10_000);
+        Assert.Equal("%PDF", System.Text.Encoding.ASCII.GetString(pdf, 0, 4));
+        var output = Environment.GetEnvironmentVariable("SPORTLINK_RECEIPT_PDF_SAMPLE");
+        if (!string.IsNullOrWhiteSpace(output)) File.WriteAllBytes(output, pdf);
+    }
+
+    [Theory]
     [InlineData(1000, 100, 0, 100, 900)]
     [InlineData(1000, 100, 300, 400, 600)]
     [InlineData(1000, 100, 900, 1000, 0)]

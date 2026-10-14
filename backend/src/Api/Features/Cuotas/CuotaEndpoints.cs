@@ -4,6 +4,7 @@ using System.Text;
 using Api.Shared.Common;
 using Api.Shared.Database;
 using Api.Features.Auth;
+using Api.Features.Cotizaciones;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -140,7 +141,8 @@ public static class CuotaEndpoints
         user.Identity?.Name ?? user.FindFirstValue("usuario") ?? "sistema";
 
     private static async Task<ReciboData?> ObtenerDatosRecibo(
-        Guid id, ClaimsPrincipal user, AppDbContext db, IConfiguration config, CancellationToken ct)
+        Guid id, ClaimsPrincipal user, AppDbContext db, IConfiguration config,
+        DolarBlueService dolarBlueService, CancellationToken ct)
     {
         var cuota = await VisibleQuery(db.Cuotas.AsNoTracking(), user)
             .Include(x => x.Venta).ThenInclude(x => x.Cliente)
@@ -162,6 +164,7 @@ public static class CuotaEndpoints
         var empresa = config.GetSection("Empresa").Get<EmpresaConfig>() ?? new EmpresaConfig();
         var cliente = cuota.Venta.Cliente;
         var localidad = string.Join(", ", new[] { cliente.Localidad, cliente.Provincia }.Where(s => !string.IsNullOrWhiteSpace(s)));
+        var dolarBlue = await dolarBlueService.GetAsync(ct);
 
         return new ReciboData(
             NumeroRecibo: numeroRecibo,
@@ -182,14 +185,16 @@ public static class CuotaEndpoints
             Pago: new ReciboPagoDto(
                 Importe: cuota.ImportePagado,
                 MedioPago: cuota.MedioPago ?? "Efectivo",
-                ImporteEnLetras: NumerosEnLetras.ConvertirPesos(cuota.ImportePagado)));
+                ImporteEnLetras: NumerosEnLetras.ConvertirDolares(cuota.ImportePagado),
+                CotizacionDolarBlueVenta: dolarBlue?.Venta));
     }
 
     private static async Task<IResult> GenerarRecibo(
         Guid id, ClaimsPrincipal user, AppDbContext db,
-        IConfiguration config, IWebHostEnvironment env, HttpContext http, CancellationToken ct)
+        IConfiguration config, DolarBlueService dolarBlueService,
+        IWebHostEnvironment env, HttpContext http, CancellationToken ct)
     {
-        var datos = await ObtenerDatosRecibo(id, user, db, config, ct);
+        var datos = await ObtenerDatosRecibo(id, user, db, config, dolarBlueService, ct);
         if (datos is null) return Results.NotFound();
         var bytes = CuotaReciboPdf.Generate(datos, Path.Combine(env.ContentRootPath, "Assets"));
         http.Response.Headers.CacheControl = "no-store, no-cache, must-revalidate";
@@ -198,9 +203,10 @@ public static class CuotaEndpoints
     }
 
     private static async Task<IResult> ObtenerComprobante(
-        Guid id, ClaimsPrincipal user, AppDbContext db, IConfiguration config, CancellationToken ct)
+        Guid id, ClaimsPrincipal user, AppDbContext db, IConfiguration config,
+        DolarBlueService dolarBlueService, CancellationToken ct)
     {
-        var datos = await ObtenerDatosRecibo(id, user, db, config, ct);
+        var datos = await ObtenerDatosRecibo(id, user, db, config, dolarBlueService, ct);
         return datos is null ? Results.NotFound() : Results.Ok(datos);
     }
 }
@@ -230,7 +236,8 @@ internal sealed record ReciboClienteDto(
 
 internal sealed record ReciboCuotaDto(int Numero, int? TotalCuotas, string Producto);
 
-internal sealed record ReciboPagoDto(decimal Importe, string MedioPago, string ImporteEnLetras);
+internal sealed record ReciboPagoDto(
+    decimal Importe, string MedioPago, string ImporteEnLetras, decimal? CotizacionDolarBlueVenta);
 
 // ── PDF Generator ────────────────────────────────────────────────────────────────
 
@@ -239,7 +246,11 @@ internal static class CuotaReciboPdf
     private static readonly System.Globalization.CultureInfo Ars =
         System.Globalization.CultureInfo.GetCultureInfo("es-AR");
 
-    private static string M(decimal v) => $"$ {v.ToString("N2", Ars)}";
+    private static string M(decimal v) => $"USD {v.ToString("N2", Ars)}";
+
+    private static string Cotizacion(decimal? venta) => venta.HasValue
+        ? $"El cambio del dólar es de ARS {venta.Value.ToString("N2", Ars)} por USD según el momento de emitir el comprobante."
+        : "La cotización del dólar blue no estaba disponible al momento de emitir el comprobante.";
 
     public static byte[] Generate(ReciboData d, string assets)
     {
@@ -362,7 +373,10 @@ internal static class CuotaReciboPdf
                     r.ConstantItem(115).Padding(5).AlignRight().Text(M(d.Pago.Importe)).Bold();
                 });
 
-                for (var i = 0; i < 4; i++)
+                main.Item().BorderBottom(1).BorderColor(Colors.Grey.Lighten1)
+                    .Padding(5).Text(Cotizacion(d.Pago.CotizacionDolarBlueVenta)).FontSize(8);
+
+                for (var i = 0; i < 3; i++)
                     main.Item().BorderBottom(1).BorderColor(Colors.Grey.Lighten1).Height(14);
 
                 main.Item().BorderTop(1).BorderColor(Colors.Grey.Darken4).Row(r =>
@@ -387,19 +401,14 @@ internal static class CuotaReciboPdf
                         t.Span(" en concepto de los items detallados anteriormente");
                     });
 
-                // ── SON ──────────────────────────────────────────────────────────
+                // ── TOTAL ────────────────────────────────────────────────────────
                 main.Item().BorderTop(1).BorderColor(Colors.Grey.Darken4).Row(r =>
                 {
                     r.RelativeItem();
                     r.ConstantItem(180).Padding(8).Row(rr =>
                     {
-                        rr.AutoItem().PaddingRight(12).Text("SON:").Bold().FontSize(11);
-                        rr.RelativeItem().AlignRight().Column(col =>
-                        {
-                            col.Item().AlignRight().Text("$").FontSize(9).Bold();
-                            col.Item().AlignRight()
-                                .Text(d.Pago.Importe.ToString("N2", Ars)).FontSize(12).Bold();
-                        });
+                        rr.RelativeItem().Text("TOTAL:").Bold().FontSize(11);
+                        rr.AutoItem().AlignRight().Text(M(d.Pago.Importe)).FontSize(12).Bold();
                     });
                 });
             });
@@ -474,14 +483,21 @@ internal static class NumerosEnLetras
         return sb.ToString();
     }
 
-    public static string ConvertirPesos(decimal importe)
+    public static string ConvertirDolares(decimal importe)
     {
-        if (importe <= 0) return "cero pesos con 00/100";
-        var entero = (long)Math.Floor(importe);
-        var centavos = (int)Math.Round((importe - entero) * 100);
+        var redondeado = Math.Round(Math.Max(importe, 0), 2, MidpointRounding.AwayFromZero);
+        var entero = (long)Math.Floor(redondeado);
+        var centavos = (int)((redondeado - entero) * 100);
         var texto = Grupos(entero).Trim();
         var terminaEnMillon = texto.EndsWith("millón") || texto.EndsWith("millones");
-        var pesos = entero == 1 ? "un peso" : $"{texto} {(terminaEnMillon ? "de " : "")}pesos";
-        return $"{pesos} con {centavos:00}/100";
+        var dolares = entero switch
+        {
+            0 => "cero dólares",
+            1 => "un dólar",
+            _ => $"{texto} {(terminaEnMillon ? "de " : "")}dólares"
+        };
+        var textoCentavos = centavos == 0 ? "cero" : Grupos(centavos).Trim();
+        var unidadCentavos = centavos == 1 ? "centavo" : "centavos";
+        return $"{dolares} con {textoCentavos} {unidadCentavos}";
     }
 }
