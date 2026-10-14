@@ -2,6 +2,8 @@ using Api.Shared.Database;
 using Microsoft.EntityFrameworkCore;
 using System.Text.Json;
 using Api.Features.Auth;
+using Api.Shared.Common;
+using System.Security.Claims;
 
 namespace Api.Features.Maestros;
 
@@ -25,20 +27,28 @@ public static class MaestroEndpoints
 
     private static object ToDto(TipoCesped type) => new
     {
-        type.Id, type.Nombre, type.Descripcion, type.DescripcionPresupuesto, type.EspecificacionesPresupuesto, type.FichaTecnicaUrl, type.PrecioVentaM2, type.PrecioContadoM2, type.PrecioFinanciadoM2, type.CostoM2,
+        type.Id, type.DepositoId, type.Nombre, type.Descripcion, type.DescripcionPresupuesto, type.EspecificacionesPresupuesto, type.FichaTecnicaUrl, type.PrecioVentaM2, type.PrecioContadoM2, type.PrecioFinanciadoM2, type.CostoM2,
         colores = Colors(type), type.ControlPorLotes, type.Activo
     };
 
-    private static async Task<IReadOnlyList<object>> GetTypes(AppDbContext db, CancellationToken ct) =>
-        (await db.TiposCesped.AsNoTracking().OrderBy(x => x.Nombre).ToListAsync(ct)).Select(ToDto).ToList();
-
-    private static async Task<object> GetAll(AppDbContext db, CancellationToken ct) => new
+    private static async Task<IReadOnlyList<object>> GetTypes(ClaimsPrincipal user, AppDbContext db, CancellationToken ct)
     {
-        tiposCesped = (await db.TiposCesped.AsNoTracking().Where(x => x.Activo).OrderBy(x => x.Nombre)
-            .ToListAsync(ct)).Select(ToDto).ToList(),
+        var depositoId = await SucursalDepositoService.GetOwnDepositId(user, db, ct);
+        return depositoId.HasValue
+            ? (await db.TiposCesped.AsNoTracking().Where(x => x.DepositoId == depositoId).OrderBy(x => x.Nombre).ToListAsync(ct)).Select(ToDto).ToList()
+            : [];
+    }
+
+    private static async Task<object> GetAll(ClaimsPrincipal user, AppDbContext db, CancellationToken ct)
+    {
+        var depositoId = await SucursalDepositoService.GetOwnDepositId(user, db, ct);
+        return new {
+        tiposCesped = depositoId.HasValue ? (await db.TiposCesped.AsNoTracking().Where(x => x.DepositoId == depositoId && x.Activo).OrderBy(x => x.Nombre)
+            .ToListAsync(ct)).Select(ToDto).ToList() : [],
         alicuotasIva = await db.AlicuotasIva.AsNoTracking().OrderBy(x => x.Porcentaje).ToListAsync(ct),
         tiposCliente = Enum.GetNames<TipoCliente>(), formasPago = Enum.GetNames<FormaPago>()
-    };
+        };
+    }
 
     private static string[] NormalizeColors(IReadOnlyList<string>? colors) =>
         (colors ?? []).Select(x => x.Trim()).Where(x => x.Length > 0)
@@ -59,29 +69,33 @@ public static class MaestroEndpoints
         return null;
     }
 
-    private static async Task<IResult> CreateType(TipoCespedRequest request, AppDbContext db, CancellationToken ct)
+    private static async Task<IResult> CreateType(TipoCespedRequest request, ClaimsPrincipal user, AppDbContext db, CancellationToken ct)
     {
         var errors = Validate(request); if (errors is not null) return Results.ValidationProblem(errors);
+        var depositoId = await SucursalDepositoService.GetOwnDepositId(user, db, ct);
+        if (!depositoId.HasValue) return Results.ValidationProblem(new Dictionary<string, string[]> { ["sucursal"] = ["Seleccioná una sucursal activa."] });
         var name = request.Nombre.Trim();
-        if (await db.TiposCesped.AnyAsync(x => x.Nombre == name, ct)) return Results.Conflict(new { message = "Ya existe un tipo de césped con ese nombre." });
-        var type = new TipoCesped { Nombre = name, Descripcion = request.Descripcion?.Trim(), DescripcionPresupuesto = request.DescripcionPresupuesto?.Trim(), EspecificacionesPresupuesto = request.EspecificacionesPresupuesto?.Trim(), FichaTecnicaUrl = request.FichaTecnicaUrl?.Trim(), PrecioVentaM2 = request.PrecioVentaM2, PrecioContadoM2 = request.PrecioContadoM2, PrecioFinanciadoM2 = request.PrecioFinanciadoM2, CostoM2 = request.CostoM2, ColoresJson = JsonSerializer.Serialize(NormalizeColors(request.Colores)), ControlPorLotes = request.ControlPorLotes, Activo = request.Activo };
+        if (await db.TiposCesped.AnyAsync(x => x.DepositoId == depositoId && x.Nombre == name, ct)) return Results.Conflict(new { message = "Ya existe un tipo de césped con ese nombre en este depósito." });
+        var type = new TipoCesped { DepositoId = depositoId.Value, Nombre = name, Descripcion = request.Descripcion?.Trim(), DescripcionPresupuesto = request.DescripcionPresupuesto?.Trim(), EspecificacionesPresupuesto = request.EspecificacionesPresupuesto?.Trim(), FichaTecnicaUrl = request.FichaTecnicaUrl?.Trim(), PrecioVentaM2 = request.PrecioVentaM2, PrecioContadoM2 = request.PrecioContadoM2, PrecioFinanciadoM2 = request.PrecioFinanciadoM2, CostoM2 = request.CostoM2, ColoresJson = JsonSerializer.Serialize(NormalizeColors(request.Colores)), ControlPorLotes = request.ControlPorLotes, Activo = request.Activo };
         db.TiposCesped.Add(type); await db.SaveChangesAsync(ct);
         return Results.Created($"/api/maestros/tipos-cesped/{type.Id}", ToDto(type));
     }
 
-    private static async Task<IResult> UpdateType(Guid id, TipoCespedRequest request, AppDbContext db, CancellationToken ct)
+    private static async Task<IResult> UpdateType(Guid id, TipoCespedRequest request, ClaimsPrincipal user, AppDbContext db, CancellationToken ct)
     {
         var errors = Validate(request); if (errors is not null) return Results.ValidationProblem(errors);
-        var type = await db.TiposCesped.FindAsync([id], ct); if (type is null) return Results.NotFound();
+        var depositoId = await SucursalDepositoService.GetOwnDepositId(user, db, ct);
+        var type = await db.TiposCesped.SingleOrDefaultAsync(x => x.Id == id && x.DepositoId == depositoId, ct); if (type is null) return Results.NotFound();
         var name = request.Nombre.Trim();
-        if (await db.TiposCesped.AnyAsync(x => x.Id != id && x.Nombre == name, ct)) return Results.Conflict(new { message = "Ya existe un tipo de césped con ese nombre." });
+        if (await db.TiposCesped.AnyAsync(x => x.Id != id && x.DepositoId == depositoId && x.Nombre == name, ct)) return Results.Conflict(new { message = "Ya existe un tipo de césped con ese nombre en este depósito." });
         type.Nombre = name; type.Descripcion = request.Descripcion?.Trim(); type.DescripcionPresupuesto = request.DescripcionPresupuesto?.Trim(); type.EspecificacionesPresupuesto = request.EspecificacionesPresupuesto?.Trim(); type.FichaTecnicaUrl = request.FichaTecnicaUrl?.Trim(); type.PrecioVentaM2 = request.PrecioVentaM2; type.PrecioContadoM2 = request.PrecioContadoM2; type.PrecioFinanciadoM2 = request.PrecioFinanciadoM2; type.CostoM2 = request.CostoM2; type.ColoresJson = JsonSerializer.Serialize(NormalizeColors(request.Colores)); type.ControlPorLotes = request.ControlPorLotes; type.Activo = request.Activo;
         await db.SaveChangesAsync(ct); return Results.Ok(ToDto(type));
     }
 
-    private static async Task<IResult> DeleteType(Guid id, AppDbContext db, CancellationToken ct)
+    private static async Task<IResult> DeleteType(Guid id, ClaimsPrincipal user, AppDbContext db, CancellationToken ct)
     {
-        var type = await db.TiposCesped.FindAsync([id], ct); if (type is null) return Results.NotFound();
+        var depositoId = await SucursalDepositoService.GetOwnDepositId(user, db, ct);
+        var type = await db.TiposCesped.SingleOrDefaultAsync(x => x.Id == id && x.DepositoId == depositoId, ct); if (type is null) return Results.NotFound();
         var productId = id.ToString();
         if (await db.Ventas.AnyAsync(x => x.TipoCespedId == id ||
             (x.LineasJson != null && x.LineasJson.Contains(productId)), ct) ||

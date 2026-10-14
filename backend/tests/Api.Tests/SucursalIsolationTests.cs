@@ -4,6 +4,7 @@ using Api.Features.Cuotas;
 using Api.Features.Dashboard;
 using Api.Features.Rentabilidad;
 using Api.Features.Ventas;
+using Api.Features.Presupuestos;
 using Api.Shared.Database;
 
 namespace Api.Tests;
@@ -17,7 +18,7 @@ public sealed class SucursalIsolationTests
     [InlineData("Ventas")]
     [InlineData("Rentabilidad")]
     [InlineData("Dashboard")]
-    public void SaleBasedEndpoints_IsolateBothBranches_AndAdministratorSeesAll(string endpoint)
+    public void SaleBasedEndpoints_IsolateEveryUserByActiveBranch(string endpoint)
     {
         var rows = new[] { new Venta { SucursalId = SanFrancisco }, new Venta { SucursalId = BuenosAires } }.AsQueryable();
         IQueryable<Venta> Filter(ClaimsPrincipal user) => endpoint switch
@@ -30,35 +31,35 @@ public sealed class SucursalIsolationTests
 
         Assert.Equal(SanFrancisco, Assert.Single(Filter(BranchUser(SanFrancisco))).SucursalId);
         Assert.Equal(BuenosAires, Assert.Single(Filter(BranchUser(BuenosAires))).SucursalId);
-        Assert.Equal(2, Filter(Administrator()).Count());
+        Assert.Equal(SanFrancisco, Assert.Single(Filter(Administrator(SanFrancisco))).SucursalId);
         var selected = endpoint switch
         {
-            "Ventas" => VentaEndpoints.VisibleQuery(rows, Administrator(), BuenosAires),
-            "Rentabilidad" => RentabilidadEndpoints.VisibleQuery(rows, Administrator(), BuenosAires),
-            "Dashboard" => DashboardEndpoints.VisibleQuery(rows, Administrator(), BuenosAires),
+            "Ventas" => VentaEndpoints.VisibleQuery(rows, Administrator(BuenosAires), BuenosAires),
+            "Rentabilidad" => RentabilidadEndpoints.VisibleQuery(rows, Administrator(BuenosAires), BuenosAires),
+            "Dashboard" => DashboardEndpoints.VisibleQuery(rows, Administrator(BuenosAires), BuenosAires),
             _ => throw new ArgumentOutOfRangeException(nameof(endpoint))
         };
         Assert.Equal(BuenosAires, Assert.Single(selected).SucursalId);
     }
 
     [Fact]
-    public void Caja_IsolatesBothBranches_AndAdministratorSeesAll()
+    public void Caja_IsolatesBothBranches_AndAdministratorUsesActiveBranch()
     {
         var rows = new[] { new MovimientoCaja { SucursalId = SanFrancisco }, new MovimientoCaja { SucursalId = BuenosAires } }.AsQueryable();
         Assert.Equal(SanFrancisco, Assert.Single(CajaEndpoints.VisibleQuery(rows, BranchUser(SanFrancisco))).SucursalId);
         Assert.Equal(BuenosAires, Assert.Single(CajaEndpoints.VisibleQuery(rows, BranchUser(BuenosAires))).SucursalId);
-        Assert.Equal(2, CajaEndpoints.VisibleQuery(rows, Administrator()).Count());
-        Assert.Equal(BuenosAires, Assert.Single(CajaEndpoints.VisibleQuery(rows, Administrator(), BuenosAires)).SucursalId);
+        Assert.Equal(SanFrancisco, Assert.Single(CajaEndpoints.VisibleQuery(rows, Administrator(SanFrancisco))).SucursalId);
+        Assert.Equal(BuenosAires, Assert.Single(CajaEndpoints.VisibleQuery(rows, Administrator(BuenosAires), BuenosAires)).SucursalId);
     }
 
     [Fact]
-    public void Cuotas_IsolateBothBranches_AndAdministratorSeesAll()
+    public void Cuotas_IsolateBothBranches_AndAdministratorUsesActiveBranch()
     {
         var rows = new[] { new Cuota { SucursalId = SanFrancisco }, new Cuota { SucursalId = BuenosAires } }.AsQueryable();
         Assert.Equal(SanFrancisco, Assert.Single(CuotaEndpoints.VisibleQuery(rows, BranchUser(SanFrancisco))).SucursalId);
         Assert.Equal(BuenosAires, Assert.Single(CuotaEndpoints.VisibleQuery(rows, BranchUser(BuenosAires))).SucursalId);
-        Assert.Equal(2, CuotaEndpoints.VisibleQuery(rows, Administrator()).Count());
-        Assert.Equal(BuenosAires, Assert.Single(CuotaEndpoints.VisibleQuery(rows, Administrator(), BuenosAires)).SucursalId);
+        Assert.Equal(SanFrancisco, Assert.Single(CuotaEndpoints.VisibleQuery(rows, Administrator(SanFrancisco))).SucursalId);
+        Assert.Equal(BuenosAires, Assert.Single(CuotaEndpoints.VisibleQuery(rows, Administrator(BuenosAires), BuenosAires)).SucursalId);
     }
 
     [Fact]
@@ -69,12 +70,20 @@ public sealed class SucursalIsolationTests
     }
 
     [Fact]
+    public void Budgets_AreIsolatedByActiveBranch()
+    {
+        var rows = new[] { new Presupuesto { SucursalId = SanFrancisco }, new Presupuesto { SucursalId = BuenosAires } }.AsQueryable();
+        Assert.Equal(SanFrancisco, Assert.Single(PresupuestoEndpoints.VisibleQuery(rows, BranchUser(SanFrancisco))).SucursalId);
+        Assert.Equal(BuenosAires, Assert.Single(PresupuestoEndpoints.VisibleQuery(rows, Administrator(BuenosAires))).SucursalId);
+    }
+
+    [Fact]
     public void AdministratorCanSelectOneBranch_ButRegularUserCannotOverrideItsOwnBranch()
     {
         var rows = new[] { new Venta { SucursalId = SanFrancisco }, new Venta { SucursalId = BuenosAires } }.AsQueryable();
 
         Assert.Equal(BuenosAires,
-            Assert.Single(VentaEndpoints.VisibleQuery(rows, Administrator(), BuenosAires)).SucursalId);
+            Assert.Single(VentaEndpoints.VisibleQuery(rows, Administrator(BuenosAires), BuenosAires)).SucursalId);
         Assert.Equal(SanFrancisco,
             Assert.Single(VentaEndpoints.VisibleQuery(rows, BranchUser(SanFrancisco), BuenosAires)).SucursalId);
     }
@@ -82,6 +91,6 @@ public sealed class SucursalIsolationTests
     private static ClaimsPrincipal BranchUser(Guid sucursalId) => new(new ClaimsIdentity(
         [new Claim(ClaimTypes.Name, "Usuario"), new Claim("sucursal_id", sucursalId.ToString())], "Test"));
 
-    private static ClaimsPrincipal Administrator() => new(new ClaimsIdentity(
-        [new Claim(ClaimTypes.Name, "Admin"), new Claim(ClaimTypes.Role, "Administrador")], "Test"));
+    private static ClaimsPrincipal Administrator(Guid sucursalId) => new(new ClaimsIdentity(
+        [new Claim(ClaimTypes.Name, "Admin"), new Claim(ClaimTypes.Role, "Administrador"), new Claim("sucursal_id", sucursalId.ToString())], "Test"));
 }

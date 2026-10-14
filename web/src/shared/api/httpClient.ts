@@ -1,5 +1,10 @@
 import axios from'axios'
 export const http=axios.create({baseURL:import.meta.env.VITE_API_BASE_URL??'/api',timeout:15000,withCredentials:true})
+http.interceptors.request.use(config=>{
+  const selected=JSON.parse(localStorage.getItem('active-sucursal')||'null') as {id?:string}|null
+  if(selected?.id)config.headers['X-Sucursal-Id']=selected.id
+  return config
+})
 export function apiErrorMessage(error:any,fallback='No se pudo completar la operación.'){
   if(!error?.response)return 'No se pudo conectar con el sistema. Verificá tu conexión y que el backend esté iniciado.'
   if(error.response.status>=500)return 'El servidor encontró un error. Intentá nuevamente o revisá la terminal del backend.'

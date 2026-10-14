@@ -1,5 +1,6 @@
 import { reactive } from 'vue'
 import { http } from '@/shared/api/httpClient'
+import { branchContext } from '@/branchContext'
 
 export interface Session {
   id: string
@@ -59,6 +60,7 @@ export const auth = {
     // Azure puede iniciar desde cero luego de un período sin uso. El login tiene
     // un margen mayor que las operaciones normales para tolerar ese arranque.
     await http.post('/auth/login', { usuario, password }, { timeout: 60000 })
+    branchContext.clear()
     state.user = (await http.get('/auth/me', { headers: { 'Cache-Control': 'no-cache' }, timeout: 30000 })).data
     state.checked = true
     return state.user
@@ -70,6 +72,7 @@ export const auth = {
   async logout() {
     await http.post('/auth/logout')
     state.user = null
+    branchContext.clear()
   },
   can(module: string, action = 'ver') {
     return !!state.user &&

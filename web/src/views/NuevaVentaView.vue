@@ -39,6 +39,7 @@ const line = () => ({ tipoCespedId: '', color: '', cantidadM2: 1, precioCompraM2
 const draft = ref(line())
 const form = ref({
   clienteId: '', fechaVenta: new Date().toISOString().slice(0, 10), lineas: [] as ReturnType<typeof line>[],
+  sucursalId: '', depositoId: '',
   montoEntrega: 0, formaPago: 'Contado', cantidadCuotas: null as number | null, estado: 'Confirmada',
   fechaEntregaEstimada: null as string | null, costoEnvio: 0, otrosCostos: 0, alicuotaIvaId: '', observaciones: '',
 })
@@ -86,11 +87,14 @@ async function load() {
     const [filters, masters] = await Promise.all([http.get('/ventas/filtros'), http.get('/maestros')])
     clientes.value = filters.data.clientes
     maestros.value = masters.data
+    form.value.sucursalId = filters.data.sucursales?.[0]?.id ?? ''
+    form.value.depositoId = filters.data.depositos?.[0]?.id ?? ''
     form.value.alicuotaIvaId = masters.data.alicuotasIva?.[0]?.id ?? ''
     if (editingId.value) {
       const v = (await http.get(`/ventas/${editingId.value}`)).data
       form.value = {
         clienteId: v.clienteId, fechaVenta: v.fechaVenta,
+        sucursalId: v.sucursalId, depositoId: v.depositoId,
         lineas: v.lineas?.length ? v.lineas : [{
           tipoCespedId: v.tipoCespedId, color: v.color ?? '', cantidadM2: v.cantidadM2,
           precioCompraM2: v.costoCompraUnitario, precioVentaM2: v.precioUnitario, total: v.precioTotal,

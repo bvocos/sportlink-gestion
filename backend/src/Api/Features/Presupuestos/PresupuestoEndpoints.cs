@@ -1,5 +1,7 @@
 using Api.Shared.Database;
 using Api.Features.Auth;
+using Api.Shared.Common;
+using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
 using QuestPDF.Fluent;
 using QuestPDF.Helpers;
@@ -22,22 +24,24 @@ public static class PresupuestoEndpoints
         g.MapDelete("/{id:guid}", Delete).RequirePermiso("presupuestos", "eliminar"); g.MapGet("/{id:guid}/pdf", Pdf).RequirePermiso("presupuestos", "ver");
     }
 
-    private static IQueryable<Presupuesto> Query(AppDbContext db) => db.Presupuestos.AsNoTracking().Include(x => x.Cliente).Include(x => x.Lineas);
+    internal static IQueryable<Presupuesto> VisibleQuery(IQueryable<Presupuesto> query, ClaimsPrincipal user) =>
+        query.WhereVisibleParaUsuario(user);
+    private static IQueryable<Presupuesto> Query(AppDbContext db, ClaimsPrincipal user) => VisibleQuery(db.Presupuestos.AsNoTracking().Include(x => x.Cliente).Include(x => x.Lineas), user);
     private static object Dto(Presupuesto x)
     {
         var totals = PresupuestoCalculator.Calculate(x);
-        return new { x.Id, x.Numero, x.ClienteId, cliente = $"{x.Cliente.Nombre} {x.Cliente.Apellido}".Trim(), x.Fecha, x.ValidezHasta, estado = x.Estado.ToString(),
+        return new { x.Id, x.Numero, x.SucursalId, x.DepositoId, x.ClienteId, cliente = $"{x.Cliente.Nombre} {x.Cliente.Apellido}".Trim(), x.Fecha, x.ValidezHasta, estado = x.Estado.ToString(),
             x.DescuentoContadoPorcentaje, x.IvaContadoPorcentaje, x.IvaFinanciadoPorcentaje, x.EntregaFinanciada, x.Observaciones,
             totals.SubtotalContado, totals.SubtotalFinanciado, totals.TotalContado, totals.TotalFinanciado, totals.EntregaInicial, totals.SaldoFinanciado,
             lineas = x.Lineas.Select(l => new { l.Id, l.TipoCespedId, l.Producto, l.Descripcion, l.DescripcionPresupuesto, l.EspecificacionesPresupuesto, l.FichaTecnicaUrl, l.Color, l.CantidadM2, l.PrecioContadoM2, l.PrecioFinanciadoM2, l.TotalContado, l.TotalFinanciado }) };
     }
-    private static async Task<IResult> List(AppDbContext db, CancellationToken ct) => Results.Ok((await Query(db).OrderByDescending(x => x.Numero).ToListAsync(ct)).Select(Dto));
-    private static async Task<IResult> Filters(AppDbContext db, CancellationToken ct) => Results.Ok(new {
+    private static async Task<IResult> List(ClaimsPrincipal user, AppDbContext db, CancellationToken ct) => Results.Ok((await Query(db, user).OrderByDescending(x => x.Numero).ToListAsync(ct)).Select(Dto));
+    private static async Task<IResult> Filters(ClaimsPrincipal user, AppDbContext db, CancellationToken ct) { var depositoId = await SucursalDepositoService.GetOwnDepositId(user, db, ct); return Results.Ok(new {
         clientes = await db.Clientes.AsNoTracking().OrderBy(x => x.Apellido).ThenBy(x => x.Nombre)
             .Select(x => new { x.Id, nombreCompleto = (x.Nombre + " " + x.Apellido).Trim(), x.Telefono, x.Localidad, x.Provincia }).ToListAsync(ct),
-        productos = await db.TiposCesped.AsNoTracking().Where(x => x.Activo).OrderBy(x => x.Nombre).Select(x => new { x.Id, x.Nombre, x.Descripcion, x.DescripcionPresupuesto, x.EspecificacionesPresupuesto, x.FichaTecnicaUrl, x.PrecioContadoM2, x.PrecioFinanciadoM2, x.ColoresJson }).ToListAsync(ct)
-    });
-    private static async Task<IResult> Get(Guid id, AppDbContext db, CancellationToken ct) { var x = await Query(db).SingleOrDefaultAsync(x => x.Id == id, ct); return x is null ? Results.NotFound() : Results.Ok(Dto(x)); }
+        productos = await db.TiposCesped.AsNoTracking().Where(x => x.DepositoId == depositoId && x.Activo).OrderBy(x => x.Nombre).Select(x => new { x.Id, x.Nombre, x.Descripcion, x.DescripcionPresupuesto, x.EspecificacionesPresupuesto, x.FichaTecnicaUrl, x.PrecioContadoM2, x.PrecioFinanciadoM2, x.ColoresJson }).ToListAsync(ct)
+    }); }
+    private static async Task<IResult> Get(Guid id, ClaimsPrincipal user, AppDbContext db, CancellationToken ct) { var x = await Query(db, user).SingleOrDefaultAsync(x => x.Id == id, ct); return x is null ? Results.NotFound() : Results.Ok(Dto(x)); }
 
     private static string? Validate(PresupuestoRequest r)
     {
@@ -55,7 +59,7 @@ public static class PresupuestoEndpoints
         p.IvaContadoPorcentaje = r.IvaContadoPorcentaje; p.IvaFinanciadoPorcentaje = r.IvaFinanciadoPorcentaje; p.EntregaFinanciada = r.EntregaFinanciada;
         p.Observaciones = r.Observaciones?.Trim();
         var ids = r.Lineas.Select(x => x.TipoCespedId).Distinct().ToArray();
-        var products = await db.TiposCesped.Where(x => ids.Contains(x.Id)).ToDictionaryAsync(x => x.Id, ct);
+        var products = await db.TiposCesped.Where(x => x.DepositoId == p.DepositoId && ids.Contains(x.Id)).ToDictionaryAsync(x => x.Id, ct);
         var replacements = new List<PresupuestoLinea>();
         foreach (var l in r.Lineas)
         {
@@ -76,22 +80,24 @@ public static class PresupuestoEndpoints
         if (db.Entry(presupuesto).State != EntityState.Detached)
             db.PresupuestoLineas.AddRange(replacements);
     }
-    private static async Task<IResult> Create(PresupuestoRequest r, AppDbContext db, CancellationToken ct)
+    private static async Task<IResult> Create(PresupuestoRequest r, ClaimsPrincipal user, AppDbContext db, CancellationToken ct)
     {
         var error = Validate(r); if (error is not null) return Results.ValidationProblem(new Dictionary<string, string[]> { ["presupuesto"] = [error] });
-        var p = new Presupuesto(); await Apply(p, r, db, ct); db.Add(p); await db.SaveChangesAsync(ct); return Results.Created($"/api/presupuestos/{p.Id}", new { p.Id, p.Numero });
+        var sucursalId = user.SucursalId(); var depositoId = await SucursalDepositoService.GetOwnDepositId(user, db, ct);
+        if (!sucursalId.HasValue || !depositoId.HasValue) return Results.ValidationProblem(new Dictionary<string, string[]> { ["sucursal"] = ["Seleccioná una sucursal activa."] });
+        var p = new Presupuesto { SucursalId = sucursalId.Value, DepositoId = depositoId.Value }; await Apply(p, r, db, ct); db.Add(p); await db.SaveChangesAsync(ct); return Results.Created($"/api/presupuestos/{p.Id}", new { p.Id, p.Numero });
     }
-    private static async Task<IResult> Update(Guid id, PresupuestoRequest r, AppDbContext db, CancellationToken ct)
+    private static async Task<IResult> Update(Guid id, PresupuestoRequest r, ClaimsPrincipal user, AppDbContext db, CancellationToken ct)
     {
         var error = Validate(r); if (error is not null) return Results.ValidationProblem(new Dictionary<string, string[]> { ["presupuesto"] = [error] });
-        var p = await db.Presupuestos.Include(x => x.Lineas).SingleOrDefaultAsync(x => x.Id == id, ct); if (p is null) return Results.NotFound();
+        var p = await db.Presupuestos.Include(x => x.Lineas).WhereVisibleParaUsuario(user).SingleOrDefaultAsync(x => x.Id == id, ct); if (p is null) return Results.NotFound();
         await Apply(p, r, db, ct); await db.SaveChangesAsync(ct); return Results.NoContent();
     }
-    private static async Task<IResult> Delete(Guid id, AppDbContext db, CancellationToken ct) { var p = await db.Presupuestos.FindAsync([id], ct); if (p is null) return Results.NotFound(); db.Remove(p); await db.SaveChangesAsync(ct); return Results.NoContent(); }
+    private static async Task<IResult> Delete(Guid id, ClaimsPrincipal user, AppDbContext db, CancellationToken ct) { var p = await db.Presupuestos.WhereVisibleParaUsuario(user).SingleOrDefaultAsync(x => x.Id == id, ct); if (p is null) return Results.NotFound(); db.Remove(p); await db.SaveChangesAsync(ct); return Results.NoContent(); }
 
-    private static async Task<IResult> Pdf(Guid id, AppDbContext db, IWebHostEnvironment env, HttpContext http, CancellationToken ct)
+    private static async Task<IResult> Pdf(Guid id, ClaimsPrincipal user, AppDbContext db, IWebHostEnvironment env, HttpContext http, CancellationToken ct)
     {
-        var p = await Query(db).SingleOrDefaultAsync(x => x.Id == id, ct); if (p is null) return Results.NotFound();
+        var p = await Query(db, user).SingleOrDefaultAsync(x => x.Id == id, ct); if (p is null) return Results.NotFound();
         var bytes = PresupuestoPdf.Generate(p, Path.Combine(env.ContentRootPath, "Assets"));
         http.Response.Headers.CacheControl = "no-store, no-cache, must-revalidate";
         return Results.File(bytes, "application/pdf", $"Sportlink-Presupuesto-{p.Numero:00000}.pdf");

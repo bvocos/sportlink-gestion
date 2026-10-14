@@ -76,15 +76,16 @@ public sealed class RegistrarVentaHandler(AppDbContext db, IHttpContextAccessor 
     public async Task<VentaDto> Handle(RegistrarVentaCommand request, CancellationToken ct)
     {
         var currentUser = httpContextAccessor.HttpContext?.User ?? new ClaimsPrincipal();
-        var sucursalId = currentUser.IsInRole("Administrador") ? request.SucursalId : currentUser.SucursalId();
+        var sucursalId = currentUser.SucursalId();
         if (!sucursalId.HasValue)
             throw new VentaScopeException("Seleccioná la sucursal a la que pertenece la venta.");
         if (!await db.Sucursales.AnyAsync(x => x.Id == sucursalId.Value && x.Activo, ct))
             throw new VentaScopeException("La sucursal seleccionada no existe o está inactiva.");
-        if (!await db.Depositos.AnyAsync(x => x.Id == request.DepositoId && x.Activo, ct))
-            throw new VentaScopeException("El depósito seleccionado no existe o está inactivo.");
+        if (!await db.Sucursales.AnyAsync(x => x.Id == sucursalId.Value && x.DepositoPropioId == request.DepositoId && x.DepositoPropio.Activo, ct))
+            throw new VentaScopeException("El depósito seleccionado no pertenece a la sucursal activa.");
         request = request with { SucursalId = sucursalId };
         request = await VentaService.NormalizeLines(db, request, ct);
+        await VentaService.ValidateProductsScope(db, request.DepositoId, request.Lineas!, ct);
         var (cliente, tipo, alicuota) = await VentaService.GetReferences(db, request, ct);
         request = VentaService.NormalizeColor(request, tipo);
         var strategy = db.Database.CreateExecutionStrategy();
@@ -116,6 +117,14 @@ public sealed class RegistrarVentaHandler(AppDbContext db, IHttpContextAccessor 
 
 internal static class VentaService
 {
+    public static async Task ValidateProductsScope(AppDbContext db, Guid depositoId,
+        IReadOnlyCollection<VentaLineaCommand> lines, CancellationToken ct)
+    {
+        var ids = lines.Select(x => x.TipoCespedId).Distinct().ToArray();
+        var valid = await db.TiposCesped.CountAsync(x => x.DepositoId == depositoId && ids.Contains(x.Id), ct);
+        if (valid != ids.Length)
+            throw new VentaScopeException("Uno de los productos no pertenece al depósito de la sucursal activa.");
+    }
     public static Task<decimal> StockActual(AppDbContext db, Guid depositoId, Guid tipoCespedId, CancellationToken ct) =>
         db.MovimientosStock.Where(x => x.DepositoId == depositoId && x.TipoCespedId == tipoCespedId)
             .SumAsync(x => x.Tipo == TipoMovimientoStock.SalidaPorVenta || x.Tipo == TipoMovimientoStock.AjusteSalida ? -x.CantidadM2 : x.CantidadM2, ct);
@@ -262,7 +271,7 @@ internal static class VentaService
         var saldoFinanciado = venta.PrecioTotal - venta.MontoEntrega;
         var amount = Math.Round(saldoFinanciado / count, 2);
         for (var i = 1; i <= count; i++)
-            venta.Cuotas.Add(new Cuota { VentaId = venta.Id, ClienteId = r.ClienteId, SucursalId = venta.SucursalId, Numero = i,
+            venta.Cuotas.Add(new Cuota { VentaId = venta.Id, ClienteId = r.ClienteId, SucursalId = venta.SucursalId, DepositoId = venta.DepositoId, Numero = i,
                 FechaVencimiento = r.FechaVenta.AddMonths(i),
                 ImportePactado = i == count ? saldoFinanciado - amount * (count - 1) : amount,
                 Estado = EstadoCuota.Pendiente });
@@ -391,15 +400,15 @@ public static class VentaEndpoints
                 x.Telefono,
                 x.Localidad
             }).ToListAsync(ct),
-        tiposCesped = await db.TiposCesped.AsNoTracking().OrderBy(x => x.Nombre)
+        tiposCesped = await db.TiposCesped.AsNoTracking().Where(x => x.DepositoId == ownDepositId).OrderBy(x => x.Nombre)
             .Select(x => new { x.Id, x.Nombre, x.Activo }).ToListAsync(ct),
-        sucursales = await db.Sucursales.AsNoTracking().Where(x => x.Activo).OrderBy(x => x.Nombre)
+        sucursales = await db.Sucursales.AsNoTracking().Where(x => x.Activo && x.Id == user.SucursalId()).OrderBy(x => x.Nombre)
             .Select(x => new { x.Id, x.Nombre }).ToListAsync(ct),
         depositos = await depositQuery.OrderBy(x => x.Nombre)
             .Select(x => new
             {
                 x.Id, x.Nombre,
-                productos = db.TiposCesped.AsNoTracking().Where(p => p.Activo).Select(p => new
+                productos = db.TiposCesped.AsNoTracking().Where(p => p.DepositoId == x.Id && p.Activo).Select(p => new
                 {
                     tipoCespedId = p.Id, nombre = p.Nombre,
                     stockActualM2 = db.MovimientosStock.Where(m => m.DepositoId == x.Id && m.TipoCespedId == p.Id)
@@ -421,6 +430,11 @@ public static class VentaEndpoints
 
         try { request = await VentaService.NormalizeLines(db, request, ct); }
         catch (KeyNotFoundException exception)
+        {
+            return Results.ValidationProblem(new Dictionary<string, string[]> { ["Lineas"] = [exception.Message] });
+        }
+        try { await VentaService.ValidateProductsScope(db, venta.DepositoId, request.Lineas!, ct); }
+        catch (VentaScopeException exception)
         {
             return Results.ValidationProblem(new Dictionary<string, string[]> { ["Lineas"] = [exception.Message] });
         }

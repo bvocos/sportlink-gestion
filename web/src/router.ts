@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { auth } from './auth'
+import { branchContext } from './branchContext'
 
 const permissionRoutes: Record<string, string> = {
   dashboard: '/',
@@ -18,6 +19,7 @@ const permissionRoutes: Record<string, string> = {
 const routes = [
   { path: '/login', name: 'login', component: () => import('./views/LoginView.vue'), meta: { public: true, title: 'Ingresar' } },
   { path: '/cambiar-password', name: 'cambiar-password', component: () => import('./views/ChangePasswordView.vue'), meta: { passwordChange: true, title: 'Cambiar contraseña' } },
+  { path: '/seleccionar-sucursal', name: 'seleccionar-sucursal', component: () => import('./views/SeleccionarSucursalView.vue'), meta: { admin: true, branchSelection: true, title: 'Seleccionar sucursal' } },
   { path: '/sin-acceso', name: 'sin-acceso', component: () => import('./views/NoAccessView.vue'), meta: { title: 'Sin acceso' } },
   { path: '/', component: () => import('./views/DashboardView.vue'), meta: { permission: 'dashboard', title: 'Inicio' } },
   { path: '/ventas', component: () => import('./views/VentasView.vue'), meta: { permission: 'ventas', title: 'Ventas' } },
@@ -62,6 +64,10 @@ router.beforeEach(async to => {
     return auth.state.user.debeCambiarPassword ? true : landingPage()
   if (to.meta.admin && auth.state.user.rol !== 'Administrador')
     return landingPage()
+  if (auth.state.user.rol === 'Administrador' && !branchContext.state.active && !to.meta.branchSelection)
+    return { name: 'seleccionar-sucursal' }
+  if (to.meta.branchSelection)
+    return auth.state.user.rol === 'Administrador' ? true : landingPage()
 
   const permission = to.meta.permission as string | undefined
   if (permission && !auth.can(permission, 'ver'))

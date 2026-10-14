@@ -24,7 +24,8 @@ async function submit() {
   const wakeTimer = window.setTimeout(() => waking.value = true, 4000)
   try {
     const user = await auth.login(usuario.value, password.value)
-    const destination = user?.debeCambiarPassword ? '/cambiar-password' : '/'
+    const destination = user?.debeCambiarPassword ? '/cambiar-password'
+      : user?.rol === 'Administrador' ? '/seleccionar-sucursal' : '/'
     await nextTick()
     await router.replace(destination)
   } catch (e: any) {

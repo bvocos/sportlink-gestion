@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using System.Security.Claims;
 using Api.Features.Caja;
 using Api.Features.Auth;
 using Api.Features.Auditoria;
@@ -99,6 +100,15 @@ app.UseStaticFiles(new StaticFileOptions
 app.UseCors();
 app.UseRateLimiter();
 app.UseAuthentication();
+app.Use(async (context, next) =>
+{
+    if (context.User.IsInRole("Administrador") &&
+        context.Request.Headers.TryGetValue("X-Sucursal-Id", out var selected) &&
+        Guid.TryParse(selected.FirstOrDefault(), out var sucursalId) &&
+        context.User.Identity is ClaimsIdentity identity)
+        identity.AddClaim(new Claim("sucursal_id", sucursalId.ToString()));
+    await next();
+});
 app.Use(async (context, next) =>
 {
     var requiereCambio = context.User.Identity?.IsAuthenticated == true &&

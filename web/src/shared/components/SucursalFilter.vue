@@ -1,13 +1,22 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
 import { http } from "@/shared/api/httpClient";
+import { auth } from "@/auth";
+import { branchContext } from "@/branchContext";
 
 defineProps<{ modelValue: string }>();
 const emit = defineEmits<{ "update:modelValue": [value: string]; change: [] }>();
 const sucursales = ref<any[]>([]);
 
 onMounted(async () => {
-  sucursales.value = (await http.get("/sucursales")).data.filter((x: any) => x.activo);
+  if (auth.state.user?.rol !== 'Administrador') {
+    sucursales.value = auth.state.user?.sucursalId
+      ? [{ id: auth.state.user.sucursalId, nombre: auth.state.user.sucursalNombre ?? 'Sucursal asignada' }]
+      : [];
+    return;
+  }
+  const activeId = branchContext.state.active?.id ?? auth.state.user?.sucursalId;
+  sucursales.value = (await http.get("/sucursales")).data.filter((x: any) => x.activo && x.id === activeId);
 });
 
 function changed(event: Event) {
@@ -20,7 +29,7 @@ function changed(event: Event) {
   <div class="field">
     <label>Sucursal</label>
     <select :value="modelValue" @change="changed">
-      <option value="">Todas las sucursales</option>
+      <option value="">Sucursal activa</option>
       <option v-for="sucursal in sucursales" :key="sucursal.id" :value="sucursal.id">
         {{ sucursal.nombre }}
       </option>

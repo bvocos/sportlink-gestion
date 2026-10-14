@@ -40,7 +40,9 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, IHttpCo
         b.Entity<RegistroAuditoria>().HasIndex(x => x.FechaHora); b.Entity<RegistroAuditoria>().HasIndex(x => x.Modulo);
         b.Entity<Gasto>().HasIndex(x => x.Fecha);
         b.Entity<Presupuesto>().Property(x => x.Estado).HasConversion<string>();
-        b.Entity<Presupuesto>().Property(x => x.Numero).UseIdentityColumn(); b.Entity<Presupuesto>().HasIndex(x => x.Numero).IsUnique(); b.Entity<Presupuesto>().HasIndex(x => x.Fecha);
+        b.Entity<Presupuesto>().Property(x => x.Numero).UseIdentityColumn(); b.Entity<Presupuesto>().HasIndex(x => x.Numero).IsUnique(); b.Entity<Presupuesto>().HasIndex(x => new { x.SucursalId, x.Fecha });
+        b.Entity<Presupuesto>().HasOne(x => x.Sucursal).WithMany().HasForeignKey(x => x.SucursalId).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<Presupuesto>().HasOne(x => x.Deposito).WithMany().HasForeignKey(x => x.DepositoId).OnDelete(DeleteBehavior.Restrict);
         b.Entity<Presupuesto>().HasOne(x => x.Cliente).WithMany().HasForeignKey(x => x.ClienteId).OnDelete(DeleteBehavior.Restrict);
         b.Entity<Presupuesto>().HasMany(x => x.Lineas).WithOne(x => x.Presupuesto).HasForeignKey(x => x.PresupuestoId).OnDelete(DeleteBehavior.Cascade);
         b.Entity<Venta>().Property(x => x.Margen).HasColumnType("decimal(18,6)");
@@ -51,6 +53,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, IHttpCo
         b.Entity<Venta>().HasMany(x => x.Cuotas).WithOne(x => x.Venta).HasForeignKey(x => x.VentaId).OnDelete(DeleteBehavior.Cascade);
         b.Entity<Cuota>().HasOne<Cliente>().WithMany().HasForeignKey(x => x.ClienteId).OnDelete(DeleteBehavior.Restrict);
         b.Entity<Cuota>().HasOne(x => x.Sucursal).WithMany().HasForeignKey(x => x.SucursalId).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<Cuota>().HasOne(x => x.Deposito).WithMany().HasForeignKey(x => x.DepositoId).OnDelete(DeleteBehavior.Restrict);
         b.Entity<Cuota>().HasIndex(x => new { x.SucursalId, x.FechaVencimiento });
         b.Entity<MovimientoCaja>().HasOne<Venta>().WithMany().HasForeignKey(x => x.VentaId).OnDelete(DeleteBehavior.Restrict);
         b.Entity<MovimientoCaja>().HasOne<Cuota>().WithMany().HasForeignKey(x => x.CuotaId).OnDelete(DeleteBehavior.Restrict);
@@ -85,6 +88,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, IHttpCo
             t.HasCheckConstraint("CK_Rollos_Posicion", "[Posicion] IN ('A','B','C')");
             t.HasCheckConstraint("CK_Rollos_CantidadM2", "[CantidadM2] > 0");
         });
+        b.Entity<TipoCesped>().HasOne(x => x.Deposito).WithMany().HasForeignKey(x => x.DepositoId).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<TipoCesped>().HasIndex(x => new { x.DepositoId, x.Nombre }).IsUnique();
     }
 
     public override async Task<int> SaveChangesAsync(CancellationToken ct = default)

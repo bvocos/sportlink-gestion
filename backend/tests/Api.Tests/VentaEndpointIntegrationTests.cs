@@ -59,6 +59,7 @@ public sealed class VentaEndpointIntegrationTests
                 };
                 var tipo = new TipoCesped
                 {
+                    DepositoId = sucursal.DepositoPropioId,
                     Nombre = $"Producto {Guid.NewGuid():N}", PrecioVentaM2 = 20m,
                     PrecioContadoM2 = 20m, PrecioFinanciadoM2 = 22m, CostoM2 = 10m, Activo = true
                 };

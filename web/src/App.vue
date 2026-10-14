@@ -30,6 +30,8 @@ import AppIcon from '@/shared/components/AppIcon.vue'
 import { auth } from './auth'
 import { http } from './shared/api/httpClient'
 import DolarBlueWidget from './shared/components/DolarBlueWidget.vue'
+import Select from 'primevue/select'
+import { branchContext } from './branchContext'
 import { registerConfirmHandler, registerToastHandler } from '@/shared/feedbackBridge'
 
 const confirm = useConfirm()
@@ -48,6 +50,17 @@ const mobile = ref(false)
 const route = useRoute()
 const router = useRouter()
 const systemOnline = ref(navigator.onLine)
+const sucursales = ref<any[]>([])
+const activeSucursalId = computed({
+  get: () => branchContext.state.active?.id ?? '',
+  set: async value => {
+    const selected = sucursales.value.find(x => x.id === value)
+    if (!selected) return
+    branchContext.select(selected)
+    await router.replace('/')
+    window.location.reload()
+  },
+})
 
 const allGroups: NavGroup[] = [
   {
@@ -151,6 +164,8 @@ onMounted(() => {
   window.addEventListener('resize', syncMobile)
   checkSystem()
   connectivityTimer = window.setInterval(checkSystem, 30000)
+  if (auth.state.user?.rol === 'Administrador')
+    http.get('/sucursales').then(r => { sucursales.value = r.data.filter((x: any) => x.activo) })
 })
 
 onBeforeUnmount(() => {
@@ -246,6 +261,9 @@ watch(() => route.path, closeMenu)
           <h1>{{ pageTitle }}</h1>
         </div>
         <div class="header-tools">
+          <Select v-if="auth.state.user?.rol === 'Administrador' && branchContext.state.active"
+            v-model="activeSucursalId" :options="sucursales" option-label="nombre" option-value="id"
+            class="branch-selector" aria-label="Sucursal activa" />
           <Tag
             :severity="systemOnline ? 'success' : 'danger'"
             :value="systemOnline ? 'Sistema disponible' : 'Sin conexión'"

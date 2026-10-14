@@ -141,6 +141,9 @@ namespace Api.Migrations
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("datetimeoffset");
 
+                    b.Property<Guid>("DepositoId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<string>("Estado")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
@@ -175,6 +178,8 @@ namespace Api.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("ClienteId");
+
+                    b.HasIndex("DepositoId");
 
                     b.HasIndex("VentaId");
 
@@ -414,6 +419,9 @@ namespace Api.Migrations
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("datetimeoffset");
 
+                    b.Property<Guid>("DepositoId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<decimal>("DescuentoContadoPorcentaje")
                         .HasColumnType("decimal(18,2)");
 
@@ -442,6 +450,9 @@ namespace Api.Migrations
                     b.Property<string>("Observaciones")
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<Guid>("SucursalId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<DateTimeOffset?>("UpdatedAt")
                         .HasColumnType("datetimeoffset");
 
@@ -452,10 +463,12 @@ namespace Api.Migrations
 
                     b.HasIndex("ClienteId");
 
-                    b.HasIndex("Fecha");
+                    b.HasIndex("DepositoId");
 
                     b.HasIndex("Numero")
                         .IsUnique();
+
+                    b.HasIndex("SucursalId", "Fecha");
 
                     b.ToTable("Presupuestos");
                 });
@@ -666,6 +679,9 @@ namespace Api.Migrations
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("datetimeoffset");
 
+                    b.Property<Guid>("DepositoId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<string>("Descripcion")
                         .HasColumnType("nvarchar(max)");
 
@@ -680,7 +696,7 @@ namespace Api.Migrations
 
                     b.Property<string>("Nombre")
                         .IsRequired()
-                        .HasColumnType("nvarchar(max)");
+                        .HasColumnType("nvarchar(450)");
 
                     b.Property<decimal>("PrecioContadoM2")
                         .HasColumnType("decimal(18,2)");
@@ -695,6 +711,9 @@ namespace Api.Migrations
                         .HasColumnType("datetimeoffset");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("DepositoId", "Nombre")
+                        .IsUnique();
 
                     b.ToTable("TiposCesped");
                 });
@@ -868,6 +887,12 @@ namespace Api.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("Api.Shared.Database.Deposito", "Deposito")
+                        .WithMany()
+                        .HasForeignKey("DepositoId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("Api.Shared.Database.Sucursal", "Sucursal")
                         .WithMany()
                         .HasForeignKey("SucursalId")
@@ -879,6 +904,8 @@ namespace Api.Migrations
                         .HasForeignKey("VentaId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+
+                    b.Navigation("Deposito");
 
                     b.Navigation("Sucursal");
 
@@ -966,7 +993,23 @@ namespace Api.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("Api.Shared.Database.Deposito", "Deposito")
+                        .WithMany()
+                        .HasForeignKey("DepositoId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Api.Shared.Database.Sucursal", "Sucursal")
+                        .WithMany()
+                        .HasForeignKey("SucursalId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.Navigation("Cliente");
+
+                    b.Navigation("Deposito");
+
+                    b.Navigation("Sucursal");
                 });
 
             modelBuilder.Entity("Api.Shared.Database.PresupuestoLinea", b =>
@@ -1000,6 +1043,17 @@ namespace Api.Migrations
                         .IsRequired();
 
                     b.Navigation("DepositoPropio");
+                });
+
+            modelBuilder.Entity("Api.Shared.Database.TipoCesped", b =>
+                {
+                    b.HasOne("Api.Shared.Database.Deposito", "Deposito")
+                        .WithMany()
+                        .HasForeignKey("DepositoId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Deposito");
                 });
 
             modelBuilder.Entity("Api.Shared.Database.Usuario", b =>
