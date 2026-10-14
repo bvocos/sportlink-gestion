@@ -39,7 +39,7 @@ public static class PresupuestoEndpoints
     private static async Task<IResult> Filters(ClaimsPrincipal user, AppDbContext db, CancellationToken ct) { var depositoId = await SucursalDepositoService.GetOwnDepositId(user, db, ct); return Results.Ok(new {
         clientes = await db.Clientes.AsNoTracking().WhereVisibleParaUsuario(user).OrderBy(x => x.Apellido).ThenBy(x => x.Nombre)
             .Select(x => new { x.Id, nombreCompleto = (x.Nombre + " " + x.Apellido).Trim(), x.Telefono, x.Localidad, x.Provincia }).ToListAsync(ct),
-        productos = await db.TiposCesped.AsNoTracking().Where(x => x.Depositos.Any(d => d.DepositoId == depositoId) && x.Activo).OrderBy(x => x.Nombre).Select(x => new { x.Id, x.Nombre, x.Descripcion, x.DescripcionPresupuesto, x.EspecificacionesPresupuesto, x.FichaTecnicaUrl, x.PrecioContadoM2, x.PrecioFinanciadoM2, x.ColoresJson }).ToListAsync(ct)
+        productos = await db.TiposCesped.AsNoTracking().Where(x => (x.DepositoId == depositoId || x.Depositos.Any(d => d.DepositoId == depositoId)) && x.Activo).OrderBy(x => x.Nombre).Select(x => new { x.Id, x.Nombre, x.Descripcion, x.DescripcionPresupuesto, x.EspecificacionesPresupuesto, x.FichaTecnicaUrl, x.PrecioContadoM2, x.PrecioFinanciadoM2, x.ColoresJson }).ToListAsync(ct)
     }); }
     private static async Task<IResult> Get(Guid id, ClaimsPrincipal user, AppDbContext db, CancellationToken ct) { var x = await Query(db, user).SingleOrDefaultAsync(x => x.Id == id, ct); return x is null ? Results.NotFound() : Results.Ok(Dto(x)); }
 
@@ -59,7 +59,7 @@ public static class PresupuestoEndpoints
         p.IvaContadoPorcentaje = r.IvaContadoPorcentaje; p.IvaFinanciadoPorcentaje = r.IvaFinanciadoPorcentaje; p.EntregaFinanciada = r.EntregaFinanciada;
         p.Observaciones = r.Observaciones?.Trim();
         var ids = r.Lineas.Select(x => x.TipoCespedId).Distinct().ToArray();
-        var products = await db.TiposCesped.Where(x => ids.Contains(x.Id) && x.Depositos.Any(d => d.DepositoId == p.DepositoId)).ToDictionaryAsync(x => x.Id, ct);
+        var products = await db.TiposCesped.Where(x => ids.Contains(x.Id) && (x.DepositoId == p.DepositoId || x.Depositos.Any(d => d.DepositoId == p.DepositoId))).ToDictionaryAsync(x => x.Id, ct);
         var replacements = new List<PresupuestoLinea>();
         foreach (var l in r.Lineas)
         {

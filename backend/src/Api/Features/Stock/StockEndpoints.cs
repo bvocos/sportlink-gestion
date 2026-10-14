@@ -113,7 +113,7 @@ public static class StockEndpoints
         var deposits = await depositQuery.OrderBy(x => x.Nombre).Select(x => new
         {
             x.Id, x.Nombre,
-            productos = db.TiposCesped.AsNoTracking().Where(p => p.Depositos.Any(d => d.DepositoId == x.Id) && p.Activo).OrderBy(p => p.Nombre).Select(p => new
+            productos = db.TiposCesped.AsNoTracking().Where(p => (p.DepositoId == x.Id || p.Depositos.Any(d => d.DepositoId == x.Id)) && p.Activo).OrderBy(p => p.Nombre).Select(p => new
             {
                 tipoCespedId = p.Id, nombre = p.Nombre, p.ControlPorLotes, p.ColoresJson,
                 stockActualM2 = db.MovimientosStock.Where(m => m.DepositoId == x.Id && m.TipoCespedId == p.Id).Sum(m => (decimal?)(m.Tipo == TipoMovimientoStock.SalidaPorVenta || m.Tipo == TipoMovimientoStock.AjusteSalida ? -m.CantidadM2 : m.CantidadM2)) ?? 0m
@@ -144,7 +144,7 @@ public static class StockEndpoints
         if (errors.Count > 0) return Results.ValidationProblem(errors);
         var deposit = await db.Depositos.SingleOrDefaultAsync(x => x.Id == request.DepositoId && x.Activo, ct);
         if (deposit is null) return Results.ValidationProblem(new Dictionary<string, string[]> { ["depositoId"] = ["Seleccioná un depósito activo."] });
-        var product = await db.TiposCesped.SingleOrDefaultAsync(x => x.Id == request.TipoCespedId && x.Depositos.Any(d => d.DepositoId == request.DepositoId) && x.Activo, ct);
+        var product = await db.TiposCesped.SingleOrDefaultAsync(x => x.Id == request.TipoCespedId && (x.DepositoId == request.DepositoId || x.Depositos.Any(d => d.DepositoId == request.DepositoId)) && x.Activo, ct);
         if (product is null) return Results.ValidationProblem(new Dictionary<string, string[]> { ["tipoCespedId"] = ["Seleccioná un producto activo."] });
         if (product.ControlPorLotes) return Results.ValidationProblem(new Dictionary<string, string[]> { ["tipoCespedId"] = ["Este producto se controla por lotes. Usá el ingreso por lote con sus tres rollos."] });
         if (!await SucursalDepositoService.CanUseDeposit(currentUser, db, request.DepositoId, ct))
@@ -165,7 +165,7 @@ public static class StockEndpoints
 
         var deposit = await db.Depositos.AsNoTracking().SingleOrDefaultAsync(x => x.Id == request.DepositoId && x.Activo, ct);
         if (deposit is null) return Results.ValidationProblem(new Dictionary<string, string[]> { ["depositoId"] = ["Seleccioná un depósito activo."] });
-        var product = await db.TiposCesped.AsNoTracking().SingleOrDefaultAsync(x => x.Id == request.TipoCespedId && x.Depositos.Any(d => d.DepositoId == request.DepositoId) && x.Activo, ct);
+        var product = await db.TiposCesped.AsNoTracking().SingleOrDefaultAsync(x => x.Id == request.TipoCespedId && (x.DepositoId == request.DepositoId || x.Depositos.Any(d => d.DepositoId == request.DepositoId)) && x.Activo, ct);
         if (product is null) return Results.ValidationProblem(new Dictionary<string, string[]> { ["tipoCespedId"] = ["Seleccioná un producto activo."] });
         if (product.ControlPorLotes) return Results.ValidationProblem(new Dictionary<string, string[]> { ["tipoCespedId"] = ["El stock de este producto se controla mediante lotes y no admite ajustes manuales."] });
 
@@ -200,7 +200,7 @@ public static class StockEndpoints
         if (errors.Count > 0) return Results.ValidationProblem(errors);
         var deposit = await db.Depositos.AsNoTracking().SingleOrDefaultAsync(x => x.Id == request.DepositoId && x.Activo, ct);
         if (deposit is null) return Results.ValidationProblem(new Dictionary<string, string[]> { ["depositoId"] = ["Seleccioná un depósito activo."] });
-        var product = await db.TiposCesped.AsNoTracking().SingleOrDefaultAsync(x => x.Id == request.TipoCespedId && x.Depositos.Any(d => d.DepositoId == request.DepositoId) && x.Activo, ct);
+        var product = await db.TiposCesped.AsNoTracking().SingleOrDefaultAsync(x => x.Id == request.TipoCespedId && (x.DepositoId == request.DepositoId || x.Depositos.Any(d => d.DepositoId == request.DepositoId)) && x.Activo, ct);
         if (product is null) return Results.ValidationProblem(new Dictionary<string, string[]> { ["tipoCespedId"] = ["Seleccioná un producto activo."] });
         if (!product.ControlPorLotes) return Results.ValidationProblem(new Dictionary<string, string[]> { ["tipoCespedId"] = ["Este producto no se controla por lotes. Usá el ingreso normal de stock."] });
         var colors = DeserializeColors(product.ColoresJson); var color = request.Color?.Trim();

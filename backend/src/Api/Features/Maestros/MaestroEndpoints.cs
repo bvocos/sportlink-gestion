@@ -27,7 +27,8 @@ public static class MaestroEndpoints
     private static string[] Colors(TipoCesped type) => JsonSerializer.Deserialize<string[]>(type.ColoresJson) ?? [];
     private static object ToDto(TipoCesped type) => new
     {
-        type.Id, type.DepositoId, depositoIds = type.Depositos.Select(x => x.DepositoId).Distinct().ToArray(),
+        type.Id, type.DepositoId, depositoIds = type.Depositos.Count > 0
+            ? type.Depositos.Select(x => x.DepositoId).Distinct().ToArray() : new[] { type.DepositoId },
         type.Nombre, type.Descripcion, type.DescripcionPresupuesto, type.EspecificacionesPresupuesto,
         type.FichaTecnicaUrl, type.PrecioVentaM2, type.PrecioContadoM2, type.PrecioFinanciadoM2, type.CostoM2,
         colores = Colors(type), type.ControlPorLotes, type.Activo
@@ -37,7 +38,7 @@ public static class MaestroEndpoints
     {
         var deposits = SucursalDepositoService.VisibleDeposits(db.Depositos.AsNoTracking(), user).Select(x => x.Id);
         return (await db.TiposCesped.AsNoTracking().Include(x => x.Depositos)
-            .Where(x => x.Depositos.Any(d => deposits.Contains(d.DepositoId)))
+            .Where(x => deposits.Contains(x.DepositoId) || x.Depositos.Any(d => deposits.Contains(d.DepositoId)))
             .OrderBy(x => x.Nombre).ToListAsync(ct)).Select(ToDto).ToList();
     }
 
@@ -47,7 +48,7 @@ public static class MaestroEndpoints
         return new
         {
             tiposCesped = (await db.TiposCesped.AsNoTracking().Include(x => x.Depositos)
-                .Where(x => x.Depositos.Any(d => deposits.Contains(d.DepositoId)) && x.Activo)
+                .Where(x => (deposits.Contains(x.DepositoId) || x.Depositos.Any(d => deposits.Contains(d.DepositoId))) && x.Activo)
                 .OrderBy(x => x.Nombre).ToListAsync(ct)).Select(ToDto).ToList(),
             alicuotasIva = await db.AlicuotasIva.AsNoTracking().OrderBy(x => x.Porcentaje).ToListAsync(ct),
             tiposCliente = Enum.GetNames<TipoCliente>(), formasPago = Enum.GetNames<FormaPago>()
@@ -86,7 +87,8 @@ public static class MaestroEndpoints
         if (!await DepositsAreValid(depositIds, user, db, ct))
             return Results.ValidationProblem(new Dictionary<string, string[]> { ["depositoIds"] = ["Seleccioná al menos un depósito activo de la sucursal."] });
         var name = request.Nombre.Trim();
-        if (await db.TiposCesped.AnyAsync(x => x.Nombre == name && x.Depositos.Any(d => depositIds.Contains(d.DepositoId)), ct))
+        if (await db.TiposCesped.AnyAsync(x => x.Nombre == name &&
+            (depositIds.Contains(x.DepositoId) || x.Depositos.Any(d => depositIds.Contains(d.DepositoId))), ct))
             return Results.Conflict(new { message = "Ya existe un producto con ese nombre en uno de los depósitos seleccionados." });
         var type = new TipoCesped
         {
@@ -110,10 +112,12 @@ public static class MaestroEndpoints
             return Results.ValidationProblem(new Dictionary<string, string[]> { ["depositoIds"] = ["Seleccioná al menos un depósito activo de la sucursal."] });
         var visibleDeposits = SucursalDepositoService.VisibleDeposits(db.Depositos.AsNoTracking(), user).Select(x => x.Id);
         var type = await db.TiposCesped.Include(x => x.Depositos)
-            .SingleOrDefaultAsync(x => x.Id == id && x.Depositos.Any(d => visibleDeposits.Contains(d.DepositoId)), ct);
+            .SingleOrDefaultAsync(x => x.Id == id &&
+                (visibleDeposits.Contains(x.DepositoId) || x.Depositos.Any(d => visibleDeposits.Contains(d.DepositoId))), ct);
         if (type is null) return Results.NotFound();
         var name = request.Nombre.Trim();
-        if (await db.TiposCesped.AnyAsync(x => x.Id != id && x.Nombre == name && x.Depositos.Any(d => depositIds.Contains(d.DepositoId)), ct))
+        if (await db.TiposCesped.AnyAsync(x => x.Id != id && x.Nombre == name &&
+            (depositIds.Contains(x.DepositoId) || x.Depositos.Any(d => depositIds.Contains(d.DepositoId))), ct))
             return Results.Conflict(new { message = "Ya existe un producto con ese nombre en uno de los depósitos seleccionados." });
         type.DepositoId = depositIds[0]; type.Nombre = name; type.Descripcion = request.Descripcion?.Trim();
         type.DescripcionPresupuesto = request.DescripcionPresupuesto?.Trim(); type.EspecificacionesPresupuesto = request.EspecificacionesPresupuesto?.Trim();
@@ -131,7 +135,8 @@ public static class MaestroEndpoints
     private static async Task<IResult> DeleteType(Guid id, ClaimsPrincipal user, AppDbContext db, CancellationToken ct)
     {
         var visibleDeposits = SucursalDepositoService.VisibleDeposits(db.Depositos.AsNoTracking(), user).Select(x => x.Id);
-        var type = await db.TiposCesped.SingleOrDefaultAsync(x => x.Id == id && x.Depositos.Any(d => visibleDeposits.Contains(d.DepositoId)), ct);
+        var type = await db.TiposCesped.SingleOrDefaultAsync(x => x.Id == id &&
+            (visibleDeposits.Contains(x.DepositoId) || x.Depositos.Any(d => visibleDeposits.Contains(d.DepositoId))), ct);
         if (type is null) return Results.NotFound();
         var productId = id.ToString();
         if (await db.Ventas.AnyAsync(x => x.TipoCespedId == id || (x.LineasJson != null && x.LineasJson.Contains(productId)), ct) ||
