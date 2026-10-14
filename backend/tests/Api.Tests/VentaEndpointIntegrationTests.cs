@@ -88,6 +88,7 @@ public sealed class VentaEndpointIntegrationTests
 
             var login = await client.PostAsJsonAsync("/api/auth/login", new { usuario = "admin", password = "Admin123!" });
             Assert.Equal(HttpStatusCode.OK, login.StatusCode);
+            client.DefaultRequestHeaders.Add("X-Sucursal-Id", sucursalId.ToString());
 
             var response = await client.PostAsJsonAsync("/api/ventas", new
             {
