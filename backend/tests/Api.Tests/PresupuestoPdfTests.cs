@@ -1,10 +1,32 @@
 using Api.Features.Presupuestos;
 using Api.Shared.Database;
+using Microsoft.EntityFrameworkCore;
 
 namespace Api.Tests;
 
 public sealed class PresupuestoPdfTests
 {
+    [Fact]
+    public void ReplaceLines_DeletesEveryExistingLineAndAddsAllReplacements()
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseSqlServer("Server=localhost;Database=StateOnly;User ID=sa;Password=NotUsed123!;TrustServerCertificate=True")
+            .Options;
+        using var db = new AppDbContext(options);
+        var first = new PresupuestoLinea { Producto = "Anterior 1" };
+        var second = new PresupuestoLinea { Producto = "Anterior 2" };
+        var quote = new Presupuesto { Lineas = [first, second] };
+        db.Attach(quote);
+        var replacement = new PresupuestoLinea { Producto = "Nuevo" };
+
+        PresupuestoEndpoints.ReplaceLines(quote, [replacement], db);
+
+        Assert.Equal(EntityState.Deleted, db.Entry(first).State);
+        Assert.Equal(EntityState.Deleted, db.Entry(second).State);
+        Assert.Equal(EntityState.Added, db.Entry(replacement).State);
+        Assert.Equal([replacement], quote.Lineas);
+    }
+
     [Fact]
     public void Totals_UseConfiguredPricesWithoutAddingInformationalTaxPercentages()
     {

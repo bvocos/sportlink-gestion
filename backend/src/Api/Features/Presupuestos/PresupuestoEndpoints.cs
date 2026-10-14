@@ -56,14 +56,25 @@ public static class PresupuestoEndpoints
         p.Observaciones = r.Observaciones?.Trim();
         var ids = r.Lineas.Select(x => x.TipoCespedId).Distinct().ToArray();
         var products = await db.TiposCesped.Where(x => ids.Contains(x.Id)).ToDictionaryAsync(x => x.Id, ct);
-        p.Lineas.Clear();
+        var replacements = new List<PresupuestoLinea>();
         foreach (var l in r.Lineas)
         {
             if (!products.TryGetValue(l.TipoCespedId, out var product)) throw new InvalidOperationException("Uno de los productos no existe.");
-            p.Lineas.Add(new PresupuestoLinea { TipoCespedId = product.Id, Producto = product.Nombre, Descripcion = product.Descripcion, DescripcionPresupuesto = string.IsNullOrWhiteSpace(product.DescripcionPresupuesto) ? product.Descripcion : product.DescripcionPresupuesto, EspecificacionesPresupuesto = product.EspecificacionesPresupuesto, FichaTecnicaUrl = product.FichaTecnicaUrl,
+            replacements.Add(new PresupuestoLinea { TipoCespedId = product.Id, Producto = product.Nombre, Descripcion = product.Descripcion, DescripcionPresupuesto = string.IsNullOrWhiteSpace(product.DescripcionPresupuesto) ? product.Descripcion : product.DescripcionPresupuesto, EspecificacionesPresupuesto = product.EspecificacionesPresupuesto, FichaTecnicaUrl = product.FichaTecnicaUrl,
                 Color = l.Color?.Trim(), CantidadM2 = l.CantidadM2, PrecioContadoM2 = l.PrecioContadoM2, PrecioFinanciadoM2 = l.PrecioFinanciadoM2,
                 TotalContado = decimal.Round(l.CantidadM2 * l.PrecioContadoM2, 2), TotalFinanciado = decimal.Round(l.CantidadM2 * l.PrecioFinanciadoM2, 2) });
         }
+        ReplaceLines(p, replacements, db);
+    }
+
+    internal static void ReplaceLines(Presupuesto presupuesto, IReadOnlyCollection<PresupuestoLinea> replacements, AppDbContext db)
+    {
+        var existingLines = presupuesto.Lineas.ToList();
+        presupuesto.Lineas.Clear();
+        db.PresupuestoLineas.RemoveRange(existingLines);
+        presupuesto.Lineas.AddRange(replacements);
+        if (db.Entry(presupuesto).State != EntityState.Detached)
+            db.PresupuestoLineas.AddRange(replacements);
     }
     private static async Task<IResult> Create(PresupuestoRequest r, AppDbContext db, CancellationToken ct)
     {
@@ -74,7 +85,7 @@ public static class PresupuestoEndpoints
     {
         var error = Validate(r); if (error is not null) return Results.ValidationProblem(new Dictionary<string, string[]> { ["presupuesto"] = [error] });
         var p = await db.Presupuestos.Include(x => x.Lineas).SingleOrDefaultAsync(x => x.Id == id, ct); if (p is null) return Results.NotFound();
-        db.PresupuestoLineas.RemoveRange(p.Lineas); await Apply(p, r, db, ct); await db.SaveChangesAsync(ct); return Results.NoContent();
+        await Apply(p, r, db, ct); await db.SaveChangesAsync(ct); return Results.NoContent();
     }
     private static async Task<IResult> Delete(Guid id, AppDbContext db, CancellationToken ct) { var p = await db.Presupuestos.FindAsync([id], ct); if (p is null) return Results.NotFound(); db.Remove(p); await db.SaveChangesAsync(ct); return Results.NoContent(); }
 
