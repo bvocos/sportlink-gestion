@@ -124,7 +124,7 @@ internal static class PresupuestoPdf
             container.Page(page =>
             {
                 page.Size(PageSizes.A4); page.Margin(0); page.DefaultTextStyle(x => x.FontFamily("Arial").FontSize(8).FontColor(Colors.Grey.Darken4));
-                page.Background().Image(Path.Combine(assets, "presupuesto-cover-padel.png")).FitArea();
+                page.Background().Image(Path.Combine(assets, "presupuesto-cover-padel.png")).FitUnproportionally();
                 page.Content().Background("#8A081712").Padding(24).ScaleToFit().Column(c =>
                 {
                     c.Spacing(7);
