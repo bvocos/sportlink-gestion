@@ -1,6 +1,8 @@
 using Api.Shared.Database;
 using Microsoft.EntityFrameworkCore;
 using Api.Features.Auth;
+using Api.Shared.Common;
+using System.Security.Claims;
 
 namespace Api.Features.Sucursales;
 
@@ -14,11 +16,11 @@ public static class SucursalEndpoints
     {
         var group = app.MapGroup("/api/sucursales").WithTags("Administración - Sucursales");
 
-        group.MapGet("/depositos", ListDepositos).RequirePermiso("administracion", "ver");
-        group.MapPost("/depositos", CreateDeposito).RequirePermiso("administracion", "crear");
-        group.MapPut("/depositos/{id:guid}", UpdateDeposito).RequirePermiso("administracion", "editar");
-        group.MapPatch("/depositos/{id:guid}/estado", SetDepositoEstado).RequirePermiso("administracion", "editar");
-        group.MapDelete("/depositos/{id:guid}", DeleteDeposito).RequirePermiso("administracion", "editar");
+        group.MapGet("/depositos", ListDepositos).RequireAuthorization("Administrador");
+        group.MapPost("/depositos", CreateDeposito).RequireAuthorization("Administrador");
+        group.MapPut("/depositos/{id:guid}", UpdateDeposito).RequireAuthorization("Administrador");
+        group.MapPatch("/depositos/{id:guid}/estado", SetDepositoEstado).RequireAuthorization("Administrador");
+        group.MapDelete("/depositos/{id:guid}", DeleteDeposito).RequireAuthorization("Administrador");
 
         group.MapGet("/", ListSucursales).RequirePermiso("administracion", "ver");
         group.MapPost("/", CreateSucursal).RequirePermiso("administracion", "crear");
@@ -30,6 +32,7 @@ public static class SucursalEndpoints
     private static object DepositoDto(Deposito deposito) => new
     {
         deposito.Id,
+        deposito.SucursalId,
         deposito.Nombre,
         deposito.Activo
     };
@@ -53,32 +56,34 @@ public static class SucursalEndpoints
         return null;
     }
 
-    private static async Task<IReadOnlyList<object>> ListDepositos(AppDbContext db, CancellationToken ct) =>
-        (await db.Depositos.AsNoTracking().OrderBy(x => x.Nombre).ToListAsync(ct))
+    private static async Task<IReadOnlyList<object>> ListDepositos(ClaimsPrincipal user, AppDbContext db, CancellationToken ct) =>
+        (await SucursalDepositoService.VisibleDeposits(db.Depositos.AsNoTracking(), user).OrderBy(x => x.Nombre).ToListAsync(ct))
             .Select(DepositoDto).ToList();
 
-    private static async Task<IResult> CreateDeposito(DepositoRequest request, AppDbContext db, CancellationToken ct)
+    private static async Task<IResult> CreateDeposito(DepositoRequest request, ClaimsPrincipal user, AppDbContext db, CancellationToken ct)
     {
         var errors = ValidateName(request.Nombre);
         if (errors is not null) return Results.ValidationProblem(errors);
+        var sucursalId = user.SucursalId();
+        if (!sucursalId.HasValue) return Results.ValidationProblem(new Dictionary<string, string[]> { ["sucursal"] = ["Seleccioná una sucursal activa."] });
         var name = request.Nombre.Trim();
-        if (await db.Depositos.AnyAsync(x => x.Nombre == name, ct))
+        if (await db.Depositos.AnyAsync(x => x.SucursalId == sucursalId && x.Nombre == name, ct))
             return Results.Conflict(new { message = "Ya existe un depósito con ese nombre." });
 
-        var deposito = new Deposito { Nombre = name, Activo = request.Activo };
+        var deposito = new Deposito { SucursalId = sucursalId.Value, Nombre = name, Activo = request.Activo };
         db.Depositos.Add(deposito);
         await db.SaveChangesAsync(ct);
         return Results.Created($"/api/sucursales/depositos/{deposito.Id}", DepositoDto(deposito));
     }
 
-    private static async Task<IResult> UpdateDeposito(Guid id, DepositoRequest request, AppDbContext db, CancellationToken ct)
+    private static async Task<IResult> UpdateDeposito(Guid id, DepositoRequest request, ClaimsPrincipal user, AppDbContext db, CancellationToken ct)
     {
         var errors = ValidateName(request.Nombre);
         if (errors is not null) return Results.ValidationProblem(errors);
-        var deposito = await db.Depositos.FindAsync([id], ct);
+        var deposito = await SucursalDepositoService.VisibleDeposits(db.Depositos, user).SingleOrDefaultAsync(x => x.Id == id, ct);
         if (deposito is null) return Results.NotFound();
         var name = request.Nombre.Trim();
-        if (await db.Depositos.AnyAsync(x => x.Id != id && x.Nombre == name, ct))
+        if (await db.Depositos.AnyAsync(x => x.Id != id && x.SucursalId == deposito.SucursalId && x.Nombre == name, ct))
             return Results.Conflict(new { message = "Ya existe un depósito con ese nombre." });
         if (!request.Activo && await db.Sucursales.AnyAsync(x => x.DepositoPropioId == id && x.Activo, ct))
             return Results.Conflict(new { message = "El depósito tiene sucursales activas asociadas. Desactivá primero esas sucursales." });
@@ -89,9 +94,9 @@ public static class SucursalEndpoints
         return Results.Ok(DepositoDto(deposito));
     }
 
-    private static async Task<IResult> SetDepositoEstado(Guid id, EstadoMaestroRequest request, AppDbContext db, CancellationToken ct)
+    private static async Task<IResult> SetDepositoEstado(Guid id, EstadoMaestroRequest request, ClaimsPrincipal user, AppDbContext db, CancellationToken ct)
     {
-        var deposito = await db.Depositos.FindAsync([id], ct);
+        var deposito = await SucursalDepositoService.VisibleDeposits(db.Depositos, user).SingleOrDefaultAsync(x => x.Id == id, ct);
         if (deposito is null) return Results.NotFound();
         if (!request.Activo && await db.Sucursales.AnyAsync(x => x.DepositoPropioId == id && x.Activo, ct))
             return Results.Conflict(new { message = "El depósito tiene sucursales activas asociadas. Desactivá primero esas sucursales." });
@@ -100,9 +105,9 @@ public static class SucursalEndpoints
         return Results.Ok(DepositoDto(deposito));
     }
 
-    private static async Task<IResult> DeleteDeposito(Guid id, AppDbContext db, CancellationToken ct)
+    private static async Task<IResult> DeleteDeposito(Guid id, ClaimsPrincipal user, AppDbContext db, CancellationToken ct)
     {
-        var deposito = await db.Depositos.FindAsync([id], ct);
+        var deposito = await SucursalDepositoService.VisibleDeposits(db.Depositos, user).SingleOrDefaultAsync(x => x.Id == id, ct);
         if (deposito is null) return Results.NotFound();
         if (await db.MovimientosStock.AnyAsync(x => x.DepositoId == id, ct))
             return Results.Conflict(new { message = "El depósito tiene movimientos de stock asociados. Podés desactivarlo en lugar de eliminarlo." });
@@ -136,6 +141,7 @@ public static class SucursalEndpoints
             PuntoVentaAfip = request.PuntoVentaAfip,
             Activo = request.Activo
         };
+        deposito.SucursalId = sucursal.Id;
         db.Sucursales.Add(sucursal);
         await db.SaveChangesAsync(ct);
         return Results.Created($"/api/sucursales/{sucursal.Id}", SucursalDto(sucursal));
@@ -157,6 +163,7 @@ public static class SucursalEndpoints
         sucursal.Nombre = name;
         sucursal.DepositoPropioId = deposito.Id;
         sucursal.DepositoPropio = deposito;
+        deposito.SucursalId ??= sucursal.Id;
         sucursal.PuntoVentaAfip = request.PuntoVentaAfip;
         sucursal.Activo = request.Activo;
         await db.SaveChangesAsync(ct);

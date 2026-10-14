@@ -6,60 +6,56 @@ namespace Api.Tests;
 
 public sealed class StockVisibilityTests
 {
-    private static readonly Guid SanFrancisco = Guid.Parse("7a100000-0000-0000-0000-000000000001");
-    private static readonly Guid BuenosAires = Guid.Parse("7a100000-0000-0000-0000-000000000002");
+    private static readonly Guid SanFrancisco = Guid.NewGuid();
+    private static readonly Guid BuenosAires = Guid.NewGuid();
+    private static readonly Guid DepositoCentral = Guid.NewGuid();
+    private static readonly Guid DepositoAuxiliar = Guid.NewGuid();
+    private static readonly Guid DepositoBuenosAires = Guid.NewGuid();
 
     [Fact]
-    public void Usuario_solo_ve_stock_de_su_deposito()
+    public void Usuario_ve_todos_los_depositos_de_su_sucursal()
     {
-        var deposits = new[] { new Deposito { Id = SanFrancisco }, new Deposito { Id = BuenosAires } }.AsQueryable();
-
-        var visible = StockEndpoints.VisibleDepositQuery(deposits, BranchUser(), SanFrancisco);
-
-        Assert.Equal(SanFrancisco, Assert.Single(visible).Id);
+        var deposits = Deposits().AsQueryable();
+        var visible = StockEndpoints.VisibleDepositQuery(deposits, BranchUser(), DepositoCentral).ToList();
+        Assert.Equal(2, visible.Count);
+        Assert.DoesNotContain(visible, x => x.Id == DepositoBuenosAires);
     }
 
     [Fact]
-    public void Usuario_no_puede_forzar_movimientos_del_otro_deposito()
+    public void Usuario_puede_filtrar_movimientos_por_un_deposito_de_su_sucursal()
     {
-        var rows = new[] { new MovimientoStock { DepositoId = SanFrancisco }, new MovimientoStock { DepositoId = BuenosAires } }.AsQueryable();
-
-        var visible = StockEndpoints.VisibleMovementQuery(rows, BranchUser(), SanFrancisco, BuenosAires);
-
-        Assert.Equal(SanFrancisco, Assert.Single(visible).DepositoId);
+        var deposits = Deposits().ToDictionary(x => x.Id);
+        var rows = deposits.Values.Select(x => new MovimientoStock { DepositoId = x.Id, Deposito = x }).AsQueryable();
+        var visible = StockEndpoints.VisibleMovementQuery(rows, BranchUser(), DepositoCentral, DepositoAuxiliar);
+        Assert.Equal(DepositoAuxiliar, Assert.Single(visible).DepositoId);
     }
 
     [Fact]
-    public void Usuario_no_puede_forzar_lotes_del_otro_deposito()
+    public void Usuario_no_puede_ver_lotes_de_otra_sucursal()
     {
-        var rows = new[] { new LoteStock { DepositoId = SanFrancisco }, new LoteStock { DepositoId = BuenosAires } }.AsQueryable();
-
-        var visible = StockEndpoints.VisibleLotQuery(rows, BranchUser(), SanFrancisco, BuenosAires);
-
-        Assert.Equal(SanFrancisco, Assert.Single(visible).DepositoId);
+        var deposits = Deposits().ToDictionary(x => x.Id);
+        var rows = deposits.Values.Select(x => new LoteStock { DepositoId = x.Id, Deposito = x }).AsQueryable();
+        Assert.Empty(StockEndpoints.VisibleLotQuery(rows, BranchUser(), DepositoCentral, DepositoBuenosAires));
     }
 
     [Fact]
-    public void Codigo_de_barras_del_otro_deposito_no_es_visible()
+    public void Administrador_respeta_la_sucursal_activa()
     {
-        Assert.False(StockEndpoints.CanSeeBarcodeDeposit(BranchUser(), SanFrancisco, BuenosAires));
-        Assert.True(StockEndpoints.CanSeeBarcodeDeposit(BranchUser(), SanFrancisco, SanFrancisco));
+        var deposits = Deposits().AsQueryable();
+        var visible = StockEndpoints.VisibleDepositQuery(deposits, Administrator(), DepositoCentral).ToList();
+        Assert.Equal(2, visible.Count);
+        Assert.DoesNotContain(visible, x => x.Id == DepositoBuenosAires);
     }
 
-    [Fact]
-    public void Administrador_solo_ve_el_deposito_de_su_sucursal_activa()
-    {
-        var admin = Administrator();
-        var deposits = new[] { new Deposito { Id = SanFrancisco }, new Deposito { Id = BuenosAires } }.AsQueryable();
-        var movements = new[] { new MovimientoStock { DepositoId = SanFrancisco }, new MovimientoStock { DepositoId = BuenosAires } }.AsQueryable();
-        var lots = new[] { new LoteStock { DepositoId = SanFrancisco }, new LoteStock { DepositoId = BuenosAires } }.AsQueryable();
+    private static Deposito[] Deposits() =>
+    [
+        new() { Id = DepositoCentral, SucursalId = SanFrancisco },
+        new() { Id = DepositoAuxiliar, SucursalId = SanFrancisco },
+        new() { Id = DepositoBuenosAires, SucursalId = BuenosAires }
+    ];
 
-        Assert.Equal(SanFrancisco, Assert.Single(StockEndpoints.VisibleDepositQuery(deposits, admin, SanFrancisco)).Id);
-        Assert.Equal(SanFrancisco, Assert.Single(StockEndpoints.VisibleMovementQuery(movements, admin, SanFrancisco, BuenosAires)).DepositoId);
-        Assert.Equal(SanFrancisco, Assert.Single(StockEndpoints.VisibleLotQuery(lots, admin, SanFrancisco, BuenosAires)).DepositoId);
-        Assert.False(StockEndpoints.CanSeeBarcodeDeposit(admin, SanFrancisco, BuenosAires));
-    }
-
-    private static ClaimsPrincipal BranchUser() => new(new ClaimsIdentity([new Claim(ClaimTypes.Name, "Usuario")], "Test"));
-    private static ClaimsPrincipal Administrator() => new(new ClaimsIdentity([new Claim(ClaimTypes.Name, "Admin"), new Claim(ClaimTypes.Role, "Administrador")], "Test"));
+    private static ClaimsPrincipal BranchUser() => Principal("Usuario");
+    private static ClaimsPrincipal Administrator() => Principal("Administrador");
+    private static ClaimsPrincipal Principal(string role) => new(new ClaimsIdentity(
+        [new Claim(ClaimTypes.Name, role), new Claim(ClaimTypes.Role, role), new Claim("sucursal_id", SanFrancisco.ToString())], "Test"));
 }

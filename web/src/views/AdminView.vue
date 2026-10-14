@@ -9,12 +9,14 @@ import Message from 'primevue/message'
 import Tag from 'primevue/tag'
 import ToggleSwitch from 'primevue/toggleswitch'
 import Textarea from 'primevue/textarea'
+import Select from 'primevue/select'
 import AppIcon from '@/shared/components/AppIcon.vue'
 import { faPen, faPowerOff, faTrash } from '@/shared/icons'
 import { http, apiErrorMessage } from '@/shared/api/httpClient'
 import { formatCurrency as money } from '@/shared/formatters'
 import { confirmAction, notify } from '@/shared/uiFeedback'
 import { TABLE_ROWS, TABLE_ROWS_OPTIONS } from '@/shared/tablePagination'
+import { auth } from '@/auth'
 
 const items = ref<any[]>([])
 const showForm = ref(false)
@@ -27,8 +29,13 @@ const editingId = ref<string | null>(null)
 const colorInput = ref('')
 const formPanelRef = ref<HTMLElement | null>(null)
 const nombreInputRef = ref<{ $el?: HTMLElement } | null>(null)
+const depositos = ref<any[]>([])
+const depositoNombre = ref('')
+const editingDepositoId = ref<string | null>(null)
+const depositoError = ref('')
 
 const blank = () => ({
+  depositoId: '',
   nombre: '',
   descripcion: '',
   descripcionPresupuesto: '',
@@ -67,7 +74,11 @@ async function load() {
   loading.value = true
   loadError.value = ''
   try {
-    items.value = (await http.get('/maestros/tipos-cesped')).data
+    const requests: Promise<any>[] = [http.get('/maestros/tipos-cesped')]
+    if (auth.state.user?.rol === 'Administrador') requests.push(http.get('/sucursales/depositos'))
+    const responses = await Promise.all(requests)
+    items.value = responses[0].data
+    if (responses[1]) depositos.value = responses[1].data
   } catch (e) {
     loadError.value = apiErrorMessage(e, 'No se pudieron cargar los productos.')
   } finally {
@@ -96,6 +107,7 @@ function create() {
   editingId.value = null
   colorInput.value = ''
   form.value = blank()
+  form.value.depositoId = depositos.value.find(x => x.activo)?.id ?? ''
   error.value = ''
   showPdfSection.value = false
   showForm.value = true
@@ -106,6 +118,7 @@ function edit(x: any) {
   editingId.value = x.id
   colorInput.value = ''
   form.value = {
+    depositoId: x.depositoId,
     nombre: x.nombre,
     descripcion: x.descripcion ?? '',
     descripcionPresupuesto: x.descripcionPresupuesto ?? '',
@@ -140,6 +153,10 @@ function copySalePrices() {
 }
 
 async function save() {
+  if (!form.value.depositoId) {
+    error.value = 'Seleccioná el depósito del producto.'
+    return
+  }
   if (!form.value.nombre.trim()) {
     error.value = 'Ingresá el nombre del producto.'
     return
@@ -166,6 +183,7 @@ async function save() {
 
 async function toggle(x: any) {
   await http.put(`/maestros/tipos-cesped/${x.id}`, {
+    depositoId: x.depositoId,
     nombre: x.nombre,
     descripcion: x.descripcion,
     descripcionPresupuesto: x.descripcionPresupuesto,
@@ -180,6 +198,23 @@ async function toggle(x: any) {
     activo: !x.activo,
   })
   await load()
+}
+
+async function saveDeposito() {
+  const nombre = depositoNombre.value.trim()
+  if (!nombre) { depositoError.value = 'Ingresá el nombre del depósito.'; return }
+  try {
+    if (editingDepositoId.value) await http.put(`/sucursales/depositos/${editingDepositoId.value}`, { nombre, activo: true })
+    else await http.post('/sucursales/depositos', { nombre, activo: true })
+    depositoNombre.value = ''; editingDepositoId.value = null; depositoError.value = ''; await load()
+  } catch (e) { depositoError.value = apiErrorMessage(e, 'No se pudo guardar el depósito.') }
+}
+
+function editDeposito(deposito: any) { editingDepositoId.value = deposito.id; depositoNombre.value = deposito.nombre; depositoError.value = '' }
+
+async function toggleDeposito(deposito: any) {
+  try { await http.patch(`/sucursales/depositos/${deposito.id}/estado`, { activo: !deposito.activo }); await load() }
+  catch (e) { notify(apiErrorMessage(e, 'No se pudo cambiar el estado del depósito.')) }
 }
 
 async function remove(x: any) {
@@ -198,6 +233,29 @@ onMounted(load)
 
 <template>
   <section class="page compact-page">
+    <article v-if="auth.state.user?.rol === 'Administrador'" class="card mb-3">
+      <div class="flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+        <div>
+          <h2 class="m-0 text-lg">Depósitos de la sucursal</h2>
+          <small class="text-color-secondary">Creá, renombrá o desactivá depósitos de la sucursal activa.</small>
+        </div>
+        <form class="flex gap-2" @submit.prevent="saveDeposito">
+          <InputText v-model="depositoNombre" placeholder="Nombre del depósito" maxlength="150" />
+          <AppButton type="submit" :label="editingDepositoId ? 'Guardar nombre' : 'Crear depósito'" size="small" />
+          <AppButton v-if="editingDepositoId" type="button" label="Cancelar" severity="secondary" size="small"
+            @click="editingDepositoId = null; depositoNombre = ''; depositoError = ''" />
+        </form>
+      </div>
+      <Message v-if="depositoError" severity="error" :closable="false" class="mb-2">{{ depositoError }}</Message>
+      <div class="flex flex-wrap gap-2">
+        <div v-for="deposito in depositos" :key="deposito.id" class="flex align-items-center gap-2 border-1 surface-border border-round px-3 py-2">
+          <b>{{ deposito.nombre }}</b>
+          <Tag :value="deposito.activo ? 'Activo' : 'Inactivo'" :severity="deposito.activo ? 'success' : 'warn'" />
+          <AppButton text rounded severity="secondary" title="Cambiar nombre" @click="editDeposito(deposito)"><AppIcon :icon="faPen" /></AppButton>
+          <AppButton text rounded severity="secondary" :title="deposito.activo ? 'Desactivar' : 'Activar'" @click="toggleDeposito(deposito)"><AppIcon :icon="faPowerOff" /></AppButton>
+        </div>
+      </div>
+    </article>
     <div class="page-toolbar flex justify-content-between align-items-center flex-wrap gap-2">
       <p class="page-desc text-color-secondary m-0">
         {{ showForm
@@ -237,6 +295,9 @@ onMounted(load)
       >
         <Column header="Nombre">
           <template #body="{ data }"><b>{{ data.nombre }}</b></template>
+        </Column>
+        <Column header="Depósito">
+          <template #body="{ data }">{{ depositos.find(x => x.id === data.depositoId)?.nombre ?? 'Depósito' }}</template>
         </Column>
         <Column header="Descripción">
           <template #body="{ data }">{{ data.descripcion || '—' }}</template>
@@ -299,6 +360,11 @@ onMounted(load)
             <span>1. Datos del producto</span>
           </header>
           <div class="grid formgrid p-fluid inline-form-grid">
+            <div class="field col-12 md:col-4">
+              <label for="depositoProducto">Depósito</label>
+              <Select id="depositoProducto" v-model="form.depositoId" :options="depositos.filter(x => x.activo)"
+                option-label="nombre" option-value="id" placeholder="Seleccionar depósito" :disabled="!!editingId" required />
+            </div>
             <div class="col-12 product-name-colors-row">
               <div class="field product-name-field">
                 <label for="nombre">Nombre</label>

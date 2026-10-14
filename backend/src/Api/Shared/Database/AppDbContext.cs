@@ -29,7 +29,9 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, IHttpCo
         b.Entity<Venta>().Property(x => x.FormaPago).HasConversion<string>(); b.Entity<Cuota>().Property(x => x.Estado).HasConversion<string>();
         b.Entity<MovimientoCaja>().Property(x => x.Tipo).HasConversion<string>(); b.Entity<Configuracion>().HasIndex(x => x.Clave).IsUnique();
         b.Entity<Deposito>().Property(x => x.Nombre).HasMaxLength(150);
-        b.Entity<Deposito>().HasIndex(x => x.Nombre).IsUnique();
+        b.Entity<Deposito>().HasIndex(x => new { x.SucursalId, x.Nombre }).IsUnique();
+        b.Entity<Deposito>().HasOne(x => x.Sucursal).WithMany(x => x.Depositos)
+            .HasForeignKey(x => x.SucursalId).OnDelete(DeleteBehavior.Restrict);
         b.Entity<Sucursal>().Property(x => x.Nombre).HasMaxLength(150);
         b.Entity<Sucursal>().HasIndex(x => x.Nombre).IsUnique();
         b.Entity<Sucursal>().HasOne(x => x.DepositoPropio).WithMany(x => x.Sucursales)
@@ -181,6 +183,12 @@ public static class SeedData
                 INSERT dbo.Sucursales(Id, Nombre, DepositoPropioId, PuntoVentaAfip, Activo, CreatedAt)
                 SELECT '7b100000-0000-0000-0000-000000000002', N'Buenos Aires', Id, NULL, 1, SYSDATETIMEOFFSET()
                 FROM dbo.Depositos WHERE Nombre = N'Buenos Aires';
+
+            IF COL_LENGTH('dbo.Depositos', 'SucursalId') IS NOT NULL
+                UPDATE depositos SET SucursalId = sucursales.Id
+                FROM dbo.Depositos depositos
+                INNER JOIN dbo.Sucursales sucursales ON sucursales.DepositoPropioId = depositos.Id
+                WHERE depositos.SucursalId IS NULL;
 
             IF COL_LENGTH('dbo.Usuarios', 'SucursalId') IS NULL
                 ALTER TABLE dbo.Usuarios ADD SucursalId UNIQUEIDENTIFIER NULL;

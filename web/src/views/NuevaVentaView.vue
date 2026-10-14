@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppButton from '@/shared/components/AppButton.vue'
 import AppDatePicker from '@/shared/components/AppDatePicker.vue'
@@ -24,6 +24,7 @@ const route = useRoute()
 const editingId = computed(() => typeof route.params.id === 'string' ? route.params.id : '')
 const clientes = ref<any[]>([])
 const maestros = ref<any>({ tiposCesped: [], alicuotasIva: [] })
+const depositos = ref<any[]>([])
 const saving = ref(false)
 const error = ref('')
 const loading = ref(false)
@@ -46,8 +47,9 @@ const form = ref({
 
 const totalProductos = computed(() => form.value.lineas.reduce((sum, x) => sum + Number(x.total || 0), 0))
 const totalVenta = computed(() => totalProductos.value)
+const productosDisponibles = computed(() => maestros.value.tiposCesped.filter((x: any) => x.depositoId === form.value.depositoId))
 
-function product(row: any) { return maestros.value.tiposCesped.find((x: any) => x.id === row.tipoCespedId) }
+function product(row: any) { return productosDisponibles.value.find((x: any) => x.id === row.tipoCespedId) }
 function selectProduct(row: any) {
   const p = product(row)
   if (!p) return
@@ -86,6 +88,7 @@ async function load() {
   try {
     const [filters, masters] = await Promise.all([http.get('/ventas/filtros'), http.get('/maestros')])
     clientes.value = filters.data.clientes
+    depositos.value = filters.data.depositos ?? []
     maestros.value = masters.data
     form.value.sucursalId = filters.data.sucursales?.[0]?.id ?? ''
     form.value.depositoId = filters.data.depositos?.[0]?.id ?? ''
@@ -113,6 +116,7 @@ async function load() {
 }
 async function save() {
   error.value = ''
+  if (!form.value.depositoId) { error.value = 'Seleccioná el depósito que entrega el stock.'; return }
   if (!form.value.lineas.length) { error.value = 'Agregá al menos un producto a la venta.'; return }
   saving.value = true
   try {
@@ -134,6 +138,13 @@ async function save() {
   }
 }
 onMounted(load)
+watch(() => form.value.depositoId, (value, previous) => {
+  if (!previous || value === previous || loading.value || editingId.value) return
+  form.value.lineas = []
+  draft.value = line()
+  editingLine.value = null
+  showProductEntry.value = true
+})
 </script>
 
 <template>
@@ -204,12 +215,18 @@ onMounted(load)
           </div>
         </template>
 
+        <div class="field mb-3" style="max-width: 28rem">
+          <label for="depositoVenta">Depósito que entrega el stock</label>
+          <Select id="depositoVenta" v-model="form.depositoId" :options="depositos" option-label="nombre"
+            option-value="id" placeholder="Seleccionar depósito" :disabled="!!editingId" class="w-full" />
+        </div>
+
         <div v-if="showProductEntry" class="card sale-entry-card">
           <div class="sale-entry">
             <div class="grid formgrid p-fluid sale-entry-grid">
               <div class="field col-12 md:col-4 sale-product-field">
                 <label>Producto</label>
-                <Select v-model="draft.tipoCespedId" :options="maestros.tiposCesped" option-label="nombre"
+                <Select v-model="draft.tipoCespedId" :options="productosDisponibles" option-label="nombre"
                   option-value="id" placeholder="Seleccionar producto" size="small" @change="selectProduct(draft)" />
               </div>
               <div class="field col-6 md:col-2">

@@ -90,12 +90,16 @@ public static class StockEndpoints
 
     internal static IQueryable<MovimientoStock> VisibleMovementQuery(IQueryable<MovimientoStock> query, ClaimsPrincipal user, Guid? ownDepositId, Guid? requestedDepositId)
     {
-        return ownDepositId.HasValue ? query.Where(x => x.DepositoId == ownDepositId.Value) : query.Where(_ => false);
+        if (!Guid.TryParse(user.FindFirstValue("sucursal_id"), out var sucursalId)) return query.Where(_ => false);
+        var visible = query.Where(x => x.Deposito.SucursalId == sucursalId);
+        return requestedDepositId.HasValue ? visible.Where(x => x.DepositoId == requestedDepositId.Value) : visible;
     }
 
     internal static IQueryable<LoteStock> VisibleLotQuery(IQueryable<LoteStock> query, ClaimsPrincipal user, Guid? ownDepositId, Guid? requestedDepositId)
     {
-        return ownDepositId.HasValue ? query.Where(x => x.DepositoId == ownDepositId.Value) : query.Where(_ => false);
+        if (!Guid.TryParse(user.FindFirstValue("sucursal_id"), out var sucursalId)) return query.Where(_ => false);
+        var visible = query.Where(x => x.Deposito.SucursalId == sucursalId);
+        return requestedDepositId.HasValue ? visible.Where(x => x.DepositoId == requestedDepositId.Value) : visible;
     }
 
     internal static bool CanSeeBarcodeDeposit(ClaimsPrincipal user, Guid? ownDepositId, Guid depositId) =>
@@ -115,7 +119,7 @@ public static class StockEndpoints
                 stockActualM2 = db.MovimientosStock.Where(m => m.DepositoId == x.Id && m.TipoCespedId == p.Id).Sum(m => (decimal?)(m.Tipo == TipoMovimientoStock.SalidaPorVenta || m.Tipo == TipoMovimientoStock.AjusteSalida ? -m.CantidadM2 : m.CantidadM2)) ?? 0m
             }).ToList()
         }).ToListAsync(ct);
-        return Results.Ok(deposits.Select(x => new { x.Id, x.Nombre, productos = x.productos.Select(p => new { p.tipoCespedId, p.nombre, p.ControlPorLotes, colores = DeserializeColors(p.ColoresJson), p.stockActualM2 }), permiteRegistrarIngreso = isAdmin || ownDepositId == x.Id }));
+        return Results.Ok(deposits.Select(x => new { x.Id, x.Nombre, productos = x.productos.Select(p => new { p.tipoCespedId, p.nombre, p.ControlPorLotes, colores = DeserializeColors(p.ColoresJson), p.stockActualM2 }), permiteRegistrarIngreso = true }));
     }
 
     private static async Task<IResult> GetMovimientos(Guid? depositoId, Guid? tipoCespedId, DateTime? desde, DateTime? hasta, int page, int pageSize, ClaimsPrincipal currentUser, AppDbContext db, CancellationToken ct)
@@ -143,8 +147,8 @@ public static class StockEndpoints
         var product = await db.TiposCesped.SingleOrDefaultAsync(x => x.Id == request.TipoCespedId && x.DepositoId == request.DepositoId && x.Activo, ct);
         if (product is null) return Results.ValidationProblem(new Dictionary<string, string[]> { ["tipoCespedId"] = ["Seleccioná un producto activo."] });
         if (product.ControlPorLotes) return Results.ValidationProblem(new Dictionary<string, string[]> { ["tipoCespedId"] = ["Este producto se controla por lotes. Usá el ingreso por lote con sus tres rollos."] });
-        var failure = ValidateIngresoScope(currentUser, request.DepositoId, await SucursalDepositoService.GetOwnDepositId(currentUser, db, ct));
-        if (failure is not null) return Results.Problem(statusCode: failure.StatusCode, title: "Acceso denegado", detail: failure.Message);
+        if (!await SucursalDepositoService.CanUseDeposit(currentUser, db, request.DepositoId, ct))
+            return Results.Problem(statusCode: 403, title: "Acceso denegado", detail: RestrictedDepositMessage);
         var movement = new MovimientoStock { DepositoId = deposit.Id, TipoCespedId = product.Id, Tipo = TipoMovimientoStock.Ingreso, CantidadM2 = request.CantidadM2, Fecha = DateTime.UtcNow, Usuario = UserName(currentUser), Observaciones = string.IsNullOrWhiteSpace(observations) ? null : observations };
         db.MovimientosStock.Add(movement); await db.SaveChangesAsync(ct);
         return Results.Created($"/api/stock/movimientos/{movement.Id}", new { movement.Id, movement.DepositoId, movement.TipoCespedId, movement.CantidadM2, movement.Fecha });
@@ -165,8 +169,8 @@ public static class StockEndpoints
         if (product is null) return Results.ValidationProblem(new Dictionary<string, string[]> { ["tipoCespedId"] = ["Seleccioná un producto activo."] });
         if (product.ControlPorLotes) return Results.ValidationProblem(new Dictionary<string, string[]> { ["tipoCespedId"] = ["El stock de este producto se controla mediante lotes y no admite ajustes manuales."] });
 
-        var failure = ValidateIngresoScope(currentUser, request.DepositoId, await SucursalDepositoService.GetOwnDepositId(currentUser, db, ct));
-        if (failure is not null) return Results.Problem(statusCode: failure.StatusCode, title: "Acceso denegado", detail: failure.Message);
+        if (!await SucursalDepositoService.CanUseDeposit(currentUser, db, request.DepositoId, ct))
+            return Results.Problem(statusCode: 403, title: "Acceso denegado", detail: RestrictedDepositMessage);
 
         var currentStock = await db.MovimientosStock
             .Where(x => x.DepositoId == request.DepositoId && x.TipoCespedId == request.TipoCespedId)
@@ -201,8 +205,8 @@ public static class StockEndpoints
         if (!product.ControlPorLotes) return Results.ValidationProblem(new Dictionary<string, string[]> { ["tipoCespedId"] = ["Este producto no se controla por lotes. Usá el ingreso normal de stock."] });
         var colors = DeserializeColors(product.ColoresJson); var color = request.Color?.Trim();
         if (colors.Length > 0 && (string.IsNullOrWhiteSpace(color) || !colors.Contains(color, StringComparer.OrdinalIgnoreCase))) return Results.ValidationProblem(new Dictionary<string, string[]> { ["color"] = ["Seleccioná uno de los colores configurados para el producto."] });
-        var failure = ValidateIngresoScope(currentUser, request.DepositoId, await SucursalDepositoService.GetOwnDepositId(currentUser, db, ct));
-        if (failure is not null) return Results.Problem(statusCode: failure.StatusCode, title: "Acceso denegado", detail: failure.Message);
+        if (!await SucursalDepositoService.CanUseDeposit(currentUser, db, request.DepositoId, ct))
+            return Results.Problem(statusCode: 403, title: "Acceso denegado", detail: RestrictedDepositMessage);
         var codes = request.Rollos!.Select(x => x.CodigoBarra.Trim()).ToArray();
         var existingCodes = await db.Rollos.Where(x => codes.Contains(x.CodigoBarra)).Select(x => x.CodigoBarra).ToListAsync(ct);
         if (HasPreviouslyUsedBarcode(codes, existingCodes)) return Results.Conflict(new { message = "Uno o más códigos de barra ya están registrados en otro lote." });
@@ -231,7 +235,7 @@ public static class StockEndpoints
         var ownDepositId = await SucursalDepositoService.GetOwnDepositId(currentUser, db, ct);
         var roll = await db.Rollos.AsNoTracking().Include(x => x.LoteStock).ThenInclude(x => x.Rollos).Include(x => x.LoteStock.Deposito).Include(x => x.LoteStock.TipoCesped)
             .SingleOrDefaultAsync(x => x.CodigoBarra == code, ct);
-        if (roll is null || !CanSeeBarcodeDeposit(currentUser, ownDepositId, roll.LoteStock.DepositoId))
+        if (roll is null || !await SucursalDepositoService.CanUseDeposit(currentUser, db, roll.LoteStock.DepositoId, ct))
             return Results.NotFound(new { message = "No se encontró ningún rollo con ese código de barra." });
         object? sale = null;
         if (roll.LoteStock.VentaId.HasValue) sale = await db.Ventas.AsNoTracking().Where(x => x.Id == roll.LoteStock.VentaId.Value).Select(x => new { x.Id, x.FechaVenta, cliente = x.Cliente.Nombre + " " + x.Cliente.Apellido }).SingleOrDefaultAsync(ct);

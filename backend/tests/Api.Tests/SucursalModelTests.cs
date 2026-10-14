@@ -20,7 +20,8 @@ public sealed class SucursalModelTests
         var deposito = db.Model.FindEntityType(typeof(Deposito))!;
         var sucursal = db.Model.FindEntityType(typeof(Sucursal))!;
 
-        Assert.Contains(deposito.GetIndexes(), index => index.IsUnique && index.Properties.Single().Name == nameof(Deposito.Nombre));
+        Assert.Contains(deposito.GetIndexes(), index => index.IsUnique &&
+            index.Properties.Select(x => x.Name).SequenceEqual([nameof(Deposito.SucursalId), nameof(Deposito.Nombre)]));
         Assert.Contains(sucursal.GetIndexes(), index => index.IsUnique && index.Properties.Single().Name == nameof(Sucursal.Nombre));
     }
 

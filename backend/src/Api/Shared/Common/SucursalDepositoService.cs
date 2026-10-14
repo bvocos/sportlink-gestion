@@ -17,6 +17,14 @@ public static class SucursalDepositoService
     public static bool CanSeeDeposit(ClaimsPrincipal user, Guid? ownDepositId, Guid depositId) =>
         ownDepositId.HasValue && ownDepositId.Value == depositId;
 
+    public static IQueryable<Deposito> VisibleDeposits(IQueryable<Deposito> query, ClaimsPrincipal user) =>
+        Guid.TryParse(user.FindFirstValue("sucursal_id"), out var sucursalId)
+            ? query.Where(x => x.SucursalId == sucursalId)
+            : query.Where(_ => false);
+
+    public static Task<bool> CanUseDeposit(ClaimsPrincipal user, AppDbContext db, Guid depositId, CancellationToken ct) =>
+        VisibleDeposits(db.Depositos.AsNoTracking(), user).AnyAsync(x => x.Id == depositId && x.Activo, ct);
+
     public static IQueryable<Deposito> VisibleDeposits(IQueryable<Deposito> query, ClaimsPrincipal user, Guid? ownDepositId) =>
-        ownDepositId.HasValue ? query.Where(x => x.Id == ownDepositId.Value) : query.Where(_ => false);
+        VisibleDeposits(query, user);
 }

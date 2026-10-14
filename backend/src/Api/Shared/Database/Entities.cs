@@ -12,6 +12,8 @@ public enum EstadoLoteStock { Disponible, Vendido }
 public enum EstadoPresupuesto { Borrador, Enviado, Aceptado, Rechazado, Vencido }
 public sealed class Deposito : AuditableEntity
 {
+    public Guid? SucursalId { get; set; }
+    public Sucursal? Sucursal { get; set; }
     public string Nombre { get; set; } = "";
     public bool Activo { get; set; } = true;
     public List<Sucursal> Sucursales { get; set; } = [];
@@ -26,6 +28,7 @@ public sealed class Sucursal : AuditableEntity
     public int? PuntoVentaAfip { get; set; }
     public bool Activo { get; set; } = true;
     public List<Usuario> Usuarios { get; set; } = [];
+    public List<Deposito> Depositos { get; set; } = [];
 }
 
 public sealed class Usuario : AuditableEntity

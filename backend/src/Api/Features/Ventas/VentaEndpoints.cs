@@ -81,7 +81,7 @@ public sealed class RegistrarVentaHandler(AppDbContext db, IHttpContextAccessor 
             throw new VentaScopeException("Seleccioná la sucursal a la que pertenece la venta.");
         if (!await db.Sucursales.AnyAsync(x => x.Id == sucursalId.Value && x.Activo, ct))
             throw new VentaScopeException("La sucursal seleccionada no existe o está inactiva.");
-        if (!await db.Sucursales.AnyAsync(x => x.Id == sucursalId.Value && x.DepositoPropioId == request.DepositoId && x.DepositoPropio.Activo, ct))
+        if (!await SucursalDepositoService.CanUseDeposit(currentUser, db, request.DepositoId, ct))
             throw new VentaScopeException("El depósito seleccionado no pertenece a la sucursal activa.");
         request = request with { SucursalId = sucursalId };
         request = await VentaService.NormalizeLines(db, request, ct);
@@ -389,7 +389,7 @@ public static class VentaEndpoints
     private static async Task<object> Filters(ClaimsPrincipal user, AppDbContext db, CancellationToken ct)
     {
         var ownDepositId = await SucursalDepositoService.GetOwnDepositId(user, db, ct);
-        var depositQuery = SucursalDepositoService.VisibleDeposits(db.Depositos.AsNoTracking().Where(x => x.Activo), user, ownDepositId);
+        var depositQuery = SucursalDepositoService.VisibleDeposits(db.Depositos.AsNoTracking().Where(x => x.Activo), user);
         return new
         {
         clientes = await db.Clientes.AsNoTracking().WhereVisibleParaUsuario(user).OrderBy(x => x.Apellido).ThenBy(x => x.Nombre)

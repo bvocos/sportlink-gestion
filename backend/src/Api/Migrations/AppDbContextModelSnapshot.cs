@@ -210,13 +210,17 @@ namespace Api.Migrations
                         .HasMaxLength(150)
                         .HasColumnType("nvarchar(150)");
 
+                    b.Property<Guid?>("SucursalId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<DateTimeOffset?>("UpdatedAt")
                         .HasColumnType("datetimeoffset");
 
                     b.HasKey("Id");
 
-                    b.HasIndex("Nombre")
-                        .IsUnique();
+                    b.HasIndex("SucursalId", "Nombre")
+                        .IsUnique()
+                        .HasFilter("[SucursalId] IS NOT NULL");
 
                     b.ToTable("Depositos");
                 });
@@ -928,6 +932,16 @@ namespace Api.Migrations
                     b.Navigation("Venta");
                 });
 
+            modelBuilder.Entity("Api.Shared.Database.Deposito", b =>
+                {
+                    b.HasOne("Api.Shared.Database.Sucursal", "Sucursal")
+                        .WithMany("Depositos")
+                        .HasForeignKey("SucursalId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Sucursal");
+                });
+
             modelBuilder.Entity("Api.Shared.Database.LoteStock", b =>
                 {
                     b.HasOne("Api.Shared.Database.Deposito", "Deposito")
@@ -1144,6 +1158,8 @@ namespace Api.Migrations
 
             modelBuilder.Entity("Api.Shared.Database.Sucursal", b =>
                 {
+                    b.Navigation("Depositos");
+
                     b.Navigation("Usuarios");
                 });
 
