@@ -55,8 +55,9 @@ public sealed class RegistroAuditoria
     public string DetalleJson { get; set; } = "{}";
 }
 
-public sealed class Cliente : AuditableEntity
+public sealed class Cliente : AuditableEntity, ISucursalScoped
 {
+    public Guid SucursalId { get; set; } public Sucursal Sucursal { get; set; } = null!;
     public string Nombre { get; set; } = ""; public string Apellido { get; set; } = "";
     public string Telefono { get; set; } = ""; public string? Correo { get; set; }
     public string Localidad { get; set; } = ""; public string Provincia { get; set; } = "";

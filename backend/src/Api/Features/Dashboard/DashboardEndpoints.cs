@@ -115,7 +115,7 @@ public static class DashboardEndpoints
         var entregasPendientes = await VisibleQuery(db.Ventas.AsNoTracking(), user, sucursalId)
             .CountAsync(x => x.Estado == EstadoVenta.Futura, ct);
 
-        var clientes = await db.Clientes.AsNoTracking().OrderBy(x => x.Apellido).ThenBy(x => x.Nombre)
+        var clientes = await db.Clientes.AsNoTracking().WhereVisibleParaUsuario(user).OrderBy(x => x.Apellido).ThenBy(x => x.Nombre)
             .Select(x => new { x.Id, nombre = x.Nombre + " " + x.Apellido }).ToListAsync(ct);
         var productos = await db.TiposCesped.AsNoTracking().OrderBy(x => x.Nombre)
             .Select(x => new { x.Id, x.Nombre, x.Activo }).ToListAsync(ct);

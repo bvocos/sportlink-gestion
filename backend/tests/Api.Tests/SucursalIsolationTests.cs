@@ -5,6 +5,7 @@ using Api.Features.Dashboard;
 using Api.Features.Rentabilidad;
 using Api.Features.Ventas;
 using Api.Features.Presupuestos;
+using Api.Shared.Common;
 using Api.Shared.Database;
 
 namespace Api.Tests;
@@ -75,6 +76,16 @@ public sealed class SucursalIsolationTests
         var rows = new[] { new Presupuesto { SucursalId = SanFrancisco }, new Presupuesto { SucursalId = BuenosAires } }.AsQueryable();
         Assert.Equal(SanFrancisco, Assert.Single(PresupuestoEndpoints.VisibleQuery(rows, BranchUser(SanFrancisco))).SucursalId);
         Assert.Equal(BuenosAires, Assert.Single(PresupuestoEndpoints.VisibleQuery(rows, Administrator(BuenosAires))).SucursalId);
+    }
+
+    [Fact]
+    public void Clients_AreIsolatedByActiveBranch()
+    {
+        var rows = new[] { new Cliente { SucursalId = SanFrancisco }, new Cliente { SucursalId = BuenosAires } }.AsQueryable();
+        Assert.Equal(SanFrancisco,
+            Assert.Single(rows.WhereVisibleParaUsuario(BranchUser(SanFrancisco))).SucursalId);
+        Assert.Equal(BuenosAires,
+            Assert.Single(rows.WhereVisibleParaUsuario(Administrator(BuenosAires))).SucursalId);
     }
 
     [Fact]

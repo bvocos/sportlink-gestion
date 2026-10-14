@@ -37,7 +37,7 @@ public static class PresupuestoEndpoints
     }
     private static async Task<IResult> List(ClaimsPrincipal user, AppDbContext db, CancellationToken ct) => Results.Ok((await Query(db, user).OrderByDescending(x => x.Numero).ToListAsync(ct)).Select(Dto));
     private static async Task<IResult> Filters(ClaimsPrincipal user, AppDbContext db, CancellationToken ct) { var depositoId = await SucursalDepositoService.GetOwnDepositId(user, db, ct); return Results.Ok(new {
-        clientes = await db.Clientes.AsNoTracking().OrderBy(x => x.Apellido).ThenBy(x => x.Nombre)
+        clientes = await db.Clientes.AsNoTracking().WhereVisibleParaUsuario(user).OrderBy(x => x.Apellido).ThenBy(x => x.Nombre)
             .Select(x => new { x.Id, nombreCompleto = (x.Nombre + " " + x.Apellido).Trim(), x.Telefono, x.Localidad, x.Provincia }).ToListAsync(ct),
         productos = await db.TiposCesped.AsNoTracking().Where(x => x.DepositoId == depositoId && x.Activo).OrderBy(x => x.Nombre).Select(x => new { x.Id, x.Nombre, x.Descripcion, x.DescripcionPresupuesto, x.EspecificacionesPresupuesto, x.FichaTecnicaUrl, x.PrecioContadoM2, x.PrecioFinanciadoM2, x.ColoresJson }).ToListAsync(ct)
     }); }
@@ -85,12 +85,16 @@ public static class PresupuestoEndpoints
         var error = Validate(r); if (error is not null) return Results.ValidationProblem(new Dictionary<string, string[]> { ["presupuesto"] = [error] });
         var sucursalId = user.SucursalId(); var depositoId = await SucursalDepositoService.GetOwnDepositId(user, db, ct);
         if (!sucursalId.HasValue || !depositoId.HasValue) return Results.ValidationProblem(new Dictionary<string, string[]> { ["sucursal"] = ["Seleccioná una sucursal activa."] });
+        if (!await db.Clientes.AnyAsync(x => x.Id == r.ClienteId && x.SucursalId == sucursalId.Value, ct))
+            return Results.ValidationProblem(new Dictionary<string, string[]> { ["clienteId"] = ["El cliente no pertenece a la sucursal activa."] });
         var p = new Presupuesto { SucursalId = sucursalId.Value, DepositoId = depositoId.Value }; await Apply(p, r, db, ct); db.Add(p); await db.SaveChangesAsync(ct); return Results.Created($"/api/presupuestos/{p.Id}", new { p.Id, p.Numero });
     }
     private static async Task<IResult> Update(Guid id, PresupuestoRequest r, ClaimsPrincipal user, AppDbContext db, CancellationToken ct)
     {
         var error = Validate(r); if (error is not null) return Results.ValidationProblem(new Dictionary<string, string[]> { ["presupuesto"] = [error] });
         var p = await db.Presupuestos.Include(x => x.Lineas).WhereVisibleParaUsuario(user).SingleOrDefaultAsync(x => x.Id == id, ct); if (p is null) return Results.NotFound();
+        if (!await db.Clientes.AnyAsync(x => x.Id == r.ClienteId && x.SucursalId == p.SucursalId, ct))
+            return Results.ValidationProblem(new Dictionary<string, string[]> { ["clienteId"] = ["El cliente no pertenece a la sucursal activa."] });
         await Apply(p, r, db, ct); await db.SaveChangesAsync(ct); return Results.NoContent();
     }
     private static async Task<IResult> Delete(Guid id, ClaimsPrincipal user, AppDbContext db, CancellationToken ct) { var p = await db.Presupuestos.WhereVisibleParaUsuario(user).SingleOrDefaultAsync(x => x.Id == id, ct); if (p is null) return Results.NotFound(); db.Remove(p); await db.SaveChangesAsync(ct); return Results.NoContent(); }

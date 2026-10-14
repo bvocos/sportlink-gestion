@@ -37,6 +37,9 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, IHttpCo
         b.Entity<Usuario>().HasIndex(x=>x.NombreUsuario).IsUnique();
         b.Entity<Usuario>().HasOne(x => x.Sucursal).WithMany(x => x.Usuarios)
             .HasForeignKey(x => x.SucursalId).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<Cliente>().HasOne(x => x.Sucursal).WithMany()
+            .HasForeignKey(x => x.SucursalId).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<Cliente>().HasIndex(x => new { x.SucursalId, x.Apellido, x.Nombre });
         b.Entity<RegistroAuditoria>().HasIndex(x => x.FechaHora); b.Entity<RegistroAuditoria>().HasIndex(x => x.Modulo);
         b.Entity<Gasto>().HasIndex(x => x.Fecha);
         b.Entity<Presupuesto>().Property(x => x.Estado).HasConversion<string>();

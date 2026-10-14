@@ -54,6 +54,7 @@ public sealed class VentaEndpointIntegrationTests
                     .SingleAsync(x => x.Nombre == "San Francisco" && x.Activo);
                 var cliente = new Cliente
                 {
+                    SucursalId = sucursal.Id,
                     Nombre = "Cliente", Apellido = "Integracion", Telefono = "3515555555",
                     Localidad = "Cordoba", Provincia = "Cordoba", Tipo = TipoCliente.Particular
                 };

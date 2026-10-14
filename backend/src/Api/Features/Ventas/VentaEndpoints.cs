@@ -235,7 +235,8 @@ internal static class VentaService
     public static async Task<(Cliente Cliente, TipoCesped Tipo, AlicuotaIva Alicuota)> GetReferences(
         AppDbContext db, RegistrarVentaCommand request, CancellationToken ct)
     {
-        var cliente = await db.Clientes.FindAsync([request.ClienteId], ct) ?? throw new KeyNotFoundException("Cliente inexistente");
+        var cliente = await db.Clientes.SingleOrDefaultAsync(x => x.Id == request.ClienteId && x.SucursalId == request.SucursalId, ct)
+            ?? throw new KeyNotFoundException("El cliente no pertenece a la sucursal activa.");
         var tipo = await db.TiposCesped.FindAsync([request.TipoCespedId], ct) ?? throw new KeyNotFoundException("Tipo de césped inexistente");
         var alicuota = await db.AlicuotasIva.FindAsync([request.AlicuotaIvaId], ct) ?? throw new KeyNotFoundException("Alícuota inexistente");
         return (cliente, tipo, alicuota);
@@ -391,7 +392,7 @@ public static class VentaEndpoints
         var depositQuery = SucursalDepositoService.VisibleDeposits(db.Depositos.AsNoTracking().Where(x => x.Activo), user, ownDepositId);
         return new
         {
-        clientes = await db.Clientes.AsNoTracking().OrderBy(x => x.Apellido).ThenBy(x => x.Nombre)
+        clientes = await db.Clientes.AsNoTracking().WhereVisibleParaUsuario(user).OrderBy(x => x.Apellido).ThenBy(x => x.Nombre)
             .Select(x => new
             {
                 x.Id,

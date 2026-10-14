@@ -54,7 +54,7 @@ namespace Api.Migrations
 
                     b.Property<string>("Apellido")
                         .IsRequired()
-                        .HasColumnType("nvarchar(max)");
+                        .HasColumnType("nvarchar(450)");
 
                     b.Property<string>("Correo")
                         .HasColumnType("nvarchar(max)");
@@ -74,7 +74,7 @@ namespace Api.Migrations
 
                     b.Property<string>("Nombre")
                         .IsRequired()
-                        .HasColumnType("nvarchar(max)");
+                        .HasColumnType("nvarchar(450)");
 
                     b.Property<string>("Observaciones")
                         .HasColumnType("nvarchar(max)");
@@ -85,6 +85,9 @@ namespace Api.Migrations
 
                     b.Property<string>("ProvinciaId")
                         .HasColumnType("nvarchar(max)");
+
+                    b.Property<Guid>("SucursalId")
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<string>("Telefono")
                         .IsRequired()
@@ -98,6 +101,8 @@ namespace Api.Migrations
                         .HasColumnType("datetimeoffset");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("SucursalId", "Apellido", "Nombre");
 
                     b.ToTable("Clientes");
                 });
@@ -877,6 +882,17 @@ namespace Api.Migrations
                     b.HasIndex("SucursalId", "FechaVenta");
 
                     b.ToTable("Ventas");
+                });
+
+            modelBuilder.Entity("Api.Shared.Database.Cliente", b =>
+                {
+                    b.HasOne("Api.Shared.Database.Sucursal", "Sucursal")
+                        .WithMany()
+                        .HasForeignKey("SucursalId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Sucursal");
                 });
 
             modelBuilder.Entity("Api.Shared.Database.Cuota", b =>
