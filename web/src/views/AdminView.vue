@@ -9,7 +9,7 @@ import Message from 'primevue/message'
 import Tag from 'primevue/tag'
 import ToggleSwitch from 'primevue/toggleswitch'
 import Textarea from 'primevue/textarea'
-import Select from 'primevue/select'
+import MultiSelect from 'primevue/multiselect'
 import AppIcon from '@/shared/components/AppIcon.vue'
 import { faPen, faPowerOff, faTrash } from '@/shared/icons'
 import { http, apiErrorMessage } from '@/shared/api/httpClient'
@@ -36,6 +36,7 @@ const depositoError = ref('')
 
 const blank = () => ({
   depositoId: '',
+  depositoIds: [] as string[],
   nombre: '',
   descripcion: '',
   descripcionPresupuesto: '',
@@ -108,6 +109,7 @@ function create() {
   colorInput.value = ''
   form.value = blank()
   form.value.depositoId = depositos.value.find(x => x.activo)?.id ?? ''
+  form.value.depositoIds = form.value.depositoId ? [form.value.depositoId] : []
   error.value = ''
   showPdfSection.value = false
   showForm.value = true
@@ -119,6 +121,7 @@ function edit(x: any) {
   colorInput.value = ''
   form.value = {
     depositoId: x.depositoId,
+    depositoIds: [...(x.depositoIds?.length ? x.depositoIds : [x.depositoId])],
     nombre: x.nombre,
     descripcion: x.descripcion ?? '',
     descripcionPresupuesto: x.descripcionPresupuesto ?? '',
@@ -153,7 +156,7 @@ function copySalePrices() {
 }
 
 async function save() {
-  if (!form.value.depositoId) {
+  if (!form.value.depositoIds.length) {
     error.value = 'Seleccioná el depósito del producto.'
     return
   }
@@ -169,6 +172,7 @@ async function save() {
   saving.value = true
   error.value = ''
   try {
+    form.value.depositoId = form.value.depositoIds[0] ?? ''
     editingId.value
       ? await http.put(`/maestros/tipos-cesped/${editingId.value}`, form.value)
       : await http.post('/maestros/tipos-cesped', form.value)
@@ -184,6 +188,7 @@ async function save() {
 async function toggle(x: any) {
   await http.put(`/maestros/tipos-cesped/${x.id}`, {
     depositoId: x.depositoId,
+    depositoIds: x.depositoIds?.length ? x.depositoIds : [x.depositoId],
     nombre: x.nombre,
     descripcion: x.descripcion,
     descripcionPresupuesto: x.descripcionPresupuesto,
@@ -296,8 +301,8 @@ onMounted(load)
         <Column header="Nombre">
           <template #body="{ data }"><b>{{ data.nombre }}</b></template>
         </Column>
-        <Column header="Depósito">
-          <template #body="{ data }">{{ depositos.find(x => x.id === data.depositoId)?.nombre ?? 'Depósito' }}</template>
+        <Column header="Depósitos">
+          <template #body="{ data }">{{ (data.depositoIds?.length ? data.depositoIds : [data.depositoId]).map((id: string) => depositos.find(x => x.id === id)?.nombre).filter(Boolean).join(', ') || 'Depósito' }}</template>
         </Column>
         <Column header="Descripción">
           <template #body="{ data }">{{ data.descripcion || '—' }}</template>
@@ -361,9 +366,9 @@ onMounted(load)
           </header>
           <div class="grid formgrid p-fluid inline-form-grid">
             <div class="field col-12 md:col-4">
-              <label for="depositoProducto">Depósito</label>
-              <Select id="depositoProducto" v-model="form.depositoId" :options="depositos.filter(x => x.activo)"
-                option-label="nombre" option-value="id" placeholder="Seleccionar depósito" :disabled="!!editingId" required />
+              <label for="depositoProducto">Depósitos</label>
+              <MultiSelect id="depositoProducto" v-model="form.depositoIds" :options="depositos.filter(x => x.activo)"
+                option-label="nombre" option-value="id" placeholder="Seleccionar depósitos" display="chip" required />
             </div>
             <div class="col-12 product-name-colors-row">
               <div class="field product-name-field">

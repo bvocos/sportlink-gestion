@@ -121,7 +121,7 @@ internal static class VentaService
         IReadOnlyCollection<VentaLineaCommand> lines, CancellationToken ct)
     {
         var ids = lines.Select(x => x.TipoCespedId).Distinct().ToArray();
-        var valid = await db.TiposCesped.CountAsync(x => x.DepositoId == depositoId && ids.Contains(x.Id), ct);
+        var valid = await db.TiposCesped.CountAsync(x => ids.Contains(x.Id) && x.Depositos.Any(d => d.DepositoId == depositoId), ct);
         if (valid != ids.Length)
             throw new VentaScopeException("Uno de los productos no pertenece al depósito de la sucursal activa.");
     }
@@ -401,7 +401,7 @@ public static class VentaEndpoints
                 x.Telefono,
                 x.Localidad
             }).ToListAsync(ct),
-        tiposCesped = await db.TiposCesped.AsNoTracking().Where(x => x.DepositoId == ownDepositId).OrderBy(x => x.Nombre)
+        tiposCesped = await db.TiposCesped.AsNoTracking().Where(x => x.Depositos.Any(d => d.DepositoId == ownDepositId)).OrderBy(x => x.Nombre)
             .Select(x => new { x.Id, x.Nombre, x.Activo }).ToListAsync(ct),
         sucursales = await db.Sucursales.AsNoTracking().Where(x => x.Activo && x.Id == user.SucursalId()).OrderBy(x => x.Nombre)
             .Select(x => new { x.Id, x.Nombre }).ToListAsync(ct),
@@ -409,7 +409,7 @@ public static class VentaEndpoints
             .Select(x => new
             {
                 x.Id, x.Nombre,
-                productos = db.TiposCesped.AsNoTracking().Where(p => p.DepositoId == x.Id && p.Activo).Select(p => new
+                productos = db.TiposCesped.AsNoTracking().Where(p => p.Depositos.Any(d => d.DepositoId == x.Id) && p.Activo).Select(p => new
                 {
                     tipoCespedId = p.Id, nombre = p.Nombre,
                     stockActualM2 = db.MovimientosStock.Where(m => m.DepositoId == x.Id && m.TipoCespedId == p.Id)

@@ -727,6 +727,21 @@ namespace Api.Migrations
                     b.ToTable("TiposCesped");
                 });
 
+            modelBuilder.Entity("Api.Shared.Database.TipoCespedDeposito", b =>
+                {
+                    b.Property<Guid>("TipoCespedId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("DepositoId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("TipoCespedId", "DepositoId");
+
+                    b.HasIndex("DepositoId");
+
+                    b.ToTable("TiposCespedDepositos");
+                });
+
             modelBuilder.Entity("Api.Shared.Database.Usuario", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1086,6 +1101,25 @@ namespace Api.Migrations
                     b.Navigation("Deposito");
                 });
 
+            modelBuilder.Entity("Api.Shared.Database.TipoCespedDeposito", b =>
+                {
+                    b.HasOne("Api.Shared.Database.Deposito", "Deposito")
+                        .WithMany("TiposCesped")
+                        .HasForeignKey("DepositoId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Api.Shared.Database.TipoCesped", "TipoCesped")
+                        .WithMany("Depositos")
+                        .HasForeignKey("TipoCespedId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Deposito");
+
+                    b.Navigation("TipoCesped");
+                });
+
             modelBuilder.Entity("Api.Shared.Database.Usuario", b =>
                 {
                     b.HasOne("Api.Shared.Database.Sucursal", "Sucursal")
@@ -1144,6 +1178,8 @@ namespace Api.Migrations
                     b.Navigation("MovimientosStock");
 
                     b.Navigation("Sucursales");
+
+                    b.Navigation("TiposCesped");
                 });
 
             modelBuilder.Entity("Api.Shared.Database.LoteStock", b =>
@@ -1161,6 +1197,11 @@ namespace Api.Migrations
                     b.Navigation("Depositos");
 
                     b.Navigation("Usuarios");
+                });
+
+            modelBuilder.Entity("Api.Shared.Database.TipoCesped", b =>
+                {
+                    b.Navigation("Depositos");
                 });
 
             modelBuilder.Entity("Api.Shared.Database.Venta", b =>

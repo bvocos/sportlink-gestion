@@ -50,4 +50,19 @@ public sealed class SucursalModelTests
         Assert.Equal(DeleteBehavior.Restrict, foreignKey.DeleteBehavior);
         Assert.Equal(typeof(Deposito), foreignKey.PrincipalEntityType.ClrType);
     }
+
+    [Fact]
+    public void Producto_puede_asignarse_a_varios_depositos()
+    {
+        using var db = CreateContext();
+        var assignment = db.Model.FindEntityType(typeof(TipoCespedDeposito))!;
+        var key = assignment.FindPrimaryKey()!;
+
+        Assert.Equal([nameof(TipoCespedDeposito.TipoCespedId), nameof(TipoCespedDeposito.DepositoId)],
+            key.Properties.Select(x => x.Name));
+        Assert.Contains(assignment.GetForeignKeys(), x => x.PrincipalEntityType.ClrType == typeof(TipoCesped) &&
+            x.DeleteBehavior == DeleteBehavior.Cascade);
+        Assert.Contains(assignment.GetForeignKeys(), x => x.PrincipalEntityType.ClrType == typeof(Deposito) &&
+            x.DeleteBehavior == DeleteBehavior.Restrict);
+    }
 }

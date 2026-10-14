@@ -18,6 +18,7 @@ public sealed class Deposito : AuditableEntity
     public bool Activo { get; set; } = true;
     public List<Sucursal> Sucursales { get; set; } = [];
     public List<MovimientoStock> MovimientosStock { get; set; } = [];
+    public List<TipoCespedDeposito> TiposCesped { get; set; } = [];
 }
 
 public sealed class Sucursal : AuditableEntity
@@ -67,7 +68,14 @@ public sealed class Cliente : AuditableEntity, ISucursalScoped
     public string? LocalidadId { get; set; } public string? ProvinciaId { get; set; }
     public TipoCliente Tipo { get; set; } public DateOnly FechaPrimerContacto { get; set; } public string? Observaciones { get; set; }
 }
-public sealed class TipoCesped : AuditableEntity { public Guid DepositoId { get; set; } public Deposito Deposito { get; set; } = null!; public string Nombre { get; set; } = ""; public string? Descripcion { get; set; } public string? DescripcionPresupuesto { get; set; } public string? EspecificacionesPresupuesto { get; set; } public string? FichaTecnicaUrl { get; set; } public decimal PrecioVentaM2 { get; set; } public decimal PrecioContadoM2 { get; set; } public decimal PrecioFinanciadoM2 { get; set; } public decimal CostoM2 { get; set; } public string ColoresJson { get; set; } = "[]"; public bool ControlPorLotes { get; set; } public bool Activo { get; set; } = true; }
+public sealed class TipoCesped : AuditableEntity { public Guid DepositoId { get; set; } public Deposito Deposito { get; set; } = null!; public List<TipoCespedDeposito> Depositos { get; set; } = []; public string Nombre { get; set; } = ""; public string? Descripcion { get; set; } public string? DescripcionPresupuesto { get; set; } public string? EspecificacionesPresupuesto { get; set; } public string? FichaTecnicaUrl { get; set; } public decimal PrecioVentaM2 { get; set; } public decimal PrecioContadoM2 { get; set; } public decimal PrecioFinanciadoM2 { get; set; } public decimal CostoM2 { get; set; } public string ColoresJson { get; set; } = "[]"; public bool ControlPorLotes { get; set; } public bool Activo { get; set; } = true; }
+public sealed class TipoCespedDeposito
+{
+    public Guid TipoCespedId { get; set; }
+    public TipoCesped TipoCesped { get; set; } = null!;
+    public Guid DepositoId { get; set; }
+    public Deposito Deposito { get; set; } = null!;
+}
 public sealed class AlicuotaIva : AuditableEntity { public string Nombre { get; set; } = ""; public decimal Porcentaje { get; set; } }
 public sealed class Configuracion : AuditableEntity { public string Clave { get; set; } = ""; public decimal ValorDecimal { get; set; } }
 public sealed class Venta : AuditableEntity, ISucursalScoped

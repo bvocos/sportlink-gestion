@@ -47,7 +47,8 @@ const form = ref({
 
 const totalProductos = computed(() => form.value.lineas.reduce((sum, x) => sum + Number(x.total || 0), 0))
 const totalVenta = computed(() => totalProductos.value)
-const productosDisponibles = computed(() => maestros.value.tiposCesped.filter((x: any) => x.depositoId === form.value.depositoId))
+const productosDisponibles = computed(() => maestros.value.tiposCesped.filter((x: any) =>
+  (x.depositoIds?.length ? x.depositoIds : [x.depositoId]).includes(form.value.depositoId)))
 
 function product(row: any) { return productosDisponibles.value.find((x: any) => x.id === row.tipoCespedId) }
 function selectProduct(row: any) {

@@ -13,6 +13,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, IHttpCo
     public DbSet<AlicuotaIva> AlicuotasIva => Set<AlicuotaIva>(); public DbSet<Configuracion> Configuraciones => Set<Configuracion>();
     public DbSet<Usuario> Usuarios => Set<Usuario>();
     public DbSet<Deposito> Depositos => Set<Deposito>();
+    public DbSet<TipoCespedDeposito> TiposCespedDepositos => Set<TipoCespedDeposito>();
     public DbSet<Sucursal> Sucursales => Set<Sucursal>();
     public DbSet<MovimientoStock> MovimientosStock => Set<MovimientoStock>();
     public DbSet<LoteStock> LotesStock => Set<LoteStock>();
@@ -95,6 +96,11 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, IHttpCo
         });
         b.Entity<TipoCesped>().HasOne(x => x.Deposito).WithMany().HasForeignKey(x => x.DepositoId).OnDelete(DeleteBehavior.Restrict);
         b.Entity<TipoCesped>().HasIndex(x => new { x.DepositoId, x.Nombre }).IsUnique();
+        b.Entity<TipoCespedDeposito>().HasKey(x => new { x.TipoCespedId, x.DepositoId });
+        b.Entity<TipoCespedDeposito>().HasOne(x => x.TipoCesped).WithMany(x => x.Depositos)
+            .HasForeignKey(x => x.TipoCespedId).OnDelete(DeleteBehavior.Cascade);
+        b.Entity<TipoCespedDeposito>().HasOne(x => x.Deposito).WithMany(x => x.TiposCesped)
+            .HasForeignKey(x => x.DepositoId).OnDelete(DeleteBehavior.Restrict);
     }
 
     public override async Task<int> SaveChangesAsync(CancellationToken ct = default)
