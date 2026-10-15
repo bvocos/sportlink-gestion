@@ -27,4 +27,12 @@ public static class SucursalDepositoService
 
     public static IQueryable<Deposito> VisibleDeposits(IQueryable<Deposito> query, ClaimsPrincipal user, Guid? ownDepositId) =>
         VisibleDeposits(query, user);
+
+    public static IQueryable<TipoCesped> VisibleProducts(IQueryable<TipoCesped> query, ClaimsPrincipal user,
+        IQueryable<Deposito> deposits)
+    {
+        var visibleDepositIds = VisibleDeposits(deposits, user).Select(x => x.Id);
+        return query.Where(x => visibleDepositIds.Contains(x.DepositoId) ||
+            x.Depositos.Any(d => visibleDepositIds.Contains(d.DepositoId)));
+    }
 }

@@ -36,19 +36,18 @@ public static class MaestroEndpoints
 
     private static async Task<IReadOnlyList<object>> GetTypes(ClaimsPrincipal user, AppDbContext db, CancellationToken ct)
     {
-        var deposits = SucursalDepositoService.VisibleDeposits(db.Depositos.AsNoTracking(), user).Select(x => x.Id);
-        return (await db.TiposCesped.AsNoTracking().Include(x => x.Depositos)
-            .Where(x => deposits.Contains(x.DepositoId) || x.Depositos.Any(d => deposits.Contains(d.DepositoId)))
+        return (await SucursalDepositoService.VisibleProducts(
+                db.TiposCesped.AsNoTracking().Include(x => x.Depositos), user, db.Depositos.AsNoTracking())
             .OrderBy(x => x.Nombre).ToListAsync(ct)).Select(ToDto).ToList();
     }
 
     private static async Task<object> GetAll(ClaimsPrincipal user, AppDbContext db, CancellationToken ct)
     {
-        var deposits = SucursalDepositoService.VisibleDeposits(db.Depositos.AsNoTracking().Where(x => x.Activo), user).Select(x => x.Id);
         return new
         {
-            tiposCesped = (await db.TiposCesped.AsNoTracking().Include(x => x.Depositos)
-                .Where(x => (deposits.Contains(x.DepositoId) || x.Depositos.Any(d => deposits.Contains(d.DepositoId))) && x.Activo)
+            tiposCesped = (await SucursalDepositoService.VisibleProducts(
+                    db.TiposCesped.AsNoTracking().Include(x => x.Depositos).Where(x => x.Activo), user,
+                    db.Depositos.AsNoTracking().Where(x => x.Activo))
                 .OrderBy(x => x.Nombre).ToListAsync(ct)).Select(ToDto).ToList(),
             alicuotasIva = await db.AlicuotasIva.AsNoTracking().OrderBy(x => x.Porcentaje).ToListAsync(ct),
             tiposCliente = Enum.GetNames<TipoCliente>(), formasPago = Enum.GetNames<FormaPago>()

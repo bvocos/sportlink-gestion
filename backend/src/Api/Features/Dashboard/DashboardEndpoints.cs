@@ -117,7 +117,9 @@ public static class DashboardEndpoints
 
         var clientes = await db.Clientes.AsNoTracking().WhereVisibleParaUsuario(user).OrderBy(x => x.Apellido).ThenBy(x => x.Nombre)
             .Select(x => new { x.Id, nombre = x.Nombre + " " + x.Apellido }).ToListAsync(ct);
-        var productos = await db.TiposCesped.AsNoTracking().OrderBy(x => x.Nombre)
+        var productos = await SucursalDepositoService.VisibleProducts(db.TiposCesped.AsNoTracking(), user,
+                db.Depositos.AsNoTracking())
+            .OrderBy(x => x.Nombre)
             .Select(x => new { x.Id, x.Nombre, x.Activo }).ToListAsync(ct);
 
         var finalizadasCantidad = finalizadas?.cantidad ?? 0;
