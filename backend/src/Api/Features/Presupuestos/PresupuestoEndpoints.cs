@@ -1,6 +1,7 @@
 using Api.Shared.Database;
 using Api.Features.Auth;
 using Api.Shared.Common;
+using System.Data;
 using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
 using QuestPDF.Fluent;
@@ -16,6 +17,8 @@ public record PresupuestoRequest(Guid ClienteId, DateOnly Fecha, DateOnly Valide
 
 public static class PresupuestoEndpoints
 {
+    internal static int NextBudgetNumber(int? currentMaximum) => (currentMaximum ?? 0) + 1;
+
     public static void MapPresupuestoEndpoints(this IEndpointRouteBuilder app)
     {
         QuestPDF.Settings.License = LicenseType.Evaluation;
@@ -89,7 +92,35 @@ public static class PresupuestoEndpoints
             return Results.ValidationProblem(new Dictionary<string, string[]> { ["depositoId"] = ["Seleccioná un depósito activo de la sucursal."] });
         if (!await db.Clientes.AnyAsync(x => x.Id == r.ClienteId && x.SucursalId == sucursalId.Value, ct))
             return Results.ValidationProblem(new Dictionary<string, string[]> { ["clienteId"] = ["El cliente no pertenece a la sucursal activa."] });
-        var p = new Presupuesto { SucursalId = sucursalId.Value, DepositoId = depositoId.Value }; await Apply(p, r, db, ct); db.Add(p); await db.SaveChangesAsync(ct); return Results.Created($"/api/presupuestos/{p.Id}", new { p.Id, p.Numero });
+        Presupuesto? created = null;
+        var strategy = db.Database.CreateExecutionStrategy();
+        await strategy.ExecuteAsync(async () =>
+        {
+            if (created is not null)
+                db.ChangeTracker.Clear();
+
+            await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
+            // Serializa las altas de esta sucursal incluso cuando todavía no existen presupuestos
+            // (MAX sobre un conjunto vacío no garantiza por sí solo un bloqueo de rango estable).
+            await db.Database.ExecuteSqlInterpolatedAsync(
+                $"SELECT 1 FROM dbo.Sucursales WITH (UPDLOCK, HOLDLOCK) WHERE Id = {sucursalId.Value}", ct);
+            var currentMaximum = await db.Presupuestos.IgnoreQueryFilters()
+                .Where(x => x.SucursalId == sucursalId.Value)
+                .MaxAsync(x => (int?)x.Numero, ct);
+            var presupuesto = new Presupuesto
+            {
+                SucursalId = sucursalId.Value,
+                DepositoId = depositoId.Value,
+                Numero = NextBudgetNumber(currentMaximum)
+            };
+            await Apply(presupuesto, r, db, ct);
+            db.Add(presupuesto);
+            await db.SaveChangesAsync(ct);
+            await transaction.CommitAsync(ct);
+            created = presupuesto;
+        });
+
+        return Results.Created($"/api/presupuestos/{created!.Id}", new { created.Id, created.Numero });
     }
     private static async Task<IResult> Update(Guid id, PresupuestoRequest r, ClaimsPrincipal user, AppDbContext db, CancellationToken ct)
     {
@@ -105,6 +136,7 @@ public static class PresupuestoEndpoints
             return Results.ValidationProblem(new Dictionary<string, string[]> { ["clienteId"] = ["El cliente no pertenece a la sucursal activa."] });
         await Apply(p, r, db, ct); await db.SaveChangesAsync(ct); return Results.NoContent();
     }
+    // La secuencia no se renumera al borrar. Si se elimina el último presupuesto, max+1 permite reutilizar ese número.
     private static async Task<IResult> Delete(Guid id, ClaimsPrincipal user, AppDbContext db, CancellationToken ct) { var p = await db.Presupuestos.WhereVisibleParaUsuario(user).SingleOrDefaultAsync(x => x.Id == id, ct); if (p is null) return Results.NotFound(); db.Remove(p); await db.SaveChangesAsync(ct); return Results.NoContent(); }
 
     private static async Task<IResult> Pdf(Guid id, ClaimsPrincipal user, AppDbContext db, IWebHostEnvironment env,

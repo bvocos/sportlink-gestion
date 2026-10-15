@@ -7,6 +7,12 @@ namespace Api.Tests;
 
 public sealed class PresupuestoPdfTests
 {
+    [Theory]
+    [InlineData(null, 1)]
+    [InlineData(5, 6)]
+    public void NextBudgetNumber_IncrementsTheCurrentBranchMaximum(int? currentMaximum, int expected) =>
+        Assert.Equal(expected, PresupuestoEndpoints.NextBudgetNumber(currentMaximum));
+
     [Fact]
     public void ReplaceLines_DeletesEveryExistingLineAndAddsAllReplacements()
     {

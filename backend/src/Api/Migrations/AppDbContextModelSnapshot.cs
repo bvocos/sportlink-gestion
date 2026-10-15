@@ -461,10 +461,7 @@ namespace Api.Migrations
                         .HasColumnType("decimal(18,2)");
 
                     b.Property<int>("Numero")
-                        .ValueGeneratedOnAdd()
                         .HasColumnType("int");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Numero"));
 
                     b.Property<string>("Observaciones")
                         .HasColumnType("nvarchar(max)");
@@ -484,10 +481,11 @@ namespace Api.Migrations
 
                     b.HasIndex("DepositoId");
 
-                    b.HasIndex("Numero")
-                        .IsUnique();
-
                     b.HasIndex("SucursalId", "Fecha");
+
+                    b.HasIndex("SucursalId", "Numero")
+                        .IsUnique()
+                        .HasDatabaseName("IX_Presupuestos_SucursalId_Numero");
 
                     b.ToTable("Presupuestos");
                 });

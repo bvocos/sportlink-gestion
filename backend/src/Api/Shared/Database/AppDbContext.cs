@@ -73,7 +73,9 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, IHttpCo
         b.Entity<Gasto>().HasOne(x => x.Sucursal).WithMany().HasForeignKey(x => x.SucursalId).OnDelete(DeleteBehavior.Restrict);
         b.Entity<Gasto>().HasIndex(x => new { x.SucursalId, x.Fecha });
         b.Entity<Presupuesto>().Property(x => x.Estado).HasConversion<string>();
-        b.Entity<Presupuesto>().Property(x => x.Numero).UseIdentityColumn(); b.Entity<Presupuesto>().HasIndex(x => x.Numero).IsUnique(); b.Entity<Presupuesto>().HasIndex(x => new { x.SucursalId, x.Fecha });
+        b.Entity<Presupuesto>().HasIndex(x => new { x.SucursalId, x.Numero }).IsUnique()
+            .HasDatabaseName("IX_Presupuestos_SucursalId_Numero");
+        b.Entity<Presupuesto>().HasIndex(x => new { x.SucursalId, x.Fecha });
         b.Entity<Presupuesto>().HasOne(x => x.Sucursal).WithMany().HasForeignKey(x => x.SucursalId).OnDelete(DeleteBehavior.Restrict);
         b.Entity<Presupuesto>().HasOne(x => x.Deposito).WithMany().HasForeignKey(x => x.DepositoId).OnDelete(DeleteBehavior.Restrict);
         b.Entity<Presupuesto>().HasOne(x => x.Cliente).WithMany().HasForeignKey(x => x.ClienteId).OnDelete(DeleteBehavior.Restrict);
@@ -537,13 +539,15 @@ public static class SeedData
         await db.Database.ExecuteSqlRawAsync("""
             IF OBJECT_ID(N'dbo.Presupuestos', N'U') IS NULL
             BEGIN
-                CREATE TABLE dbo.Presupuestos(Id UNIQUEIDENTIFIER NOT NULL, Numero INT IDENTITY(1,1) NOT NULL, ClienteId UNIQUEIDENTIFIER NOT NULL,
+                -- Bootstrap legacy: MigrateAsync normalmente ya creó esta tabla. Si no existe en una
+                -- instalación antigua, Numero nace como valor asignado por la aplicación, no IDENTITY.
+                CREATE TABLE dbo.Presupuestos(Id UNIQUEIDENTIFIER NOT NULL, Numero INT NOT NULL, ClienteId UNIQUEIDENTIFIER NOT NULL,
                     Fecha DATE NOT NULL, ValidezHasta DATE NOT NULL, Estado NVARCHAR(30) NOT NULL,
                     DescuentoContadoPorcentaje DECIMAL(18,2) NOT NULL, IvaContadoPorcentaje DECIMAL(18,2) NOT NULL,
                     IvaFinanciadoPorcentaje DECIMAL(18,2) NOT NULL, EntregaFinanciada DECIMAL(18,2) NOT NULL,
                     Observaciones NVARCHAR(2000) NULL, CreatedAt DATETIMEOFFSET(7) NOT NULL, UpdatedAt DATETIMEOFFSET(7) NULL,
                     CONSTRAINT PK_Presupuestos PRIMARY KEY(Id), CONSTRAINT FK_Presupuestos_Clientes FOREIGN KEY(ClienteId) REFERENCES dbo.Clientes(Id));
-                CREATE UNIQUE INDEX IX_Presupuestos_Numero ON dbo.Presupuestos(Numero); CREATE INDEX IX_Presupuestos_Fecha ON dbo.Presupuestos(Fecha);
+                CREATE INDEX IX_Presupuestos_Fecha ON dbo.Presupuestos(Fecha);
                 CREATE TABLE dbo.PresupuestoLineas(Id UNIQUEIDENTIFIER NOT NULL, PresupuestoId UNIQUEIDENTIFIER NOT NULL, TipoCespedId UNIQUEIDENTIFIER NULL,
                     Producto NVARCHAR(200) NOT NULL, Descripcion NVARCHAR(2000) NULL, Color NVARCHAR(100) NULL,
                     CantidadM2 DECIMAL(18,2) NOT NULL, PrecioContadoM2 DECIMAL(18,2) NOT NULL, PrecioFinanciadoM2 DECIMAL(18,2) NOT NULL,

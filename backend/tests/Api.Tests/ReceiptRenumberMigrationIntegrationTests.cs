@@ -28,6 +28,9 @@ public sealed class ReceiptRenumberMigrationIntegrationTests
                     CONSTRAINT [PK___EFMigrationsHistory] PRIMARY KEY ([MigrationId]));
                 """);
             var migrations = db.Database.GetMigrations().ToList();
+            Assert.Contains(migrations, x => x.EndsWith("_AddBudgetNumberPerBranch"));
+            // Solo queda pendiente la migración bajo prueba; las posteriores, incluida la de
+            // numeración de presupuestos, se marcan como aplicadas para aislar este escenario.
             foreach (var migration in migrations.Where(x => !x.EndsWith("_RenumberReceiptsPerBranch")))
                 await db.Database.ExecuteSqlInterpolatedAsync(
                     $"INSERT INTO dbo.__EFMigrationsHistory(MigrationId, ProductVersion) VALUES ({migration}, {"9.0.4"})");
