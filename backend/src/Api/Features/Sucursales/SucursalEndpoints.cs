@@ -22,11 +22,11 @@ public static class SucursalEndpoints
         group.MapPatch("/depositos/{id:guid}/estado", SetDepositoEstado).RequireAuthorization("Administrador");
         group.MapDelete("/depositos/{id:guid}", DeleteDeposito).RequireAuthorization("Administrador");
 
-        group.MapGet("/", ListSucursales).RequirePermiso("administracion", "ver");
-        group.MapPost("/", CreateSucursal).RequirePermiso("administracion", "crear");
-        group.MapPut("/{id:guid}", UpdateSucursal).RequirePermiso("administracion", "editar");
-        group.MapPatch("/{id:guid}/estado", SetSucursalEstado).RequirePermiso("administracion", "editar");
-        group.MapDelete("/{id:guid}", DeleteSucursal).RequirePermiso("administracion", "editar");
+        group.MapGet("/", ListSucursales).RequireAuthorization("Administrador");
+        group.MapPost("/", CreateSucursal).RequireAuthorization("Administrador");
+        group.MapPut("/{id:guid}", UpdateSucursal).RequireAuthorization("Administrador");
+        group.MapPatch("/{id:guid}/estado", SetSucursalEstado).RequireAuthorization("Administrador");
+        group.MapDelete("/{id:guid}", DeleteSucursal).RequireAuthorization("Administrador");
     }
 
     private static object DepositoDto(Deposito deposito) => new
