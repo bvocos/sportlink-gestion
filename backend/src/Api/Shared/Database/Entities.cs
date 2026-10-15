@@ -39,6 +39,16 @@ public sealed class Sucursal : AuditableEntity
     public bool Activo { get; set; } = true;
     public List<Usuario> Usuarios { get; set; } = [];
     public List<Deposito> Depositos { get; set; } = [];
+    public SucursalLogo? Logo { get; set; }
+}
+
+public sealed class SucursalLogo
+{
+    public Guid SucursalId { get; set; }
+    public Sucursal Sucursal { get; set; } = null!;
+    public byte[] Contenido { get; set; } = [];
+    public string ContentType { get; set; } = "";
+    public DateTimeOffset UpdatedAt { get; set; }
 }
 
 public sealed class Usuario : AuditableEntity

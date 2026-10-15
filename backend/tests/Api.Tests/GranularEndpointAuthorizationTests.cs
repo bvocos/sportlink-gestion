@@ -20,6 +20,8 @@ public sealed class GranularEndpointAuthorizationTests
         { "PUT", "/api/sucursales/{id:guid}" },
         { "PATCH", "/api/sucursales/{id:guid}/estado" },
         { "DELETE", "/api/sucursales/{id:guid}" },
+        { "PUT", "/api/sucursales/{id:guid}/logo" },
+        { "DELETE", "/api/sucursales/{id:guid}/logo" },
         { "GET", "/api/sucursales/depositos" },
         { "POST", "/api/sucursales/depositos" },
         { "PUT", "/api/sucursales/depositos/{id:guid}" },

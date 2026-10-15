@@ -27,7 +27,8 @@ interface ComprobanteEmpresa {
   inicioActividades: string; ingBrutos: string; condicionFiscal: string;
 }
 interface ComprobanteData {
-  numeroRecibo: number; puntoVenta: number; fecha: string;
+  sucursalId: string; tieneLogo: boolean;
+  numeroRecibo: number | null; puntoVenta: number | null; fecha: string;
   empresa: ComprobanteEmpresa;
   cliente: { nombreCompleto: string; domicilio: string; localidad: string; telefono: string; categoriaFiscal: string; cuit: string };
   cuota: { numero: number; totalCuotas: number | null; producto: string };
@@ -54,6 +55,7 @@ const comprobanteId = ref("");
 const comprobanteLoading = ref(false);
 const comprobanteError = ref("");
 const printRef = ref<HTMLElement | null>(null);
+const comprobanteLogoUrl = ref("");
 let resumenTimer: ReturnType<typeof setTimeout> | undefined;
 let resumenRequest = 0;
 const payment = ref({
@@ -188,11 +190,15 @@ async function pay() {
 
 async function downloadRecibo(cuotaId: string) {
   try {
+    const data = comprobanteId.value === cuotaId && comprobante.value
+      ? comprobante.value
+      : (await http.get("/cuotas/" + cuotaId + "/comprobante")).data as ComprobanteData;
     const resp = await http.get(`/cuotas/${cuotaId}/recibo`, { responseType: "blob" });
     const url = URL.createObjectURL(resp.data as Blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `recibo-cuota.pdf`;
+    const safe = data.cliente.nombreCompleto.replace(/[\\/:*?"<>|]+/g, "-").trim();
+    a.download = "Recibo-" + (data.numeroRecibo ?? data.cuota.numero) + "-" + safe + ".pdf";
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -203,6 +209,7 @@ async function downloadRecibo(cuotaId: string) {
 }
 
 async function openComprobante(c: any) {
+  releaseComprobanteLogo();
   comprobante.value = null;
   comprobanteId.value = c.id;
   comprobanteError.value = "";
@@ -210,6 +217,10 @@ async function openComprobante(c: any) {
   try {
     const resp = await http.get(`/cuotas/${c.id}/comprobante`);
     comprobante.value = resp.data;
+    if (comprobante.value?.tieneLogo) {
+      const logo = await http.get("/sucursales/" + comprobante.value.sucursalId + "/logo", { responseType: "blob" });
+      comprobanteLogoUrl.value = URL.createObjectURL(logo.data);
+    }
   } catch (e: any) {
     comprobanteError.value = apiErrorMessage(e, "No se pudo cargar el comprobante.");
   } finally {
@@ -218,7 +229,13 @@ async function openComprobante(c: any) {
 }
 
 function closeComprobante() {
+  releaseComprobanteLogo();
   comprobante.value = null;
+}
+
+function releaseComprobanteLogo() {
+  if (comprobanteLogoUrl.value) URL.revokeObjectURL(comprobanteLogoUrl.value);
+  comprobanteLogoUrl.value = "";
 }
 
 function fmtFecha(iso: string) {
@@ -237,6 +254,12 @@ function textoCotizacion(venta: number | null) {
 
 function padStart(n: number, len: number) {
   return String(n).padStart(len, "0");
+}
+
+function numeroComprobante(data: ComprobanteData) {
+  if (data.numeroRecibo == null) return "";
+  const numero = padStart(data.numeroRecibo, 8);
+  return data.puntoVenta == null ? `N° ${numero}` : `N° ${padStart(data.puntoVenta, 5)}-${numero}`;
 }
 
 function printComprobante() {
@@ -343,7 +366,7 @@ watch(clienteFiltro, () => {
   if (resumenTimer) clearTimeout(resumenTimer);
   resumenTimer = setTimeout(loadPendingSummary, 300);
 });
-onBeforeUnmount(() => { if (resumenTimer) clearTimeout(resumenTimer); });
+onBeforeUnmount(() => { if (resumenTimer) clearTimeout(resumenTimer); releaseComprobanteLogo(); });
 </script>
 
 <template>
@@ -376,7 +399,8 @@ onBeforeUnmount(() => { if (resumenTimer) clearTimeout(resumenTimer); });
           <div class="rec-header rec-row">
             <div class="rec-left">
               <div class="rec-left-logo">
-                <strong style="font-size:14pt;letter-spacing:1px">SPORTLINK</strong>
+                <img v-if="comprobanteLogoUrl" :src="comprobanteLogoUrl" alt="Logo de la sucursal" style="max-width:100%;max-height:100%;object-fit:contain">
+                <strong v-else style="font-size:14pt">{{ comprobante.empresa.razonSocial }}</strong>
               </div>
               <div class="rec-left-company">
                 <div><b>{{ comprobante.empresa.razonSocial }}</b></div>
@@ -391,7 +415,7 @@ onBeforeUnmount(() => { if (resumenTimer) clearTimeout(resumenTimer); });
               <div class="rec-right-title">
                 <div class="rec-doc-type">DOCUMENTO NO VALIDO COMO FACTURA</div>
                 <div class="rec-title">RECIBO</div>
-                <div class="rec-num">N° {{ padStart(comprobante.puntoVenta, 5) }}-&nbsp;{{ padStart(comprobante.numeroRecibo, 8) }}</div>
+                <div v-if="numeroComprobante(comprobante)" class="rec-num">{{ numeroComprobante(comprobante) }}</div>
                 <div class="rec-date">FECHA: {{ fmtFecha(comprobante.fecha) }}</div>
               </div>
               <div class="rec-right-fiscal">

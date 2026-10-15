@@ -212,14 +212,13 @@ public sealed class FinancialRulesTests
     public void ReceiptPdf_IsGeneratedWithUsdTotalAndExchangeRate()
     {
         var data = new ReciboData(
+            Guid.NewGuid(), false, null,
             10, 1, new DateOnly(2026, 9, 25),
             new ReciboEmisorDto("Sucursal Centro", "", "", "", "", "", "", "", ""),
             new ReciboClienteDto("VOCOS, BRUNO", "", "San Francisco, Córdoba", "03564577202", "CONSUMIDOR FINAL", ""),
             new ReciboCuotaDto(6, 9, "Padelgrass 12mm"),
             new ReciboPagoDto(511.11m, "Transferencia", NumerosEnLetras.ConvertirDolares(511.11m), 1555m));
-        var assets = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../src/Api/Assets"));
-
-        var pdf = CuotaReciboPdf.Generate(data, assets);
+        var pdf = CuotaReciboPdf.Generate(data);
 
         Assert.True(pdf.Length > 10_000);
         Assert.Equal("%PDF", System.Text.Encoding.ASCII.GetString(pdf, 0, 4));

@@ -38,7 +38,7 @@ async function pdf(x: any) {
   const url = URL.createObjectURL(new Blob([r.data], { type: 'application/pdf' }))
   const a = document.createElement('a')
   a.href = url
-  a.download = `Sportlink-Presupuesto-${String(x.numero).padStart(5, '0')}.pdf`
+  a.download = `Presupuesto-${String(x.numero).padStart(5, '0')}.pdf`
   a.click()
   URL.revokeObjectURL(url)
 }

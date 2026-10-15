@@ -2,6 +2,7 @@ using Api.Features.Auth;
 using Api.Shared.Common;
 using Api.Shared.Database;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
 
 namespace Api.Features.Sucursales;
@@ -33,15 +34,25 @@ public static class SucursalEndpoints
         g.MapPut("/{id:guid}", UpdateSucursal).RequireAuthorization("Administrador");
         g.MapPatch("/{id:guid}/estado", SetSucursalEstado).RequireAuthorization("Administrador");
         g.MapDelete("/{id:guid}", DeleteSucursal).RequireAuthorization("Administrador");
+        g.MapPut("/{id:guid}/logo", PutLogo).DisableAntiforgery()
+            .WithMetadata(new RequestSizeLimitAttribute(2 * 1024 * 1024))
+            .RequireAuthorization("Administrador");
+        g.MapDelete("/{id:guid}/logo", DeleteLogo).RequireAuthorization("Administrador");
+        g.MapGet("/{id:guid}/logo", GetLogo).RequireAuthorization();
     }
 
     private static object DepositoDto(Deposito x) => new { x.Id, x.SucursalId, x.Nombre, x.Activo };
-    private static object SucursalDto(Sucursal x) => new {
-        x.Id, x.Nombre, x.DepositoPropioId, depositoPropioNombre = x.DepositoPropio.Nombre,
-        x.PuntoVentaAfip, x.Activo, x.RazonSocial, x.Cuit, x.CondicionIva, x.DomicilioFiscal,
-        x.Localidad, x.Telefono, x.Email, x.InicioActividades, x.IngresosBrutos,
-        usuariosAsignados = x.Usuarios.Count
-    };
+    private sealed record SucursalResponse(Guid Id, string Nombre, Guid DepositoPropioId,
+        string DepositoPropioNombre, int? PuntoVentaAfip, bool Activo, string? RazonSocial,
+        string? Cuit, string? CondicionIva, string? DomicilioFiscal, string? Localidad,
+        string? Telefono, string? Email, DateOnly? InicioActividades, string? IngresosBrutos,
+        int UsuariosAsignados, bool TieneLogo, DateTimeOffset? LogoActualizado);
+    private static SucursalResponse SucursalDto(Sucursal x, int usuariosAsignados = 0,
+        bool tieneLogo = false, DateTimeOffset? logoActualizado = null) => new(
+        x.Id, x.Nombre, x.DepositoPropioId, x.DepositoPropio.Nombre, x.PuntoVentaAfip,
+        x.Activo, x.RazonSocial, x.Cuit, x.CondicionIva, x.DomicilioFiscal, x.Localidad,
+        x.Telefono, x.Email, x.InicioActividades, x.IngresosBrutos, usuariosAsignados,
+        tieneLogo, logoActualizado);
     private static string? Clean(string? v) => string.IsNullOrWhiteSpace(v) ? null : v.Trim();
     internal static string? NormalizeCuit(string? value)
     {
@@ -128,8 +139,14 @@ public static class SucursalEndpoints
         db.Remove(x); await db.SaveChangesAsync(ct); return Results.NoContent();
     }
 
-    private static async Task<IReadOnlyList<object>> ListSucursales(AppDbContext db, CancellationToken ct) =>
-        (await db.Sucursales.AsNoTracking().Include(x => x.DepositoPropio).Include(x => x.Usuarios).OrderBy(x => x.Nombre).ToListAsync(ct)).Select(SucursalDto).ToList();
+    private static async Task<List<SucursalResponse>> ListSucursales(AppDbContext db, CancellationToken ct) =>
+        await db.Sucursales.AsNoTracking().OrderBy(x => x.Nombre)
+            .Select(x => new SucursalResponse(
+                x.Id, x.Nombre, x.DepositoPropioId, x.DepositoPropio.Nombre, x.PuntoVentaAfip,
+                x.Activo, x.RazonSocial, x.Cuit, x.CondicionIva, x.DomicilioFiscal, x.Localidad,
+                x.Telefono, x.Email, x.InicioActividades, x.IngresosBrutos, x.Usuarios.Count,
+                x.Logo != null, x.Logo == null ? null : x.Logo.UpdatedAt))
+            .ToListAsync(ct);
     private static async Task<IResult?> CommonValidation(SucursalRequest r, Guid? except, AppDbContext db, CancellationToken ct)
     {
         var e = Validate(r); if (e.Count > 0) return Results.ValidationProblem(e);
@@ -174,7 +191,7 @@ public static class SucursalEndpoints
     }
     private static async Task<IResult> UpdateSucursal(Guid id, SucursalRequest r, AppDbContext db, CancellationToken ct)
     {
-        var x = await db.Sucursales.Include(s => s.DepositoPropio).Include(s => s.Usuarios).SingleOrDefaultAsync(s => s.Id == id, ct); if (x is null) return Results.NotFound();
+        var x = await db.Sucursales.Include(s => s.DepositoPropio).SingleOrDefaultAsync(s => s.Id == id, ct); if (x is null) return Results.NotFound();
         if (id == HistoricalSucursalId) return Results.Conflict(new { message = "La sucursal histórica no puede editarse fiscalmente." });
         var invalid = await CommonValidation(r, id, db, ct); if (invalid is not null) return invalid;
         if (r.DepositoPropioId.HasValue && r.DepositoPropioId != x.DepositoPropioId)
@@ -187,15 +204,69 @@ public static class SucursalEndpoints
         Apply(x, r);
         try { await db.SaveChangesAsync(ct); }
         catch (DbUpdateException) { return Results.Conflict(new { message = "Ya existe una sucursal con ese CUIT, punto de venta o nombre." }); }
-        return Results.Ok(SucursalDto(x));
+        var usuariosAsignados = await db.Usuarios.CountAsync(u => u.SucursalId == id, ct);
+        var logoActualizado = await db.SucursalesLogos.Where(l => l.SucursalId == id).Select(l => (DateTimeOffset?)l.UpdatedAt).SingleOrDefaultAsync(ct);
+        return Results.Ok(SucursalDto(x, usuariosAsignados, logoActualizado.HasValue, logoActualizado));
     }
     private static async Task<IResult> SetSucursalEstado(Guid id, EstadoMaestroRequest r, AppDbContext db, CancellationToken ct)
     {
-        var x = await db.Sucursales.Include(s => s.DepositoPropio).Include(s => s.Usuarios).SingleOrDefaultAsync(s => s.Id == id, ct); if (x is null) return Results.NotFound();
+        var x = await db.Sucursales.Include(s => s.DepositoPropio).SingleOrDefaultAsync(s => s.Id == id, ct); if (x is null) return Results.NotFound();
         if (id == HistoricalSucursalId) return Results.Conflict(new { message = "La sucursal histórica no puede modificarse." });
         if (r.Activo && !x.DepositoPropio.Activo) return Results.Conflict(new { message = "No se puede activar una sucursal cuyo depósito está inactivo." });
-        x.Activo = r.Activo; await db.SaveChangesAsync(ct); return Results.Ok(SucursalDto(x));
+        x.Activo = r.Activo; await db.SaveChangesAsync(ct);
+        var usuariosAsignados = await db.Usuarios.CountAsync(u => u.SucursalId == id, ct);
+        var logoActualizado = await db.SucursalesLogos.Where(l => l.SucursalId == id).Select(l => (DateTimeOffset?)l.UpdatedAt).SingleOrDefaultAsync(ct);
+        return Results.Ok(SucursalDto(x, usuariosAsignados, logoActualizado.HasValue, logoActualizado));
     }
+    private static async Task<IResult> PutLogo(Guid id, HttpRequest request, AppDbContext db, CancellationToken ct)
+    {
+        if (!await db.Sucursales.AnyAsync(x => x.Id == id, ct)) return Results.NotFound();
+        if (!request.HasFormContentType)
+            return Results.BadRequest(new { message = "Enviá el logo como multipart/form-data." });
+        var form = await request.ReadFormAsync(ct);
+        var file = form.Files.GetFile("file") ?? form.Files.FirstOrDefault();
+        if (file is null) return Results.BadRequest(new { message = "Seleccioná un logo PNG o JPEG." });
+        if (file.Length > SucursalLogoValidator.MaxBytes)
+            return Results.BadRequest(new { message = "El logo no puede superar 1 MB." });
+        await using var stream = file.OpenReadStream();
+        using var memory = new MemoryStream();
+        await stream.CopyToAsync(memory, ct);
+        var bytes = memory.ToArray();
+        var error = SucursalLogoValidator.Validate(bytes, out var contentType, out _, out _);
+        if (error is not null) return Results.BadRequest(new { message = error });
+        var logo = await db.SucursalesLogos.SingleOrDefaultAsync(x => x.SucursalId == id, ct);
+        if (logo is null)
+        {
+            logo = new SucursalLogo { SucursalId = id };
+            db.SucursalesLogos.Add(logo);
+        }
+        logo.Contenido = bytes;
+        logo.ContentType = contentType!;
+        logo.UpdatedAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync(ct);
+        return Results.Ok(new { tieneLogo = true, logoActualizado = logo.UpdatedAt });
+    }
+
+    private static async Task<IResult> DeleteLogo(Guid id, AppDbContext db, CancellationToken ct)
+    {
+        if (!await db.Sucursales.AnyAsync(x => x.Id == id, ct)) return Results.NotFound();
+        var logo = await db.SucursalesLogos.SingleOrDefaultAsync(x => x.SucursalId == id, ct);
+        if (logo is null) return Results.NoContent();
+        db.Remove(logo);
+        await db.SaveChangesAsync(ct);
+        return Results.NoContent();
+    }
+
+    private static async Task<IResult> GetLogo(Guid id, ClaimsPrincipal user, AppDbContext db, HttpContext http, CancellationToken ct)
+    {
+        if (!user.IsInRole("Administrador") && user.SucursalId() != id) return Results.NotFound();
+        var logo = await db.SucursalesLogos.AsNoTracking().SingleOrDefaultAsync(x => x.SucursalId == id, ct);
+        if (logo is null) return Results.NotFound();
+        http.Response.Headers.ETag = $"\"{logo.UpdatedAt.UtcTicks:x}\"";
+        http.Response.Headers.CacheControl = "private";
+        return Results.File(logo.Contenido, logo.ContentType);
+    }
+
     private static async Task<IResult> DeleteSucursal(Guid id, AppDbContext db, CancellationToken ct)
     {
         var x = await db.Sucursales.Include(s => s.Depositos).SingleOrDefaultAsync(s => s.Id == id, ct); if (x is null) return Results.NotFound();
@@ -203,6 +274,8 @@ public static class SucursalEndpoints
         var depositIds = x.Depositos.Select(d => d.Id).ToList();
         var hasData = await db.Usuarios.AnyAsync(u => u.SucursalId == id, ct)
             || await db.MovimientosStock.AnyAsync(m => depositIds.Contains(m.DepositoId), ct)
+            || await db.TiposCesped.AnyAsync(p => depositIds.Contains(p.DepositoId), ct)
+            || await db.TiposCespedDepositos.AnyAsync(p => depositIds.Contains(p.DepositoId), ct)
             || await db.Clientes.IgnoreQueryFilters().AnyAsync(v => v.SucursalId == id, ct)
             || await db.Ventas.IgnoreQueryFilters().AnyAsync(v => v.SucursalId == id, ct)
             || await db.Cuotas.IgnoreQueryFilters().AnyAsync(v => v.SucursalId == id, ct)
@@ -211,7 +284,18 @@ public static class SucursalEndpoints
             || await db.Gastos.IgnoreQueryFilters().AnyAsync(v => v.SucursalId == id, ct)
             || await db.RegistrosAuditoria.AnyAsync(v => v.SucursalId == id, ct);
         if (hasData) return Results.Conflict(new { message = "La sucursal tiene datos asociados. Podés desactivarla en lugar de eliminarla." });
-        foreach (var d in x.Depositos) d.SucursalId = null;
-        db.Remove(x); await db.SaveChangesAsync(ct); return Results.NoContent();
+        var strategy = db.Database.CreateExecutionStrategy();
+        return await strategy.ExecuteAsync(async () =>
+        {
+            await using var tx = await db.Database.BeginTransactionAsync(ct);
+            foreach (var d in x.Depositos) d.SucursalId = null;
+            await db.SaveChangesAsync(ct);
+            db.Remove(x);
+            await db.SaveChangesAsync(ct);
+            db.Depositos.RemoveRange(x.Depositos);
+            await db.SaveChangesAsync(ct);
+            await tx.CommitAsync(ct);
+            return Results.NoContent();
+        });
     }
 }

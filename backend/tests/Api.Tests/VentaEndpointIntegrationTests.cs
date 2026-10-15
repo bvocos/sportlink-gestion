@@ -1,7 +1,9 @@
 using System.Net;
 using System.Net.Http.Json;
 using Api.Shared.Database;
+using Api.Features.Auth;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
@@ -16,8 +18,8 @@ public sealed class VentaEndpointIntegrationTests
     [Fact]
     public async Task SucursalAdministration_CreatesOwnDeposit_ProtectsData_AndDrivesReceiptFiscalData()
     {
-        var masterConnection = Environment.GetEnvironmentVariable("TEST_SQL_CONNECTION");
-        if (string.IsNullOrWhiteSpace(masterConnection)) return;
+        var masterConnection = SqlIntegrationEnvironment.ConnectionOrSkip();
+        if (masterConnection is null) return;
         var databaseName = $"SportlinkSucursalTests_{Guid.NewGuid():N}";
         var databaseConnection = new SqlConnectionStringBuilder(masterConnection) { InitialCatalog = databaseName }.ConnectionString;
         await WaitForSqlServer(masterConnection);
@@ -54,6 +56,52 @@ public sealed class VentaEndpointIntegrationTests
             var createdJson = await created.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>();
             var branchId = createdJson.GetProperty("id").GetGuid();
             var depositId = createdJson.GetProperty("depositoPropioId").GetGuid();
+
+            var png = new byte[24];
+            new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 }.CopyTo(png, 0);
+            png[19] = 100; png[23] = 50;
+            Assert.Equal(HttpStatusCode.OK, (await PutLogo(client, branchId, png, "logo.png", "image/png")).StatusCode);
+            var logoResponse = await client.GetAsync($"/api/sucursales/{branchId}/logo");
+            Assert.Equal(HttpStatusCode.OK, logoResponse.StatusCode);
+            Assert.Equal("private", logoResponse.Headers.CacheControl?.ToString());
+            Assert.NotNull(logoResponse.Headers.ETag);
+
+            byte[] jpeg = [0xFF, 0xD8, 0xFF, 0xC0, 0, 8, 8, 0, 50, 0, 100, 1];
+            Assert.Equal(HttpStatusCode.OK, (await PutLogo(client, branchId, jpeg, "logo.jpg", "image/jpeg")).StatusCode);
+            Assert.Equal(HttpStatusCode.BadRequest, (await PutLogo(client, branchId, "fake"u8.ToArray(), "logo.png", "image/png")).StatusCode);
+            Assert.Equal(HttpStatusCode.BadRequest, (await PutLogo(client, branchId, "<svg/>"u8.ToArray(), "logo.svg", "image/svg+xml")).StatusCode);
+            Assert.Equal(HttpStatusCode.BadRequest, (await PutLogo(client, branchId,
+                new byte[1024 * 1024 + 1], "huge.png", "image/png")).StatusCode);
+
+            using (var scope = factory.Services.CreateScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                var audit = await db.RegistrosAuditoria.Where(x => x.Entidad == nameof(SucursalLogo)).ToListAsync();
+                Assert.NotEmpty(audit);
+                Assert.All(audit, x =>
+                {
+                    Assert.DoesNotContain("Contenido", x.DetalleJson);
+                    Assert.True(x.DetalleJson.Length < 500);
+                });
+                var ownBranch = await db.Sucursales.SingleAsync(x => x.Nombre == "San Francisco");
+                var hasher = scope.ServiceProvider.GetRequiredService<IPasswordHasher<Usuario>>();
+                var limited = new Usuario
+                {
+                    Nombre = "Logo limitado", NombreUsuario = "logo-limited", Rol = "Usuario",
+                    SucursalId = ownBranch.Id, Activo = true, DebeCambiarPassword = false,
+                    PermisosJson = System.Text.Json.JsonSerializer.Serialize(PermisosMatriz.Todos())
+                };
+                limited.PasswordHash = hasher.HashPassword(limited, "Test123!");
+                db.Add(limited); await db.SaveChangesAsync();
+            }
+            using (var limitedClient = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false }))
+            {
+                Assert.Equal(HttpStatusCode.OK, (await limitedClient.PostAsJsonAsync("/api/auth/login",
+                    new { usuario = "logo-limited", password = "Test123!" })).StatusCode);
+                Assert.Equal(HttpStatusCode.NotFound, (await limitedClient.GetAsync($"/api/sucursales/{branchId}/logo")).StatusCode);
+                Assert.Equal(HttpStatusCode.Forbidden, (await PutLogo(limitedClient, branchId, png, "logo.png", "image/png")).StatusCode);
+                Assert.Equal(HttpStatusCode.Forbidden, (await limitedClient.DeleteAsync($"/api/sucursales/{branchId}/logo")).StatusCode);
+            }
 
             using (var scope = factory.Services.CreateScope())
             {
@@ -120,8 +168,8 @@ public sealed class VentaEndpointIntegrationTests
     [Fact]
     public async Task PostVenta_PersistsUsingSqlServerRetryingExecutionStrategy()
     {
-        var masterConnection = Environment.GetEnvironmentVariable("TEST_SQL_CONNECTION");
-        if (string.IsNullOrWhiteSpace(masterConnection)) return;
+        var masterConnection = SqlIntegrationEnvironment.ConnectionOrSkip();
+        if (masterConnection is null) return;
 
         var databaseName = $"SportlinkTests_{Guid.NewGuid():N}";
         var databaseConnection = new SqlConnectionStringBuilder(masterConnection) { InitialCatalog = databaseName }.ConnectionString;
@@ -285,6 +333,16 @@ public sealed class VentaEndpointIntegrationTests
             }
         }
         throw new InvalidOperationException("SQL Server de pruebas no estuvo disponible.", lastError);
+    }
+
+    private static async Task<HttpResponseMessage> PutLogo(HttpClient client, Guid branchId,
+        byte[] content, string fileName, string contentType)
+    {
+        using var form = new MultipartFormDataContent();
+        var file = new ByteArrayContent(content);
+        file.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(contentType);
+        form.Add(file, "file", fileName);
+        return await client.PutAsync($"/api/sucursales/{branchId}/logo", form);
     }
 
     private sealed class VentaApiFactory(string connectionString) : WebApplicationFactory<Program>

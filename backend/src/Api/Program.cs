@@ -44,6 +44,7 @@ builder.Services.AddProblemDetails();
 builder.Services.AddMemoryCache();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentSucursal, HttpCurrentSucursal>();
+builder.Services.AddScoped<SucursalBrandingService>();
 builder.Services.AddHttpClient("DolarApi", client =>
 {
     client.BaseAddress = new Uri("https://dolarapi.com/");

@@ -21,3 +21,9 @@ export function validateSucursalForm(form: { nombre: string; cuit?: string; punt
     errors.puntoVentaAfip = 'El punto de venta debe estar entre 1 y 99999.'
   return errors
 }
+
+export function validateSucursalLogo(file: { type: string; size: number }) {
+  if (!['image/png', 'image/jpeg'].includes(file.type)) return 'El logo debe ser PNG o JPG.'
+  if (file.size > 1024 * 1024) return 'El logo no puede superar 1 MB.'
+  return ''
+}

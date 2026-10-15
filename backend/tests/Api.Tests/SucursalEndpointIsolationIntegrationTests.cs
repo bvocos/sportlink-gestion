@@ -17,10 +17,53 @@ namespace Api.Tests;
 public sealed class SucursalEndpointIsolationIntegrationTests
 {
     [Fact]
+    public async Task ReceiptNumbers_AreIndependentStableAndMonotonicPerBranch_OverHttp()
+    {
+        var masterConnection = SqlIntegrationEnvironment.ConnectionOrSkip();
+        if (masterConnection is null) return;
+        var databaseName = $"SportlinkReceiptHttpTests_{Guid.NewGuid():N}";
+        var connection = new SqlConnectionStringBuilder(masterConnection) { InitialCatalog = databaseName }.ConnectionString;
+        await CreateDatabase(masterConnection, databaseName);
+        try
+        {
+            var options = new DbContextOptionsBuilder<AppDbContext>().UseSqlServer(connection).Options;
+            await using (var schema = new AppDbContext(options)) await schema.Database.EnsureCreatedAsync();
+            await using var factory = new BranchApiFactory(connection);
+            _ = factory.CreateClient();
+            var data = await SeedReceiptScenario(factory.Services);
+
+            using var branchA = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+            using var branchB = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+            Assert.Equal(HttpStatusCode.OK, (await branchA.PostAsJsonAsync("/api/auth/login", new { usuario = "admin", password = "Admin123!" })).StatusCode);
+            Assert.Equal(HttpStatusCode.OK, (await branchB.PostAsJsonAsync("/api/auth/login", new { usuario = "admin", password = "Admin123!" })).StatusCode);
+            branchA.DefaultRequestHeaders.Add("X-Sucursal-Id", data.BranchA.ToString());
+            branchB.DefaultRequestHeaders.Add("X-Sucursal-Id", data.BranchB.ToString());
+
+            await Pay(branchA, data.InstallmentA1);
+            await Pay(branchA, data.InstallmentA2);
+            await Pay(branchB, data.InstallmentB1);
+            Assert.Equal(1, await ReceiptNumber(branchA, data.InstallmentA1));
+            Assert.Equal(2, await ReceiptNumber(branchA, data.InstallmentA2));
+            Assert.Equal(1, await ReceiptNumber(branchB, data.InstallmentB1));
+
+            Assert.Equal(HttpStatusCode.NoContent, (await branchA.DeleteAsync($"/api/ventas/{data.SaleA1}")).StatusCode);
+            Assert.Equal(2, await ReceiptNumber(branchA, data.InstallmentA2));
+
+            await Pay(branchA, data.InstallmentA3);
+            Assert.Equal(3, await ReceiptNumber(branchA, data.InstallmentA3));
+        }
+        finally
+        {
+            SqlConnection.ClearAllPools();
+            await DropDatabase(masterConnection, databaseName);
+        }
+    }
+
+    [Fact]
     public async Task OperationalEndpoints_EnforceActiveBranchOverHttp()
     {
-        var masterConnection = Environment.GetEnvironmentVariable("TEST_SQL_CONNECTION");
-        if (string.IsNullOrWhiteSpace(masterConnection)) return;
+        var masterConnection = SqlIntegrationEnvironment.ConnectionOrSkip();
+        if (masterConnection is null) return;
 
         var databaseName = $"SportlinkBranchTests_{Guid.NewGuid():N}";
         var connection = new SqlConnectionStringBuilder(masterConnection) { InitialCatalog = databaseName }.ConnectionString;
@@ -81,6 +124,19 @@ public sealed class SucursalEndpointIsolationIntegrationTests
     private static async Task AssertNotFound(Task<HttpResponseMessage> responseTask) =>
         Assert.Equal(HttpStatusCode.NotFound, (await responseTask).StatusCode);
 
+    private static async Task Pay(HttpClient client, Guid installmentId)
+    {
+        var response = await client.PostAsJsonAsync($"/api/cuotas/{installmentId}/pagos",
+            new { importe = 100m, medioPago = "Transferencia", fechaPago = DateOnly.FromDateTime(DateTime.Today) });
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    private static async Task<int> ReceiptNumber(HttpClient client, Guid installmentId)
+    {
+        var receipt = await client.GetFromJsonAsync<JsonElement>($"/api/cuotas/{installmentId}/comprobante");
+        return receipt.GetProperty("numeroRecibo").GetInt32();
+    }
+
     private static object ClientRequest() => new { nombre = "Otro", apellido = "Cliente", telefono = "3515555555", correo = (string?)null, localidad = "Córdoba", provincia = "Córdoba", localidadId = (string?)null, provinciaId = (string?)null, tipo = "Particular", fechaPrimerContacto = DateOnly.FromDateTime(DateTime.Today), observaciones = (string?)null };
     private static object ExpenseRequest() => new { fecha = DateOnly.FromDateTime(DateTime.Today), categoria = "Prueba", descripcion = "No modificar", importe = 10m, observaciones = (string?)null };
     private static object SaleRequest(SeededData d) => new { clienteId = d.ClientB, fechaVenta = DateOnly.FromDateTime(DateTime.Today), tipoCespedId = d.ProductB, cantidadM2 = 1m, precioUnitario = 20m, precioTotal = 20m, montoEntrega = 0m, formaPago = "Contado", cantidadCuotas = (int?)null, estado = "Confirmada", fechaEntregaEstimada = (DateOnly?)null, observaciones = "No modificar", costoCompraUnitario = 10m, costoEnvio = 0m, otrosCostos = 0m, alicuotaIvaId = d.TaxId, depositoId = d.DepositB, lineas = new[] { new { tipoCespedId = d.ProductB, color = (string?)null, cantidadM2 = 1m, precioCompraM2 = 10m, precioVentaM2 = 20m, total = 20m } } };
@@ -117,11 +173,52 @@ public sealed class SucursalEndpointIsolationIntegrationTests
         return new(branchB.Id, depositB.Id, saleA.Id, saleB.Id, installmentB.Id, movementB.Id, budgetB.Id, clientB.Id, expenseB.Id, productB.Id, tax.Id, lotB.Rollos[0].CodigoBarra);
     }
 
+    private static async Task<ReceiptSeededData> SeedReceiptScenario(IServiceProvider services)
+    {
+        using var scope = services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var branchA = await db.Sucursales.SingleAsync(x => x.Nombre == "San Francisco");
+        var depositB = new Deposito { Nombre = $"Receipt B {Guid.NewGuid():N}", Activo = true };
+        db.Add(depositB); await db.SaveChangesAsync();
+        var branchB = new Sucursal { Nombre = $"Receipt Branch B {Guid.NewGuid():N}", DepositoPropioId = depositB.Id, Activo = true };
+        db.Add(branchB); await db.SaveChangesAsync(); depositB.SucursalId = branchB.Id;
+        var admin = await db.Usuarios.SingleAsync(x => x.NombreUsuario == "admin");
+        admin.DebeCambiarPassword = false;
+        var clientA = NewClient(branchA.Id, "Receipt A");
+        var clientB = NewClient(branchB.Id, "Receipt B");
+        var productA = NewProduct(branchA.DepositoPropioId, "Receipt A");
+        var productB = NewProduct(depositB.Id, "Receipt B");
+        db.AddRange(clientA, clientB, productA, productB); await db.SaveChangesAsync();
+        var tax = await db.AlicuotasIva.FirstAsync();
+
+        var saleA1 = NewSale(branchA.Id, branchA.DepositoPropioId, clientA.Id, productA.Id, tax.Id);
+        var saleA2 = NewSale(branchA.Id, branchA.DepositoPropioId, clientA.Id, productA.Id, tax.Id);
+        var saleA3 = NewSale(branchA.Id, branchA.DepositoPropioId, clientA.Id, productA.Id, tax.Id);
+        var saleB1 = NewSale(branchB.Id, depositB.Id, clientB.Id, productB.Id, tax.Id);
+        db.AddRange(saleA1, saleA2, saleA3, saleB1); await db.SaveChangesAsync();
+        var installmentA1 = NewInstallment(branchA.Id, branchA.DepositoPropioId, saleA1.Id, clientA.Id);
+        var installmentA2 = NewInstallment(branchA.Id, branchA.DepositoPropioId, saleA2.Id, clientA.Id);
+        var installmentA3 = NewInstallment(branchA.Id, branchA.DepositoPropioId, saleA3.Id, clientA.Id);
+        var installmentB1 = NewInstallment(branchB.Id, depositB.Id, saleB1.Id, clientB.Id);
+        db.AddRange(installmentA1, installmentA2, installmentA3, installmentB1);
+        await db.SaveChangesAsync();
+        return new(branchA.Id, branchB.Id, saleA1.Id, installmentA1.Id, installmentA2.Id, installmentA3.Id, installmentB1.Id);
+    }
+
+    private static Cuota NewInstallment(Guid branch, Guid deposit, Guid sale, Guid client) => new()
+    {
+        SucursalId = branch, DepositoId = deposit, VentaId = sale, ClienteId = client, Numero = 1,
+        FechaVencimiento = DateOnly.FromDateTime(DateTime.Today), ImportePactado = 100,
+        ImportePagado = 0, Estado = EstadoCuota.Pendiente
+    };
+
     private static Cliente NewClient(Guid branch, string suffix) => new() { SucursalId = branch, Nombre = "Cliente", Apellido = suffix, Telefono = "3515555555", Localidad = "Córdoba", Provincia = "Córdoba", Tipo = TipoCliente.Particular, FechaPrimerContacto = DateOnly.FromDateTime(DateTime.Today) };
     private static TipoCesped NewProduct(Guid deposit, string suffix) => new() { DepositoId = deposit, Nombre = $"Producto {suffix} {Guid.NewGuid():N}", PrecioVentaM2 = 20, PrecioContadoM2 = 20, PrecioFinanciadoM2 = 22, CostoM2 = 10, Activo = true, ControlPorLotes = true };
     private static Venta NewSale(Guid branch, Guid deposit, Guid client, Guid product, Guid tax) => new() { SucursalId = branch, DepositoId = deposit, ClienteId = client, TipoCespedId = product, AlicuotaIvaId = tax, FechaVenta = DateOnly.FromDateTime(DateTime.Today), CantidadM2 = 1, PrecioUnitario = 20, PrecioTotal = 20, CostoCompraUnitario = 10, CostoCompraTotal = 10, FormaPago = FormaPago.Contado, Estado = EstadoVenta.Confirmada };
 
     private sealed record SeededData(Guid BranchB, Guid DepositB, Guid SaleA, Guid SaleB, Guid InstallmentB, Guid CashMovementB, Guid BudgetB, Guid ClientB, Guid ExpenseB, Guid ProductB, Guid TaxId, string BarcodeB);
+    private sealed record ReceiptSeededData(Guid BranchA, Guid BranchB, Guid SaleA1,
+        Guid InstallmentA1, Guid InstallmentA2, Guid InstallmentA3, Guid InstallmentB1);
 
     private static async Task CreateDatabase(string master, string name)
     {

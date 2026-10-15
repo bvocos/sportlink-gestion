@@ -107,12 +107,21 @@ public static class PresupuestoEndpoints
     }
     private static async Task<IResult> Delete(Guid id, ClaimsPrincipal user, AppDbContext db, CancellationToken ct) { var p = await db.Presupuestos.WhereVisibleParaUsuario(user).SingleOrDefaultAsync(x => x.Id == id, ct); if (p is null) return Results.NotFound(); db.Remove(p); await db.SaveChangesAsync(ct); return Results.NoContent(); }
 
-    private static async Task<IResult> Pdf(Guid id, ClaimsPrincipal user, AppDbContext db, IWebHostEnvironment env, HttpContext http, CancellationToken ct)
+    private static async Task<IResult> Pdf(Guid id, ClaimsPrincipal user, AppDbContext db, IWebHostEnvironment env,
+        SucursalBrandingService brandingService, ILoggerFactory loggerFactory, HttpContext http, CancellationToken ct)
     {
         var p = await Query(db, user).SingleOrDefaultAsync(x => x.Id == id, ct); if (p is null) return Results.NotFound();
-        var bytes = PresupuestoPdf.Generate(p, Path.Combine(env.ContentRootPath, "Assets"));
+        var branding = await brandingService.GetAsync(p.SucursalId, ct); if (branding is null) return Results.NotFound();
+        byte[] bytes;
+        try { bytes = PresupuestoPdf.Generate(p, Path.Combine(env.ContentRootPath, "Assets"), branding); }
+        catch (Exception ex) when (branding.Logo is not null)
+        {
+            loggerFactory.CreateLogger("PresupuestoPdf").LogWarning(ex,
+                "No se pudo decodificar el logo de la sucursal {SucursalId}; se generará el presupuesto con texto.", p.SucursalId);
+            bytes = PresupuestoPdf.Generate(p, Path.Combine(env.ContentRootPath, "Assets"), branding with { Logo = null, LogoContentType = null });
+        }
         http.Response.Headers.CacheControl = "no-store, no-cache, must-revalidate";
-        return Results.File(bytes, "application/pdf", $"Sportlink-Presupuesto-{p.Numero:00000}.pdf");
+        return Results.File(bytes, "application/pdf", $"Presupuesto-{p.Numero:00000}.pdf");
     }
 }
 
@@ -133,7 +142,7 @@ internal static class PresupuestoPdf
 {
     private const string Green = "#173F32"; private const string Lime = "#79C817"; private const string Orange = "#F04A22";
     private static string Usd(decimal value) => $"USD {value:N2}";
-    public static byte[] Generate(Presupuesto p, string assets)
+    public static byte[] Generate(Presupuesto p, string assets, SucursalBranding branding)
     {
         QuestPDF.Settings.License = LicenseType.Evaluation;
         var totals = PresupuestoCalculator.Calculate(p); var cash = totals.TotalContado; var financed = totals.TotalFinanciado; var financedBalance = totals.SaldoFinanciado;
@@ -148,7 +157,10 @@ internal static class PresupuestoPdf
                     c.Spacing(7);
                     c.Item().Row(r =>
                     {
-                        r.ConstantItem(145).Height(42).Image(Path.Combine(assets, "sportlink-logo.png")).FitArea();
+                        if (branding.Logo is not null)
+                            r.ConstantItem(145).Height(42).Image(branding.Logo).FitArea();
+                        else
+                            r.ConstantItem(145).Height(42).AlignMiddle().Text(branding.RazonSocial).FontSize(15).FontColor(Colors.White).Bold();
                         r.RelativeItem().AlignRight().Column(x => { x.Item().Text("PRESUPUESTO").FontSize(14).FontColor(Lime).Bold(); x.Item().Text($"N.º {p.Numero:00000}").FontSize(10).FontColor(Colors.White); });
                     });
                     c.Item().Text("Césped sintético premium").FontSize(20).FontColor(Colors.White).Bold();
@@ -190,7 +202,9 @@ internal static class PresupuestoPdf
                         if (!string.IsNullOrWhiteSpace(p.Observaciones)) box.Item().Background("#A8F5F5F5").Padding(7).Column(x => { x.Item().Text("Observaciones").FontSize(8).Bold(); x.Item().Text(p.Observaciones!).FontSize(7); });
                     });
                 });
-                page.Footer().PaddingHorizontal(24).PaddingBottom(12).Text("SPORTLINK · Synthetic Grass · by Empire").FontSize(7).FontColor(Colors.White).Bold();
+                var footer = string.Join(" · ", new[] { branding.RazonSocial, branding.Domicilio, branding.Telefono, branding.Email }
+                    .Where(x => !string.IsNullOrWhiteSpace(x)));
+                page.Footer().PaddingHorizontal(24).PaddingBottom(12).Text(footer).FontSize(7).FontColor(Colors.White).Bold();
             });
         }).GeneratePdf();
     }

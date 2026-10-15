@@ -17,19 +17,18 @@ namespace Api.Migrations
                 nullable: true);
 
             migrationBuilder.Sql("""
+                ;WITH RecibosOrdenados AS (
+                    SELECT Id,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY SucursalId
+                               ORDER BY CreatedAt, Id) AS Numero
+                    FROM dbo.MovimientosCaja
+                    WHERE CuotaId IS NOT NULL AND Tipo=N'Ingreso'
+                )
                 UPDATE mc
-                SET NumeroRecibo = (
-                    SELECT COUNT(*) FROM dbo.MovimientosCaja anteriores
-                    WHERE anteriores.CuotaId IS NOT NULL AND anteriores.Tipo=N'Ingreso'
-                      AND anteriores.CreatedAt <= mc.CreatedAt)
+                SET NumeroRecibo = CONVERT(INT, ordenados.Numero)
                 FROM dbo.MovimientosCaja mc
-                WHERE mc.CuotaId IS NOT NULL AND mc.Tipo=N'Ingreso';
-
-                IF EXISTS (
-                    SELECT 1 FROM dbo.MovimientosCaja
-                    WHERE NumeroRecibo IS NOT NULL
-                    GROUP BY SucursalId, NumeroRecibo HAVING COUNT(*) > 1)
-                    THROW 51000, 'No se pudo crear la numeración de recibos: existen números históricos duplicados dentro de una sucursal.', 1;
+                INNER JOIN RecibosOrdenados ordenados ON ordenados.Id = mc.Id;
                 """);
 
             migrationBuilder.CreateIndex(

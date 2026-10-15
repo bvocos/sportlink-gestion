@@ -720,6 +720,28 @@ namespace Api.Migrations
                     b.ToTable("Sucursales");
                 });
 
+            modelBuilder.Entity("Api.Shared.Database.SucursalLogo", b =>
+                {
+                    b.Property<Guid>("SucursalId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<byte[]>("Contenido")
+                        .IsRequired()
+                        .HasColumnType("varbinary(max)");
+
+                    b.Property<string>("ContentType")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.HasKey("SucursalId");
+
+                    b.ToTable("SucursalesLogos");
+                });
+
             modelBuilder.Entity("Api.Shared.Database.TipoCesped", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1163,6 +1185,17 @@ namespace Api.Migrations
                     b.Navigation("DepositoPropio");
                 });
 
+            modelBuilder.Entity("Api.Shared.Database.SucursalLogo", b =>
+                {
+                    b.HasOne("Api.Shared.Database.Sucursal", "Sucursal")
+                        .WithOne("Logo")
+                        .HasForeignKey("Api.Shared.Database.SucursalLogo", "SucursalId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Sucursal");
+                });
+
             modelBuilder.Entity("Api.Shared.Database.TipoCesped", b =>
                 {
                     b.HasOne("Api.Shared.Database.Deposito", "Deposito")
@@ -1268,6 +1301,8 @@ namespace Api.Migrations
             modelBuilder.Entity("Api.Shared.Database.Sucursal", b =>
                 {
                     b.Navigation("Depositos");
+
+                    b.Navigation("Logo");
 
                     b.Navigation("Usuarios");
                 });

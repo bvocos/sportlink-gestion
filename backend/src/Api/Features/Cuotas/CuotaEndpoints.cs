@@ -11,6 +11,7 @@ using Microsoft.Extensions.Configuration;
 using QuestPDF.Fluent;
 using QuestPDF.Helpers;
 using QuestPDF.Infrastructure;
+using System.Text.Json.Serialization;
 
 namespace Api.Features.Cuotas;
 
@@ -156,7 +157,7 @@ public static class CuotaEndpoints
 
     private static async Task<ReciboData?> ObtenerDatosRecibo(
         Guid id, ClaimsPrincipal user, AppDbContext db,
-        DolarBlueService dolarBlueService, CancellationToken ct)
+        DolarBlueService dolarBlueService, SucursalBrandingService brandingService, CancellationToken ct)
     {
         var cuota = await VisibleQuery(db.Cuotas.AsNoTracking(), user)
             .Include(x => x.Venta).ThenInclude(x => x.Cliente)
@@ -172,10 +173,11 @@ public static class CuotaEndpoints
         if (movimiento is null) return null;
 
         var sucursal = cuota.Sucursal!;
+        var branding = await brandingService.GetAsync(sucursal.Id, ct);
+        if (branding is null) return null;
         var empresa = new ReciboEmisorDto(
-            string.IsNullOrWhiteSpace(sucursal.RazonSocial) ? sucursal.Nombre : sucursal.RazonSocial,
-            sucursal.DomicilioFiscal ?? "", sucursal.Localidad ?? "", sucursal.Telefono ?? "",
-            sucursal.Email ?? "", sucursal.Cuit ?? "",
+            branding.RazonSocial, branding.Domicilio, branding.Localidad, branding.Telefono,
+            branding.Email, branding.Cuit,
             sucursal.InicioActividades?.ToString("dd/MM/yyyy") ?? "",
             sucursal.IngresosBrutos ?? "", sucursal.CondicionIva ?? "");
         var cliente = cuota.Venta.Cliente;
@@ -183,6 +185,9 @@ public static class CuotaEndpoints
         var dolarBlue = await dolarBlueService.GetAsync(ct);
 
         return new ReciboData(
+            SucursalId: sucursal.Id,
+            TieneLogo: branding.Logo is not null,
+            Logo: branding.Logo,
             NumeroRecibo: movimiento.NumeroRecibo,
             PuntoVenta: sucursal.PuntoVentaAfip,
             Fecha: cuota.FechaPago ?? DateOnly.FromDateTime(DateTime.Today),
@@ -207,22 +212,29 @@ public static class CuotaEndpoints
 
     private static async Task<IResult> GenerarRecibo(
         Guid id, ClaimsPrincipal user, AppDbContext db,
-        DolarBlueService dolarBlueService,
-        IWebHostEnvironment env, HttpContext http, CancellationToken ct)
+        DolarBlueService dolarBlueService, SucursalBrandingService brandingService,
+        ILoggerFactory loggerFactory, HttpContext http, CancellationToken ct)
     {
-        var datos = await ObtenerDatosRecibo(id, user, db, dolarBlueService, ct);
+        var datos = await ObtenerDatosRecibo(id, user, db, dolarBlueService, brandingService, ct);
         if (datos is null) return Results.NotFound();
-        var bytes = CuotaReciboPdf.Generate(datos, Path.Combine(env.ContentRootPath, "Assets"));
+        byte[] bytes;
+        try { bytes = CuotaReciboPdf.Generate(datos); }
+        catch (Exception ex) when (datos.Logo is not null)
+        {
+            loggerFactory.CreateLogger("CuotaReciboPdf").LogWarning(ex,
+                "No se pudo decodificar el logo de la sucursal {SucursalId}; se generará el recibo con texto.", datos.SucursalId);
+            bytes = CuotaReciboPdf.Generate(datos with { Logo = null, TieneLogo = false });
+        }
         http.Response.Headers.CacheControl = "no-store, no-cache, must-revalidate";
         return Results.File(bytes, "application/pdf",
-            $"Sportlink-Recibo-Cuota-{datos.Cuota.Numero:00}-{datos.Fecha:yyyyMMdd}.pdf");
+            $"Recibo-Cuota-{datos.Cuota.Numero:00}-{datos.Fecha:yyyyMMdd}.pdf");
     }
 
     private static async Task<IResult> ObtenerComprobante(
         Guid id, ClaimsPrincipal user, AppDbContext db,
-        DolarBlueService dolarBlueService, CancellationToken ct)
+        DolarBlueService dolarBlueService, SucursalBrandingService brandingService, CancellationToken ct)
     {
-        var datos = await ObtenerDatosRecibo(id, user, db, dolarBlueService, ct);
+        var datos = await ObtenerDatosRecibo(id, user, db, dolarBlueService, brandingService, ct);
         return datos is null ? Results.NotFound() : Results.Ok(datos);
     }
 }
@@ -234,6 +246,7 @@ internal sealed record ReciboEmisorDto(string RazonSocial, string Domicilio, str
     string CondicionFiscal);
 
 internal sealed record ReciboData(
+    Guid SucursalId, bool TieneLogo, [property: JsonIgnore] byte[]? Logo,
     int? NumeroRecibo, int? PuntoVenta, DateOnly Fecha,
     ReciboEmisorDto Empresa, ReciboClienteDto Cliente, ReciboCuotaDto Cuota, ReciboPagoDto Pago);
 
@@ -259,11 +272,9 @@ internal static class CuotaReciboPdf
         ? $"El cambio del dólar es de ARS {venta.Value.ToString("N2", Ars)} por USD según el momento de emitir el comprobante."
         : "La cotización del dólar blue no estaba disponible al momento de emitir el comprobante.";
 
-    public static byte[] Generate(ReciboData d, string assets)
+    public static byte[] Generate(ReciboData d)
     {
         QuestPDF.Settings.License = LicenseType.Evaluation;
-        var logo = Path.Combine(assets, "sportlink-logo.png");
-
         return Document.Create(c => c.Page(page =>
         {
             page.Size(PageSizes.A4);
@@ -278,9 +289,13 @@ internal static class CuotaReciboPdf
                     // Left: Logo + company info stacked
                     r.RelativeItem(5).BorderRight(1).BorderColor(Colors.Grey.Darken4).Column(left =>
                     {
-                        left.Item().BorderBottom(1).BorderColor(Colors.Grey.Darken4)
-                            .Padding(8).Height(52)
-                            .Image(logo).FitArea();
+                        if (d.Logo is not null)
+                            left.Item().BorderBottom(1).BorderColor(Colors.Grey.Darken4)
+                                .Padding(8).Height(52).Image(d.Logo).FitArea();
+                        else
+                            left.Item().BorderBottom(1).BorderColor(Colors.Grey.Darken4)
+                                .Padding(8).Height(52).AlignCenter().AlignMiddle()
+                                .Text(d.Empresa.RazonSocial).FontSize(16).Bold();
 
                         left.Item().Padding(6).Column(col =>
                         {

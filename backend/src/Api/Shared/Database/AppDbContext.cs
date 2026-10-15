@@ -17,6 +17,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, IHttpCo
     public DbSet<Deposito> Depositos => Set<Deposito>();
     public DbSet<TipoCespedDeposito> TiposCespedDepositos => Set<TipoCespedDeposito>();
     public DbSet<Sucursal> Sucursales => Set<Sucursal>();
+    public DbSet<SucursalLogo> SucursalesLogos => Set<SucursalLogo>();
     public DbSet<MovimientoStock> MovimientosStock => Set<MovimientoStock>();
     public DbSet<LoteStock> LotesStock => Set<LoteStock>();
     public DbSet<Rollo> Rollos => Set<Rollo>();
@@ -56,6 +57,10 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, IHttpCo
             .HasFilter("[Cuit] IS NOT NULL AND [PuntoVentaAfip] IS NOT NULL");
         b.Entity<Sucursal>().HasOne(x => x.DepositoPropio).WithMany(x => x.Sucursales)
             .HasForeignKey(x => x.DepositoPropioId).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<SucursalLogo>().HasKey(x => x.SucursalId);
+        b.Entity<SucursalLogo>().Property(x => x.ContentType).HasMaxLength(50);
+        b.Entity<SucursalLogo>().HasOne(x => x.Sucursal).WithOne(x => x.Logo)
+            .HasForeignKey<SucursalLogo>(x => x.SucursalId).OnDelete(DeleteBehavior.Cascade);
         b.Entity<Usuario>().HasIndex(x=>x.NombreUsuario).IsUnique();
         b.Entity<Usuario>().HasOne(x => x.Sucursal).WithMany(x => x.Usuarios)
             .HasForeignKey(x => x.SucursalId).OnDelete(DeleteBehavior.Restrict);
@@ -144,8 +149,16 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, IHttpCo
         foreach (var entry in entries)
         {
             var changes = new Dictionary<string, object?>();
+            if (entry.Entity is SucursalLogo logo)
+            {
+                changes["logo"] = entry.State == EntityState.Deleted ? "logo eliminado" : "logo actualizado";
+                changes["tamañoBytes"] = entry.State == EntityState.Deleted
+                    ? entry.OriginalValues[nameof(SucursalLogo.Contenido)] is byte[] old ? old.Length : 0
+                    : logo.Contenido.Length;
+            }
             foreach (var property in entry.Properties.Where(p => !IsSensitive(p.Metadata.Name)))
             {
+                if (entry.Entity is SucursalLogo) continue;
                 var before = entry.State == EntityState.Added ? null : property.OriginalValue;
                 var after = entry.State == EntityState.Deleted ? null : property.CurrentValue;
                 if (entry.State == EntityState.Modified && Equals(before, after)) continue;
@@ -161,7 +174,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, IHttpCo
     private static bool IsSensitive(string name) => name.Contains("Password", StringComparison.OrdinalIgnoreCase) || name.Contains("Hash", StringComparison.OrdinalIgnoreCase);
 
     private static object? Printable(object? value) => value is DateOnly date ? date.ToString("yyyy-MM-dd") : value;
-    private static string ModuleFor(string entity) => entity switch { "Venta" => "Ventas", "Cuota" => "Cuotas", "MovimientoCaja" => "Caja", "MovimientoStock" or "LoteStock" or "Rollo" => "Stock", "Gasto" => "Gastos", "Presupuesto" or "PresupuestoLinea" => "Presupuestos", "Cliente" => "Clientes", "Usuario" => "Usuarios", "Deposito" or "Sucursal" or "TipoCesped" or "AlicuotaIva" or "Configuracion" => "Administración", _ => entity };
+    private static string ModuleFor(string entity) => entity switch { "Venta" => "Ventas", "Cuota" => "Cuotas", "MovimientoCaja" => "Caja", "MovimientoStock" or "LoteStock" or "Rollo" => "Stock", "Gasto" => "Gastos", "Presupuesto" or "PresupuestoLinea" => "Presupuestos", "Cliente" => "Clientes", "Usuario" => "Usuarios", "Deposito" or "Sucursal" or "SucursalLogo" or "TipoCesped" or "AlicuotaIva" or "Configuracion" => "Administración", _ => entity };
 }
 
 public static class SeedData
@@ -368,18 +381,18 @@ public static class SeedData
             IF COL_LENGTH('dbo.MovimientosCaja','NumeroRecibo') IS NULL
             BEGIN
                 ALTER TABLE dbo.MovimientosCaja ADD NumeroRecibo INT NULL;
+                ;WITH RecibosOrdenados AS (
+                    SELECT Id,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY SucursalId
+                               ORDER BY CreatedAt, Id) AS Numero
+                    FROM dbo.MovimientosCaja
+                    WHERE CuotaId IS NOT NULL AND Tipo=N'Ingreso'
+                )
                 UPDATE mc
-                SET NumeroRecibo = (
-                    SELECT COUNT(*) FROM dbo.MovimientosCaja anteriores
-                    WHERE anteriores.CuotaId IS NOT NULL AND anteriores.Tipo=N'Ingreso'
-                      AND anteriores.CreatedAt <= mc.CreatedAt)
+                SET NumeroRecibo = CONVERT(INT, ordenados.Numero)
                 FROM dbo.MovimientosCaja mc
-                WHERE mc.CuotaId IS NOT NULL AND mc.Tipo=N'Ingreso';
-                IF EXISTS (
-                    SELECT 1 FROM dbo.MovimientosCaja
-                    WHERE NumeroRecibo IS NOT NULL
-                    GROUP BY SucursalId, NumeroRecibo HAVING COUNT(*) > 1)
-                    THROW 51000, 'No se pudo crear la numeración de recibos: existen números históricos duplicados dentro de una sucursal.', 1;
+                INNER JOIN RecibosOrdenados ordenados ON ordenados.Id = mc.Id;
                 CREATE UNIQUE INDEX IX_MovimientosCaja_SucursalId_NumeroRecibo
                     ON dbo.MovimientosCaja(SucursalId, NumeroRecibo) WHERE NumeroRecibo IS NOT NULL;
             END;
@@ -417,6 +430,19 @@ public static class SeedData
                 CREATE UNIQUE INDEX IX_Sucursales_Cuit_PuntoVentaAfip
                     ON dbo.Sucursales(Cuit, PuntoVentaAfip)
                     WHERE Cuit IS NOT NULL AND PuntoVentaAfip IS NOT NULL;
+            """);
+        await db.Database.ExecuteSqlRawAsync("""
+            IF OBJECT_ID(N'dbo.SucursalesLogos', N'U') IS NULL
+            BEGIN
+                CREATE TABLE dbo.SucursalesLogos(
+                    SucursalId UNIQUEIDENTIFIER NOT NULL,
+                    Contenido VARBINARY(MAX) NOT NULL,
+                    ContentType NVARCHAR(50) NOT NULL,
+                    UpdatedAt DATETIMEOFFSET(7) NOT NULL,
+                    CONSTRAINT PK_SucursalesLogos PRIMARY KEY(SucursalId),
+                    CONSTRAINT FK_SucursalesLogos_Sucursales_SucursalId
+                        FOREIGN KEY(SucursalId) REFERENCES dbo.Sucursales(Id) ON DELETE CASCADE);
+            END;
             """);
         await db.Database.ExecuteSqlRawAsync("""
             IF COL_LENGTH('dbo.Ventas','LineasJson') IS NULL

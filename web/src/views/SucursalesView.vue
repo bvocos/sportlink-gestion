@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 import Button from 'primevue/button'
 import Column from 'primevue/column'
 import DataTable from 'primevue/datatable'
@@ -13,7 +13,7 @@ import ToggleSwitch from 'primevue/toggleswitch'
 import { http, apiErrorMessage } from '@/shared/api/httpClient'
 import { confirmAction, notify } from '@/shared/uiFeedback'
 import { branchContext } from '@/branchContext'
-import { normalizeCuit, validateSucursalForm } from '@/sucursalValidation'
+import { normalizeCuit, validateSucursalForm, validateSucursalLogo } from '@/sucursalValidation'
 
 const items = ref<any[]>([])
 const loading = ref(false)
@@ -22,7 +22,12 @@ const saving = ref(false)
 const editingId = ref<string | null>(null)
 const error = ref('')
 const errors = ref<Record<string, string>>({})
+const logoFile = ref<File | null>(null)
+const logoPreview = ref('')
+const logoError = ref('')
 const condiciones = ['Responsable Inscripto', 'Monotributo', 'Exento']
+const historicalSucursalId = '7b100000-0000-0000-0000-ffffffffffff'
+const isHistorical = (x: any) => String(x.id).toLowerCase() === historicalSucursalId
 const blank = () => ({ nombre: '', nombreDeposito: '', depositoPropioId: null as string | null,
   razonSocial: '', cuit: '', condicionIva: null as string | null, domicilioFiscal: '',
   localidad: '', telefono: '', email: '', inicioActividades: '', ingresosBrutos: '',
@@ -35,11 +40,31 @@ async function load() {
   catch (e) { notify(apiErrorMessage(e, 'No se pudieron cargar las sucursales.'), 'error') }
   finally { loading.value = false }
 }
-function openCreate() { editingId.value = null; form.value = blank(); errors.value = {}; error.value = ''; dialog.value = true }
-function openEdit(x: any) {
+function releaseLogoPreview() { if (logoPreview.value) URL.revokeObjectURL(logoPreview.value); logoPreview.value = '' }
+function openCreate() { releaseLogoPreview(); logoFile.value = null; logoError.value = ''; editingId.value = null; form.value = blank(); errors.value = {}; error.value = ''; dialog.value = true }
+async function openEdit(x: any) {
+  releaseLogoPreview(); logoFile.value = null; logoError.value = ''
   editingId.value = x.id
   form.value = { ...blank(), ...x, inicioActividades: x.inicioActividades || '', nombreDeposito: '' }
   errors.value = {}; error.value = ''; dialog.value = true
+  if (x.tieneLogo) {
+    try {
+      const response = await http.get('/sucursales/' + x.id + '/logo', { responseType: 'blob' })
+      logoPreview.value = URL.createObjectURL(response.data)
+    } catch { logoError.value = 'No se pudo cargar la vista previa del logo.' }
+  }
+}
+function chooseLogo(event: Event) {
+  const file = (event.target as HTMLInputElement).files?.[0] || null
+  if (!file) return
+  logoError.value = validateSucursalLogo(file)
+  if (logoError.value) return
+  releaseLogoPreview(); logoFile.value = file; logoPreview.value = URL.createObjectURL(file)
+}
+async function removeLogo() {
+  if (!editingId.value) { releaseLogoPreview(); logoFile.value = null; return }
+  try { await http.delete('/sucursales/' + editingId.value + '/logo'); releaseLogoPreview(); logoFile.value = null; await load() }
+  catch (e) { logoError.value = apiErrorMessage(e, 'No se pudo quitar el logo.') }
 }
 function readBackendErrors(e: any) {
   const data = e?.response?.data
@@ -56,8 +81,18 @@ async function save() {
     const payload = { ...form.value, cuit: form.value.cuit ? normalizeCuit(form.value.cuit) : null,
       inicioActividades: form.value.inicioActividades || null,
       nombreDeposito: editingId.value ? null : (form.value.nombreDeposito || form.value.nombre) }
-    if (editingId.value) await http.put('/sucursales/' + editingId.value, payload)
-    else await http.post('/sucursales', payload)
+    const response = editingId.value
+      ? await http.put('/sucursales/' + editingId.value, payload)
+      : await http.post('/sucursales', payload)
+    const id = editingId.value || response.data.id
+    if (logoFile.value) {
+      const data = new FormData(); data.append('file', logoFile.value)
+      try { await http.put('/sucursales/' + id + '/logo', data) }
+      catch (e) {
+        logoError.value = apiErrorMessage(e, 'No se pudo guardar el logo.')
+        return
+      }
+    }
     dialog.value = false; await load(); branchContext.notifyChanged()
     notify('Sucursal guardada correctamente.', 'success')
   } catch (e) { readBackendErrors(e) } finally { saving.value = false }
@@ -73,6 +108,7 @@ async function remove(x: any) {
 }
 const incomplete = (x: any) => !x.cuit || !x.puntoVentaAfip || !x.razonSocial
 onMounted(load)
+onBeforeUnmount(releaseLogoPreview)
 </script>
 
 <template>
@@ -88,9 +124,9 @@ onMounted(load)
       <Column field="cuit" header="CUIT"><template #body="{ data }">{{ data.cuit || '—' }}</template></Column>
       <Column field="puntoVentaAfip" header="Punto de venta"><template #body="{ data }">{{ data.puntoVentaAfip || '—' }}</template></Column>
       <Column field="usuariosAsignados" header="Usuarios" />
-      <Column header="Estado"><template #body="{ data }"><Tag :severity="data.activo ? 'success' : 'secondary'" :value="data.activo ? 'Activa' : 'Inactiva'" /></template></Column>
+      <Column header="Estado"><template #body="{ data }"><Tag v-if="isHistorical(data)" severity="info" value="Histórica" /><Tag v-else :severity="data.activo ? 'success' : 'secondary'" :value="data.activo ? 'Activa' : 'Inactiva'" /></template></Column>
       <Column header="Configuración"><template #body="{ data }"><Tag v-if="incomplete(data)" severity="warn" value="Fiscal incompleta" /><Tag v-else severity="success" value="Completa" /></template></Column>
-      <Column header="Acciones"><template #body="{ data }"><div class="actions">
+      <Column header="Acciones"><template #body="{ data }"><div v-if="!isHistorical(data)" class="actions">
         <Button icon="pi pi-pencil" text rounded aria-label="Editar" @click="openEdit(data)" />
         <Button icon="pi pi-power-off" text rounded :severity="data.activo ? 'warn' : 'success'" aria-label="Cambiar estado" @click="toggle(data)" />
         <Button icon="pi pi-trash" text rounded severity="danger" aria-label="Eliminar" @click="remove(data)" />
@@ -112,6 +148,14 @@ onMounted(load)
         <label>Email<InputText v-model="form.email" type="email" /></label>
         <label>Inicio de actividades<input v-model="form.inicioActividades" class="native-input" type="date"></label>
         <label>Ingresos brutos<InputText v-model="form.ingresosBrutos" /></label>
+        <div class="logo-field">
+          <strong>Logo de la sucursal</strong>
+          <div class="logo-preview"><img v-if="logoPreview" :src="logoPreview" alt="Logo de la sucursal"><span v-else>{{ form.razonSocial || form.nombre || 'Razón social' }}</span></div>
+          <input type="file" accept="image/png,image/jpeg" @change="chooseLogo">
+          <small>PNG o JPG, máximo 1 MB. Vista previa del encabezado del recibo.</small>
+          <small v-if="logoError" class="field-error">{{ logoError }}</small>
+          <Button v-if="logoPreview" label="Quitar logo" severity="danger" text @click="removeLogo" />
+        </div>
         <label class="toggle"><ToggleSwitch v-model="form.activo" /> Sucursal activa</label>
       </div>
       <template #footer><Button label="Cancelar" severity="secondary" text @click="dialog = false" /><Button label="Guardar" :loading="saving" @click="save" /></template>
@@ -122,4 +166,5 @@ onMounted(load)
 <style scoped>
 .page-header{display:flex;align-items:center;justify-content:space-between;gap:1rem;margin-bottom:1rem}.page-header h1{margin:0}.page-header p{margin:.25rem 0;color:var(--text-color-secondary)}
 .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-top:1rem}.form-grid label{display:flex;flex-direction:column;gap:.4rem;font-weight:600}.form-grid label>*{width:100%}.form-grid small{color:#c62828}.toggle{flex-direction:row!important;align-items:center;grid-column:1/-1}.toggle>*{width:auto!important}.native-input{padding:.7rem;border:1px solid var(--surface-border);border-radius:6px}.actions{display:flex;gap:.25rem}@media(max-width:650px){.form-grid{grid-template-columns:1fr}}
+.logo-field{grid-column:1/-1;display:flex;flex-direction:column;gap:.5rem}.logo-preview{height:90px;border:1px solid var(--surface-border);display:flex;align-items:center;justify-content:center;padding:10px;font-size:1.25rem;font-weight:700}.logo-preview img{max-width:100%;max-height:100%;object-fit:contain}.field-error{color:#c62828!important}
 </style>

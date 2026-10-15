@@ -605,15 +605,19 @@ public static class VentaEndpoints
     private static async Task<IResult> Delete(Guid id, ClaimsPrincipal user, AppDbContext db, CancellationToken ct)
     {
         if (!await VisibleQuery(db.Ventas, user).AnyAsync(x => x.Id == id, ct)) return Results.NotFound();
-        await using var transaction = await db.Database.BeginTransactionAsync(ct);
-        await db.LotesStock.Where(x => x.VentaId == id).ExecuteUpdateAsync(setters => setters
-            .SetProperty(x => x.Estado, EstadoLoteStock.Disponible)
-            .SetProperty(x => x.VentaId, (Guid?)null), ct);
-        await db.MovimientosStock.Where(x => x.VentaId == id && x.Tipo == TipoMovimientoStock.SalidaPorVenta).ExecuteDeleteAsync(ct);
-        await db.MovimientosCaja.Where(x => x.VentaId == id).ExecuteDeleteAsync(ct);
-        await db.Cuotas.Where(x => x.VentaId == id).ExecuteDeleteAsync(ct);
-        await VisibleQuery(db.Ventas.Where(x => x.Id == id), user).ExecuteDeleteAsync(ct);
-        await transaction.CommitAsync(ct);
+        var strategy = db.Database.CreateExecutionStrategy();
+        await strategy.ExecuteAsync(async () =>
+        {
+            await using var transaction = await db.Database.BeginTransactionAsync(ct);
+            await db.LotesStock.Where(x => x.VentaId == id).ExecuteUpdateAsync(setters => setters
+                .SetProperty(x => x.Estado, EstadoLoteStock.Disponible)
+                .SetProperty(x => x.VentaId, (Guid?)null), ct);
+            await db.MovimientosStock.Where(x => x.VentaId == id && x.Tipo == TipoMovimientoStock.SalidaPorVenta).ExecuteDeleteAsync(ct);
+            await db.MovimientosCaja.Where(x => x.VentaId == id).ExecuteDeleteAsync(ct);
+            await db.Cuotas.Where(x => x.VentaId == id).ExecuteDeleteAsync(ct);
+            await VisibleQuery(db.Ventas.Where(x => x.Id == id), user).ExecuteDeleteAsync(ct);
+            await transaction.CommitAsync(ct);
+        });
         return Results.NoContent();
     }
 
