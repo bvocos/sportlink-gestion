@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { normalizeCuit, validCuit, validateSucursalForm, validateSucursalLogo } from './sucursalValidation'
+import { normalizeCuit, validCuit, validateSucursalForm, validateSucursalLogo, validateSucursalLogoDimensions } from './sucursalValidation'
 
 describe('validación fiscal de sucursales', () => {
   it('normaliza y acepta un CUIT válido con guiones', () => {
@@ -15,5 +15,10 @@ describe('validación fiscal de sucursales', () => {
     expect(validateSucursalLogo({ type: 'image/svg+xml', size: 100 })).toContain('PNG')
     expect(validateSucursalLogo({ type: 'image/png', size: 1024 * 1024 + 1 })).toContain('1 MB')
     expect(validateSucursalLogo({ type: 'image/jpeg', size: 100 })).toBe('')
+  })
+  it('rechaza logos de más de 4000 píxeles por lado', () => {
+    expect(validateSucursalLogoDimensions(4000, 4000)).toBe('')
+    expect(validateSucursalLogoDimensions(4001, 300)).toContain('4000')
+    expect(validateSucursalLogoDimensions(300, 5000)).toContain('4000')
   })
 })

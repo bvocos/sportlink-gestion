@@ -65,6 +65,16 @@ public sealed class VentaEndpointIntegrationTests
             Assert.Equal(HttpStatusCode.OK, logoResponse.StatusCode);
             Assert.Equal("private", logoResponse.Headers.CacheControl?.ToString());
             Assert.NotNull(logoResponse.Headers.ETag);
+            using (var cachedRequest = new HttpRequestMessage(HttpMethod.Get, $"/api/sucursales/{branchId}/logo"))
+            {
+                cachedRequest.Headers.IfNoneMatch.Add(logoResponse.Headers.ETag);
+                Assert.Equal(HttpStatusCode.NotModified, (await client.SendAsync(cachedRequest)).StatusCode);
+            }
+
+            var hugeDimensions = (byte[])png.Clone();
+            hugeDimensions[18] = 0x13; hugeDimensions[19] = 0x89;
+            Assert.Equal(HttpStatusCode.BadRequest,
+                (await PutLogo(client, branchId, hugeDimensions, "wide.png", "image/png")).StatusCode);
 
             byte[] jpeg = [0xFF, 0xD8, 0xFF, 0xC0, 0, 8, 8, 0, 50, 0, 100, 1];
             Assert.Equal(HttpStatusCode.OK, (await PutLogo(client, branchId, jpeg, "logo.jpg", "image/jpeg")).StatusCode);

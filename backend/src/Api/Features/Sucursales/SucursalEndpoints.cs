@@ -262,8 +262,11 @@ public static class SucursalEndpoints
         if (!user.IsInRole("Administrador") && user.SucursalId() != id) return Results.NotFound();
         var logo = await db.SucursalesLogos.AsNoTracking().SingleOrDefaultAsync(x => x.SucursalId == id, ct);
         if (logo is null) return Results.NotFound();
-        http.Response.Headers.ETag = $"\"{logo.UpdatedAt.UtcTicks:x}\"";
+        var etag = $"\"{logo.UpdatedAt.UtcTicks:x}\"";
+        http.Response.Headers.ETag = etag;
         http.Response.Headers.CacheControl = "private";
+        if (http.Request.Headers.IfNoneMatch.Any(x => x == etag || x == "*"))
+            return Results.StatusCode(StatusCodes.Status304NotModified);
         return Results.File(logo.Contenido, logo.ContentType);
     }
 

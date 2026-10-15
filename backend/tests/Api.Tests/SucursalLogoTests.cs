@@ -29,4 +29,14 @@ public sealed class SucursalLogoTests
         Assert.NotNull(SucursalLogoValidator.Validate("<svg/>"u8.ToArray(), out _, out _, out _));
         Assert.Contains("1 MB", SucursalLogoValidator.Validate(new byte[SucursalLogoValidator.MaxBytes + 1], out _, out _, out _));
     }
+
+    [Fact]
+    public void RejectsDimensionsAboveFourThousandPixels()
+    {
+        var png = new byte[24];
+        new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 }.CopyTo(png, 0);
+        png[18] = 0x13; png[19] = 0x89; // 5001 px
+        png[23] = 50;
+        Assert.Contains("4000", SucursalLogoValidator.Validate(png, out _, out _, out _));
+    }
 }

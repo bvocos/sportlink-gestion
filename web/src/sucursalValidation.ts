@@ -27,3 +27,30 @@ export function validateSucursalLogo(file: { type: string; size: number }) {
   if (file.size > 1024 * 1024) return 'El logo no puede superar 1 MB.'
   return ''
 }
+
+export function validateSucursalLogoDimensions(width: number, height: number) {
+  return width > 4000 || height > 4000
+    ? 'El logo no puede superar 4000 píxeles de ancho ni de alto.'
+    : ''
+}
+
+export async function readAndValidateSucursalLogoDimensions(file: File) {
+  if (typeof createImageBitmap === 'function') {
+    const bitmap = await createImageBitmap(file)
+    try { return validateSucursalLogoDimensions(bitmap.width, bitmap.height) }
+    finally { bitmap.close() }
+  }
+  return await new Promise<string>((resolve, reject) => {
+    const url = URL.createObjectURL(file)
+    const image = new Image()
+    image.onload = () => {
+      URL.revokeObjectURL(url)
+      resolve(validateSucursalLogoDimensions(image.naturalWidth, image.naturalHeight))
+    }
+    image.onerror = () => {
+      URL.revokeObjectURL(url)
+      reject(new Error('No se pudo leer la imagen.'))
+    }
+    image.src = url
+  })
+}

@@ -22,6 +22,7 @@ public sealed class SucursalBrandingService(AppDbContext db)
 public static class SucursalLogoValidator
 {
     public const int MaxBytes = 1024 * 1024;
+    public const int MaxDimension = 4000;
 
     public static string? Validate(byte[] bytes, out string? contentType, out int width, out int height)
     {
@@ -32,6 +33,8 @@ public static class SucursalLogoValidator
         else if (TryJpeg(bytes, out width, out height)) contentType = "image/jpeg";
         else return "El archivo no es una imagen PNG o JPEG válida.";
         if (width <= 0 || height <= 0) return "No se pudieron leer las dimensiones de la imagen.";
+        if (width > MaxDimension || height > MaxDimension)
+            return "El logo no puede superar 4000 píxeles de ancho ni de alto.";
         return null;
     }
 

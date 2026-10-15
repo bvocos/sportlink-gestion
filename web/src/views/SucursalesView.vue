@@ -13,7 +13,7 @@ import ToggleSwitch from 'primevue/toggleswitch'
 import { http, apiErrorMessage } from '@/shared/api/httpClient'
 import { confirmAction, notify } from '@/shared/uiFeedback'
 import { branchContext } from '@/branchContext'
-import { normalizeCuit, validateSucursalForm, validateSucursalLogo } from '@/sucursalValidation'
+import { normalizeCuit, readAndValidateSucursalLogoDimensions, validateSucursalForm, validateSucursalLogo } from '@/sucursalValidation'
 
 const items = ref<any[]>([])
 const loading = ref(false)
@@ -31,7 +31,7 @@ const isHistorical = (x: any) => String(x.id).toLowerCase() === historicalSucurs
 const blank = () => ({ nombre: '', nombreDeposito: '', depositoPropioId: null as string | null,
   razonSocial: '', cuit: '', condicionIva: null as string | null, domicilioFiscal: '',
   localidad: '', telefono: '', email: '', inicioActividades: '', ingresosBrutos: '',
-  puntoVentaAfip: null as number | null, activo: true })
+  puntoVentaAfip: null as number | null, activo: true, tieneLogo: false })
 const form = ref(blank())
 
 async function load() {
@@ -47,23 +47,38 @@ async function openEdit(x: any) {
   editingId.value = x.id
   form.value = { ...blank(), ...x, inicioActividades: x.inicioActividades || '', nombreDeposito: '' }
   errors.value = {}; error.value = ''; dialog.value = true
-  if (x.tieneLogo) {
-    try {
-      const response = await http.get('/sucursales/' + x.id + '/logo', { responseType: 'blob' })
-      logoPreview.value = URL.createObjectURL(response.data)
-    } catch { logoError.value = 'No se pudo cargar la vista previa del logo.' }
-  }
+  await loadStoredLogo(x.id, x.tieneLogo)
 }
-function chooseLogo(event: Event) {
+async function loadStoredLogo(id: string, tieneLogo: boolean) {
+  releaseLogoPreview()
+  if (!tieneLogo) return
+  try {
+    const response = await http.get('/sucursales/' + id + '/logo', { responseType: 'blob' })
+    logoPreview.value = URL.createObjectURL(response.data)
+  } catch { logoError.value = 'No se pudo cargar la vista previa del logo.' }
+}
+async function chooseLogo(event: Event) {
   const file = (event.target as HTMLInputElement).files?.[0] || null
   if (!file) return
   logoError.value = validateSucursalLogo(file)
   if (logoError.value) return
+  try { logoError.value = await readAndValidateSucursalLogoDimensions(file) }
+  catch { logoError.value = 'No se pudieron leer las dimensiones del logo.' }
+  if (logoError.value) return
   releaseLogoPreview(); logoFile.value = file; logoPreview.value = URL.createObjectURL(file)
 }
 async function removeLogo() {
+  if (logoFile.value) {
+    logoFile.value = null
+    logoError.value = ''
+    await loadStoredLogo(editingId.value || '', form.value.tieneLogo)
+    return
+  }
   if (!editingId.value) { releaseLogoPreview(); logoFile.value = null; return }
-  try { await http.delete('/sucursales/' + editingId.value + '/logo'); releaseLogoPreview(); logoFile.value = null; await load() }
+  try {
+    await http.delete('/sucursales/' + editingId.value + '/logo')
+    releaseLogoPreview(); form.value.tieneLogo = false; await load()
+  }
   catch (e) { logoError.value = apiErrorMessage(e, 'No se pudo quitar el logo.') }
 }
 function readBackendErrors(e: any) {
@@ -81,10 +96,17 @@ async function save() {
     const payload = { ...form.value, cuit: form.value.cuit ? normalizeCuit(form.value.cuit) : null,
       inicioActividades: form.value.inicioActividades || null,
       nombreDeposito: editingId.value ? null : (form.value.nombreDeposito || form.value.nombre) }
+    const wasCreating = !editingId.value
     const response = editingId.value
       ? await http.put('/sucursales/' + editingId.value, payload)
       : await http.post('/sucursales', payload)
     const id = editingId.value || response.data.id
+    if (wasCreating) {
+      editingId.value = id
+      form.value.tieneLogo = false
+      await load()
+      branchContext.notifyChanged()
+    }
     if (logoFile.value) {
       const data = new FormData(); data.append('file', logoFile.value)
       try { await http.put('/sucursales/' + id + '/logo', data) }
@@ -92,6 +114,8 @@ async function save() {
         logoError.value = apiErrorMessage(e, 'No se pudo guardar el logo.')
         return
       }
+      logoFile.value = null
+      form.value.tieneLogo = true
     }
     dialog.value = false; await load(); branchContext.notifyChanged()
     notify('Sucursal guardada correctamente.', 'success')
