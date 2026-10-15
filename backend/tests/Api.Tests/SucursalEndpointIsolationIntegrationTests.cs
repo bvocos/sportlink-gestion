@@ -11,6 +11,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using static Api.Tests.BranchTestHost;
 
 namespace Api.Tests;
 
@@ -205,43 +206,8 @@ public sealed class SucursalEndpointIsolationIntegrationTests
         return new(branchA.Id, branchB.Id, saleA1.Id, installmentA1.Id, installmentA2.Id, installmentA3.Id, installmentB1.Id);
     }
 
-    private static Cuota NewInstallment(Guid branch, Guid deposit, Guid sale, Guid client) => new()
-    {
-        SucursalId = branch, DepositoId = deposit, VentaId = sale, ClienteId = client, Numero = 1,
-        FechaVencimiento = DateOnly.FromDateTime(DateTime.Today), ImportePactado = 100,
-        ImportePagado = 0, Estado = EstadoCuota.Pendiente
-    };
-
-    private static Cliente NewClient(Guid branch, string suffix) => new() { SucursalId = branch, Nombre = "Cliente", Apellido = suffix, Telefono = "3515555555", Localidad = "Córdoba", Provincia = "Córdoba", Tipo = TipoCliente.Particular, FechaPrimerContacto = DateOnly.FromDateTime(DateTime.Today) };
-    private static TipoCesped NewProduct(Guid deposit, string suffix) => new() { DepositoId = deposit, Nombre = $"Producto {suffix} {Guid.NewGuid():N}", PrecioVentaM2 = 20, PrecioContadoM2 = 20, PrecioFinanciadoM2 = 22, CostoM2 = 10, Activo = true, ControlPorLotes = true };
-    private static Venta NewSale(Guid branch, Guid deposit, Guid client, Guid product, Guid tax) => new() { SucursalId = branch, DepositoId = deposit, ClienteId = client, TipoCespedId = product, AlicuotaIvaId = tax, FechaVenta = DateOnly.FromDateTime(DateTime.Today), CantidadM2 = 1, PrecioUnitario = 20, PrecioTotal = 20, CostoCompraUnitario = 10, CostoCompraTotal = 10, FormaPago = FormaPago.Contado, Estado = EstadoVenta.Confirmada };
-
     private sealed record SeededData(Guid BranchB, Guid DepositB, Guid SaleA, Guid SaleB, Guid InstallmentB, Guid CashMovementB, Guid BudgetB, Guid ClientB, Guid ExpenseB, Guid ProductB, Guid TaxId, string BarcodeB);
     private sealed record ReceiptSeededData(Guid BranchA, Guid BranchB, Guid SaleA1,
         Guid InstallmentA1, Guid InstallmentA2, Guid InstallmentA3, Guid InstallmentB1);
 
-    private static async Task CreateDatabase(string master, string name)
-    {
-        await using var connection = new SqlConnection(master); await connection.OpenAsync();
-        await using var command = connection.CreateCommand(); command.CommandText = $"CREATE DATABASE [{name}]"; await command.ExecuteNonQueryAsync();
-    }
-    private static async Task DropDatabase(string master, string name)
-    {
-        await using var connection = new SqlConnection(master); await connection.OpenAsync();
-        await using var command = connection.CreateCommand(); command.CommandText = $"ALTER DATABASE [{name}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [{name}]"; await command.ExecuteNonQueryAsync();
-    }
-
-    private sealed class BranchApiFactory(string connectionString) : WebApplicationFactory<Program>
-    {
-        protected override void ConfigureWebHost(IWebHostBuilder builder)
-        {
-            builder.UseEnvironment("Development");
-            builder.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(new Dictionary<string, string?> { ["SkipDatabaseMigrations"] = "true" }));
-            builder.ConfigureServices(services =>
-            {
-                services.RemoveAll<DbContextOptions<AppDbContext>>(); services.RemoveAll<AppDbContext>();
-                services.AddDbContext<AppDbContext>(options => options.UseSqlServer(connectionString, sql => sql.EnableRetryOnFailure()));
-            });
-        }
-    }
 }
