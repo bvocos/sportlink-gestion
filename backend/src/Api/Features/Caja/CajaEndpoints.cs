@@ -58,8 +58,10 @@ public static class CajaEndpoints
                     .SumAsync(x => x.Tipo == TipoMovimiento.Ingreso ? x.Monto : -x.Monto, ct);
                 var withdrawalError = ValidateWithdrawal(request.Tipo, request.Monto, saldo);
                 if (withdrawalError is not null)
-                    return (IResult)Results.ValidationProblem(
-                        new Dictionary<string, string[]> { ["monto"] = [withdrawalError] });
+                    return (IResult)Results.Conflict(new
+                    {
+                        errors = new Dictionary<string, string[]> { ["monto"] = new[] { withdrawalError } }
+                    });
             }
 
             var movement = new MovimientoCaja

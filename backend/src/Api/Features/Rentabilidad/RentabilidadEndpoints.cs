@@ -91,9 +91,9 @@ public static class RentabilidadEndpoints
         }).ToList();
     }
 
-    private static async Task<IResult> GetReport(string? buscar, DateOnly? desde, DateOnly? hasta,
-        string? estadoFinanciero, Guid? sucursalId, int page, int pageSize,
-        ClaimsPrincipal user, AppDbContext db, CancellationToken ct)
+    private static async Task<IResult> GetReport(ClaimsPrincipal user, AppDbContext db, CancellationToken ct,
+        string? buscar = null, DateOnly? desde = null, DateOnly? hasta = null,
+        string? estadoFinanciero = null, Guid? sucursalId = null, int page = 1, int pageSize = 50)
     {
         if (desde > hasta)
             return Results.ValidationProblem(new Dictionary<string, string[]>

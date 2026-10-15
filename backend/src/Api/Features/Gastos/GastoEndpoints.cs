@@ -25,7 +25,8 @@ public static class GastoEndpoints
     internal static IQueryable<Gasto> VisibleByIdQuery(IQueryable<Gasto> query, ClaimsPrincipal user, Guid id) =>
         VisibleQuery(query, user).Where(x => x.Id == id);
 
-    private static async Task<IResult> List(DateOnly? desde, DateOnly? hasta, string? buscar, int page, int pageSize, ClaimsPrincipal user, AppDbContext db, CancellationToken ct)
+    private static async Task<IResult> List(ClaimsPrincipal user, AppDbContext db, CancellationToken ct,
+        DateOnly? desde = null, DateOnly? hasta = null, string? buscar = null, int page = 1, int pageSize = 50)
     {
         page = Math.Max(page, 1); pageSize = Math.Clamp(pageSize == 0 ? 50 : pageSize, 1, 200);
         if (desde.HasValue && hasta.HasValue && desde > hasta)
