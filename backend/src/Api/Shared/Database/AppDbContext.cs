@@ -6,8 +6,10 @@ using Api.Features.Auth;
 
 namespace Api.Shared.Database;
 
-public sealed class AppDbContext(DbContextOptions<AppDbContext> options, IHttpContextAccessor? httpContextAccessor = null) : DbContext(options)
+public sealed class AppDbContext(DbContextOptions<AppDbContext> options, IHttpContextAccessor? httpContextAccessor = null,
+    ICurrentSucursal? currentSucursal = null) : DbContext(options)
 {
+    private Guid? CurrentSucursalId => currentSucursal?.SucursalId;
     public DbSet<Cliente> Clientes => Set<Cliente>(); public DbSet<Venta> Ventas => Set<Venta>(); public DbSet<Cuota> Cuotas => Set<Cuota>();
     public DbSet<MovimientoCaja> MovimientosCaja => Set<MovimientoCaja>(); public DbSet<TipoCesped> TiposCesped => Set<TipoCesped>();
     public DbSet<AlicuotaIva> AlicuotasIva => Set<AlicuotaIva>(); public DbSet<Configuracion> Configuraciones => Set<Configuracion>();
@@ -24,6 +26,13 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, IHttpCo
 
     protected override void OnModelCreating(ModelBuilder b)
     {
+        b.Entity<Cliente>().HasQueryFilter(x => CurrentSucursalId != null && x.SucursalId == CurrentSucursalId);
+        b.Entity<Venta>().HasQueryFilter(x => CurrentSucursalId != null && x.SucursalId == CurrentSucursalId);
+        b.Entity<Cuota>().HasQueryFilter(x => CurrentSucursalId != null && x.SucursalId == CurrentSucursalId);
+        b.Entity<MovimientoCaja>().HasQueryFilter(x => CurrentSucursalId != null && x.SucursalId == CurrentSucursalId);
+        b.Entity<Presupuesto>().HasQueryFilter(x => CurrentSucursalId != null && x.SucursalId == CurrentSucursalId);
+        b.Entity<PresupuestoLinea>().HasQueryFilter(x => CurrentSucursalId != null && x.Presupuesto.SucursalId == CurrentSucursalId);
+        b.Entity<Gasto>().HasQueryFilter(x => CurrentSucursalId != null && x.SucursalId == CurrentSucursalId);
         foreach (var t in new[] { typeof(Venta), typeof(Cuota), typeof(MovimientoCaja), typeof(MovimientoStock), typeof(LoteStock), typeof(Rollo), typeof(Gasto), typeof(TipoCesped), typeof(AlicuotaIva), typeof(Configuracion), typeof(Presupuesto), typeof(PresupuestoLinea) })
             foreach (var p in b.Entity(t).Metadata.GetProperties().Where(p => p.ClrType == typeof(decimal))) p.SetColumnType("decimal(18,2)");
         b.Entity<Cliente>().Property(x => x.Tipo).HasConversion<string>(); b.Entity<Venta>().Property(x => x.Estado).HasConversion<string>();
@@ -34,7 +43,17 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, IHttpCo
         b.Entity<Deposito>().HasOne(x => x.Sucursal).WithMany(x => x.Depositos)
             .HasForeignKey(x => x.SucursalId).OnDelete(DeleteBehavior.Restrict);
         b.Entity<Sucursal>().Property(x => x.Nombre).HasMaxLength(150);
+        b.Entity<Sucursal>().Property(x => x.RazonSocial).HasMaxLength(200);
+        b.Entity<Sucursal>().Property(x => x.Cuit).HasMaxLength(11);
+        b.Entity<Sucursal>().Property(x => x.CondicionIva).HasMaxLength(50);
+        b.Entity<Sucursal>().Property(x => x.DomicilioFiscal).HasMaxLength(250);
+        b.Entity<Sucursal>().Property(x => x.Localidad).HasMaxLength(150);
+        b.Entity<Sucursal>().Property(x => x.Telefono).HasMaxLength(50);
+        b.Entity<Sucursal>().Property(x => x.Email).HasMaxLength(200);
+        b.Entity<Sucursal>().Property(x => x.IngresosBrutos).HasMaxLength(50);
         b.Entity<Sucursal>().HasIndex(x => x.Nombre).IsUnique();
+        b.Entity<Sucursal>().HasIndex(x => new { x.Cuit, x.PuntoVentaAfip }).IsUnique()
+            .HasFilter("[Cuit] IS NOT NULL AND [PuntoVentaAfip] IS NOT NULL");
         b.Entity<Sucursal>().HasOne(x => x.DepositoPropio).WithMany(x => x.Sucursales)
             .HasForeignKey(x => x.DepositoPropioId).OnDelete(DeleteBehavior.Restrict);
         b.Entity<Usuario>().HasIndex(x=>x.NombreUsuario).IsUnique();
@@ -44,7 +63,10 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, IHttpCo
             .HasForeignKey(x => x.SucursalId).OnDelete(DeleteBehavior.Restrict);
         b.Entity<Cliente>().HasIndex(x => new { x.SucursalId, x.Apellido, x.Nombre });
         b.Entity<RegistroAuditoria>().HasIndex(x => x.FechaHora); b.Entity<RegistroAuditoria>().HasIndex(x => x.Modulo);
-        b.Entity<Gasto>().HasIndex(x => x.Fecha);
+        b.Entity<RegistroAuditoria>().HasIndex(x => new { x.SucursalId, x.FechaHora });
+        b.Entity<RegistroAuditoria>().HasOne<Sucursal>().WithMany().HasForeignKey(x => x.SucursalId).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<Gasto>().HasOne(x => x.Sucursal).WithMany().HasForeignKey(x => x.SucursalId).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<Gasto>().HasIndex(x => new { x.SucursalId, x.Fecha });
         b.Entity<Presupuesto>().Property(x => x.Estado).HasConversion<string>();
         b.Entity<Presupuesto>().Property(x => x.Numero).UseIdentityColumn(); b.Entity<Presupuesto>().HasIndex(x => x.Numero).IsUnique(); b.Entity<Presupuesto>().HasIndex(x => new { x.SucursalId, x.Fecha });
         b.Entity<Presupuesto>().HasOne(x => x.Sucursal).WithMany().HasForeignKey(x => x.SucursalId).OnDelete(DeleteBehavior.Restrict);
@@ -65,6 +87,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, IHttpCo
         b.Entity<MovimientoCaja>().HasOne<Cuota>().WithMany().HasForeignKey(x => x.CuotaId).OnDelete(DeleteBehavior.Restrict);
         b.Entity<MovimientoCaja>().HasOne(x => x.Sucursal).WithMany().HasForeignKey(x => x.SucursalId).OnDelete(DeleteBehavior.Restrict);
         b.Entity<MovimientoCaja>().HasIndex(x => new { x.SucursalId, x.Fecha });
+        b.Entity<MovimientoCaja>().HasIndex(x => new { x.SucursalId, x.NumeroRecibo }).IsUnique()
+            .HasFilter("[NumeroRecibo] IS NOT NULL");
         b.Entity<MovimientoStock>().Property(x => x.Tipo).HasConversion<string>();
         b.Entity<MovimientoStock>().Property(x => x.Usuario).HasMaxLength(150);
         b.Entity<MovimientoStock>().Property(x => x.Observaciones).HasMaxLength(500);
@@ -130,7 +154,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, IHttpCo
             if (changes.Count == 0) continue;
             var entityName = entry.Metadata.ClrType.Name;
             var key = string.Join(",", entry.Properties.Where(p => p.Metadata.IsPrimaryKey()).Select(p => p.CurrentValue?.ToString() ?? p.OriginalValue?.ToString() ?? ""));
-            RegistrosAuditoria.Add(new RegistroAuditoria { FechaHora = DateTimeOffset.UtcNow, UsuarioId = userId, Usuario = userName, Modulo = ModuleFor(entityName), Accion = entry.State switch { EntityState.Added => "Creación", EntityState.Modified => "Modificación", _ => "Eliminación" }, Entidad = entityName, EntidadId = key, DetalleJson = JsonSerializer.Serialize(changes) });
+            RegistrosAuditoria.Add(new RegistroAuditoria { SucursalId = currentSucursal?.SucursalId, FechaHora = DateTimeOffset.UtcNow, UsuarioId = userId, Usuario = userName, Modulo = ModuleFor(entityName), Accion = entry.State switch { EntityState.Added => "Creación", EntityState.Modified => "Modificación", _ => "Eliminación" }, Entidad = entityName, EntidadId = key, DetalleJson = JsonSerializer.Serialize(changes) });
         }
     }
 
@@ -341,6 +365,24 @@ public static class SeedData
                 CREATE INDEX IX_MovimientosCaja_SucursalId_Fecha ON dbo.MovimientosCaja(SucursalId, Fecha);
                 ALTER TABLE dbo.MovimientosCaja ADD CONSTRAINT FK_MovimientosCaja_Sucursales_SucursalId FOREIGN KEY(SucursalId) REFERENCES dbo.Sucursales(Id);
             END;
+            IF COL_LENGTH('dbo.MovimientosCaja','NumeroRecibo') IS NULL
+            BEGIN
+                ALTER TABLE dbo.MovimientosCaja ADD NumeroRecibo INT NULL;
+                UPDATE mc
+                SET NumeroRecibo = (
+                    SELECT COUNT(*) FROM dbo.MovimientosCaja anteriores
+                    WHERE anteriores.CuotaId IS NOT NULL AND anteriores.Tipo=N'Ingreso'
+                      AND anteriores.CreatedAt <= mc.CreatedAt)
+                FROM dbo.MovimientosCaja mc
+                WHERE mc.CuotaId IS NOT NULL AND mc.Tipo=N'Ingreso';
+                IF EXISTS (
+                    SELECT 1 FROM dbo.MovimientosCaja
+                    WHERE NumeroRecibo IS NOT NULL
+                    GROUP BY SucursalId, NumeroRecibo HAVING COUNT(*) > 1)
+                    THROW 51000, 'No se pudo crear la numeración de recibos: existen números históricos duplicados dentro de una sucursal.', 1;
+                CREATE UNIQUE INDEX IX_MovimientosCaja_SucursalId_NumeroRecibo
+                    ON dbo.MovimientosCaja(SucursalId, NumeroRecibo) WHERE NumeroRecibo IS NOT NULL;
+            END;
             """);
         await db.Database.ExecuteSqlRawAsync("""
             IF COL_LENGTH('dbo.Usuarios','DebeCambiarPassword') IS NULL
@@ -351,6 +393,32 @@ public static class SeedData
             END;
             """);
         await db.Database.ExecuteSqlRawAsync("""
+            IF OBJECT_ID(N'dbo.RegistrosAuditoria', N'U') IS NOT NULL
+               AND COL_LENGTH('dbo.RegistrosAuditoria','SucursalId') IS NULL
+            BEGIN
+                ALTER TABLE dbo.RegistrosAuditoria ADD SucursalId UNIQUEIDENTIFIER NULL;
+                CREATE INDEX IX_RegistrosAuditoria_SucursalId_FechaHora
+                    ON dbo.RegistrosAuditoria(SucursalId, FechaHora);
+                ALTER TABLE dbo.RegistrosAuditoria ADD CONSTRAINT FK_RegistrosAuditoria_Sucursales_SucursalId
+                    FOREIGN KEY(SucursalId) REFERENCES dbo.Sucursales(Id);
+            END;
+            """);
+        await db.Database.ExecuteSqlRawAsync("""
+            IF COL_LENGTH('dbo.Sucursales','RazonSocial') IS NULL ALTER TABLE dbo.Sucursales ADD RazonSocial NVARCHAR(200) NULL;
+            IF COL_LENGTH('dbo.Sucursales','Cuit') IS NULL ALTER TABLE dbo.Sucursales ADD Cuit NVARCHAR(11) NULL;
+            IF COL_LENGTH('dbo.Sucursales','CondicionIva') IS NULL ALTER TABLE dbo.Sucursales ADD CondicionIva NVARCHAR(50) NULL;
+            IF COL_LENGTH('dbo.Sucursales','DomicilioFiscal') IS NULL ALTER TABLE dbo.Sucursales ADD DomicilioFiscal NVARCHAR(250) NULL;
+            IF COL_LENGTH('dbo.Sucursales','Localidad') IS NULL ALTER TABLE dbo.Sucursales ADD Localidad NVARCHAR(150) NULL;
+            IF COL_LENGTH('dbo.Sucursales','Telefono') IS NULL ALTER TABLE dbo.Sucursales ADD Telefono NVARCHAR(50) NULL;
+            IF COL_LENGTH('dbo.Sucursales','Email') IS NULL ALTER TABLE dbo.Sucursales ADD Email NVARCHAR(200) NULL;
+            IF COL_LENGTH('dbo.Sucursales','InicioActividades') IS NULL ALTER TABLE dbo.Sucursales ADD InicioActividades DATE NULL;
+            IF COL_LENGTH('dbo.Sucursales','IngresosBrutos') IS NULL ALTER TABLE dbo.Sucursales ADD IngresosBrutos NVARCHAR(50) NULL;
+            IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id=OBJECT_ID(N'dbo.Sucursales') AND name=N'IX_Sucursales_Cuit_PuntoVentaAfip')
+                CREATE UNIQUE INDEX IX_Sucursales_Cuit_PuntoVentaAfip
+                    ON dbo.Sucursales(Cuit, PuntoVentaAfip)
+                    WHERE Cuit IS NOT NULL AND PuntoVentaAfip IS NOT NULL;
+            """);
+        await db.Database.ExecuteSqlRawAsync("""
             IF COL_LENGTH('dbo.Ventas','LineasJson') IS NULL
                 ALTER TABLE dbo.Ventas ADD LineasJson NVARCHAR(MAX) NULL;
             """);
@@ -359,12 +427,24 @@ public static class SeedData
             BEGIN
                 CREATE TABLE dbo.Gastos(
                     Id UNIQUEIDENTIFIER NOT NULL CONSTRAINT DF_Gastos_Id DEFAULT NEWSEQUENTIALID(),
+                    SucursalId UNIQUEIDENTIFIER NOT NULL,
                     Fecha DATE NOT NULL, Categoria NVARCHAR(100) NOT NULL, Descripcion NVARCHAR(300) NOT NULL,
                     Importe DECIMAL(18,2) NOT NULL, Observaciones NVARCHAR(1000) NULL,
                     CreatedAt DATETIMEOFFSET(7) NOT NULL CONSTRAINT DF_Gastos_CreatedAt DEFAULT SYSDATETIMEOFFSET(),
                     UpdatedAt DATETIMEOFFSET(7) NULL, CONSTRAINT PK_Gastos PRIMARY KEY CLUSTERED (Id),
+                    CONSTRAINT FK_Gastos_Sucursales_SucursalId FOREIGN KEY(SucursalId) REFERENCES dbo.Sucursales(Id),
                     CONSTRAINT CK_Gastos_Importe CHECK (Importe > 0));
-                CREATE INDEX IX_Gastos_Fecha ON dbo.Gastos(Fecha DESC);
+                CREATE INDEX IX_Gastos_SucursalId_Fecha ON dbo.Gastos(SucursalId, Fecha);
+            END;
+            ELSE IF COL_LENGTH('dbo.Gastos','SucursalId') IS NULL
+            BEGIN
+                ALTER TABLE dbo.Gastos ADD SucursalId UNIQUEIDENTIFIER NULL;
+                UPDATE dbo.Gastos SET SucursalId='7B100000-0000-0000-0000-FFFFFFFFFFFF';
+                ALTER TABLE dbo.Gastos ALTER COLUMN SucursalId UNIQUEIDENTIFIER NOT NULL;
+                IF EXISTS (SELECT 1 FROM sys.indexes WHERE object_id=OBJECT_ID(N'dbo.Gastos') AND name=N'IX_Gastos_Fecha')
+                    DROP INDEX IX_Gastos_Fecha ON dbo.Gastos;
+                CREATE INDEX IX_Gastos_SucursalId_Fecha ON dbo.Gastos(SucursalId, Fecha);
+                ALTER TABLE dbo.Gastos ADD CONSTRAINT FK_Gastos_Sucursales_SucursalId FOREIGN KEY(SucursalId) REFERENCES dbo.Sucursales(Id);
             END;
             """);
         await db.Database.ExecuteSqlRawAsync("""

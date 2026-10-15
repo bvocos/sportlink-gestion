@@ -236,7 +236,10 @@ useImmediateFilters([() => filters.value.modulo, () => filters.value.accion, () 
           <template #body="{ data }">{{ dateTime(data.fechaHora) }}</template>
         </Column>
         <Column header="Usuario">
-          <template #body="{ data }"><b>{{ data.usuario }}</b></template>
+          <template #body="{ data }">
+            <b>{{ data.usuario }}</b>
+            <Tag v-if="data.historico" value="Histórico" severity="secondary" class="ml-2" />
+          </template>
         </Column>
         <Column field="modulo" header="Vista" />
         <Column header="Acción">

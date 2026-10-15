@@ -37,6 +37,7 @@ const routes = [
   { path: '/rentabilidad', component: () => import('./views/RentabilidadView.vue'), meta: { permission: 'rentabilidad', title: 'Rentabilidad' } },
   { path: '/admin', component: () => import('./views/AdminView.vue'), meta: { permission: 'administracion', title: 'Productos' } },
   { path: '/usuarios', component: () => import('./views/UsuariosView.vue'), meta: { admin: true, title: 'Usuarios' } },
+  { path: '/sucursales', component: () => import('./views/SucursalesView.vue'), meta: { admin: true, title: 'Sucursales' } },
   { path: '/auditoria', component: () => import('./views/AuditoriaView.vue'), meta: { admin: true, title: 'Auditoría' } }
 ]
 

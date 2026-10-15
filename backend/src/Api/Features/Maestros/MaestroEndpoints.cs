@@ -110,26 +110,37 @@ public static class MaestroEndpoints
         var depositIds = NormalizeDeposits(request);
         if (!await DepositsAreValid(depositIds, user, db, ct))
             return Results.ValidationProblem(new Dictionary<string, string[]> { ["depositoIds"] = ["Seleccioná al menos un depósito activo de la sucursal."] });
-        var visibleDeposits = SucursalDepositoService.VisibleDeposits(db.Depositos.AsNoTracking(), user).Select(x => x.Id);
+        var visibleDepositIds = await SucursalDepositoService.VisibleDeposits(db.Depositos.AsNoTracking(), user)
+            .Select(x => x.Id).ToArrayAsync(ct);
         var type = await db.TiposCesped.Include(x => x.Depositos)
             .SingleOrDefaultAsync(x => x.Id == id &&
-                (visibleDeposits.Contains(x.DepositoId) || x.Depositos.Any(d => visibleDeposits.Contains(d.DepositoId))), ct);
+                (visibleDepositIds.Contains(x.DepositoId) || x.Depositos.Any(d => visibleDepositIds.Contains(d.DepositoId))), ct);
         if (type is null) return Results.NotFound();
         var name = request.Nombre.Trim();
         if (await db.TiposCesped.AnyAsync(x => x.Id != id && x.Nombre == name &&
             (depositIds.Contains(x.DepositoId) || x.Depositos.Any(d => depositIds.Contains(d.DepositoId))), ct))
             return Results.Conflict(new { message = "Ya existe un producto con ese nombre en uno de los depósitos seleccionados." });
-        type.DepositoId = depositIds[0]; type.Nombre = name; type.Descripcion = request.Descripcion?.Trim();
+        ApplyVisibleDepositAssignments(type, depositIds, visibleDepositIds);
+        type.Nombre = name; type.Descripcion = request.Descripcion?.Trim();
         type.DescripcionPresupuesto = request.DescripcionPresupuesto?.Trim(); type.EspecificacionesPresupuesto = request.EspecificacionesPresupuesto?.Trim();
         type.FichaTecnicaUrl = request.FichaTecnicaUrl?.Trim(); type.PrecioVentaM2 = request.PrecioVentaM2;
         type.PrecioContadoM2 = request.PrecioContadoM2; type.PrecioFinanciadoM2 = request.PrecioFinanciadoM2;
         type.CostoM2 = request.CostoM2; type.ColoresJson = JsonSerializer.Serialize(NormalizeColors(request.Colores));
         type.ControlPorLotes = request.ControlPorLotes; type.Activo = request.Activo;
-        foreach (var assignment in type.Depositos.Where(x => !depositIds.Contains(x.DepositoId)).ToList())
-            type.Depositos.Remove(assignment);
-        foreach (var depositId in depositIds.Where(x => type.Depositos.All(d => d.DepositoId != x)))
-            type.Depositos.Add(new TipoCespedDeposito { TipoCespedId = id, DepositoId = depositId });
         await db.SaveChangesAsync(ct); return Results.Ok(ToDto(type));
+    }
+
+    internal static void ApplyVisibleDepositAssignments(TipoCesped type, IReadOnlyCollection<Guid> requestedDepositIds,
+        IReadOnlyCollection<Guid> visibleDepositIds)
+    {
+        var visible = visibleDepositIds.ToHashSet();
+        var requested = requestedDepositIds.ToHashSet();
+        if (visible.Contains(type.DepositoId)) type.DepositoId = requestedDepositIds.First();
+        foreach (var assignment in type.Depositos
+                     .Where(x => visible.Contains(x.DepositoId) && !requested.Contains(x.DepositoId)).ToList())
+            type.Depositos.Remove(assignment);
+        foreach (var depositId in requestedDepositIds.Where(x => type.Depositos.All(d => d.DepositoId != x)))
+            type.Depositos.Add(new TipoCespedDeposito { TipoCespedId = type.Id, DepositoId = depositId });
     }
 
     private static async Task<IResult> DeleteType(Guid id, ClaimsPrincipal user, AppDbContext db, CancellationToken ct)

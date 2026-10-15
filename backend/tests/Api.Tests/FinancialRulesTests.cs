@@ -212,7 +212,8 @@ public sealed class FinancialRulesTests
     public void ReceiptPdf_IsGeneratedWithUsdTotalAndExchangeRate()
     {
         var data = new ReciboData(
-            10, 1, new DateOnly(2026, 9, 25), new EmpresaConfig(),
+            10, 1, new DateOnly(2026, 9, 25),
+            new ReciboEmisorDto("Sucursal Centro", "", "", "", "", "", "", "", ""),
             new ReciboClienteDto("VOCOS, BRUNO", "", "San Francisco, Córdoba", "03564577202", "CONSUMIDOR FINAL", ""),
             new ReciboCuotaDto(6, 9, "Padelgrass 12mm"),
             new ReciboPagoDto(511.11m, "Transferencia", NumerosEnLetras.ConvertirDolares(511.11m), 1555m));

@@ -14,6 +14,110 @@ namespace Api.Tests;
 public sealed class VentaEndpointIntegrationTests
 {
     [Fact]
+    public async Task SucursalAdministration_CreatesOwnDeposit_ProtectsData_AndDrivesReceiptFiscalData()
+    {
+        var masterConnection = Environment.GetEnvironmentVariable("TEST_SQL_CONNECTION");
+        if (string.IsNullOrWhiteSpace(masterConnection)) return;
+        var databaseName = $"SportlinkSucursalTests_{Guid.NewGuid():N}";
+        var databaseConnection = new SqlConnectionStringBuilder(masterConnection) { InitialCatalog = databaseName }.ConnectionString;
+        await WaitForSqlServer(masterConnection);
+        await using (var master = new SqlConnection(masterConnection))
+        {
+            await master.OpenAsync();
+            await using var create = master.CreateCommand();
+            create.CommandText = $"CREATE DATABASE [{databaseName}]";
+            await create.ExecuteNonQueryAsync();
+        }
+        try
+        {
+            var options = new DbContextOptionsBuilder<AppDbContext>().UseSqlServer(databaseConnection).Options;
+            await using (var schema = new AppDbContext(options)) await schema.Database.EnsureCreatedAsync();
+            await using var factory = new VentaApiFactory(databaseConnection);
+            using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+            using (var scope = factory.Services.CreateScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                (await db.Usuarios.SingleAsync(x => x.NombreUsuario == "admin")).DebeCambiarPassword = false;
+                await db.SaveChangesAsync();
+            }
+            Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync("/api/auth/login", new { usuario = "admin", password = "Admin123!" })).StatusCode);
+            var payload = new
+            {
+                nombre = "Sucursal Fiscal", nombreDeposito = "Depósito Fiscal", depositoPropioId = (Guid?)null,
+                razonSocial = "EMPRESA SUCURSAL S.A.", cuit = "20-12345678-6", condicionIva = "Responsable Inscripto",
+                domicilioFiscal = "Calle 123", localidad = "Córdoba", telefono = "3510000000",
+                email = "fiscal@example.com", inicioActividades = new DateOnly(2025, 1, 1),
+                ingresosBrutos = "123", puntoVentaAfip = (int?)null, activo = true
+            };
+            var created = await client.PostAsJsonAsync("/api/sucursales", payload);
+            Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+            var createdJson = await created.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>();
+            var branchId = createdJson.GetProperty("id").GetGuid();
+            var depositId = createdJson.GetProperty("depositoPropioId").GetGuid();
+
+            using (var scope = factory.Services.CreateScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                Assert.Equal(branchId, (await db.Depositos.SingleAsync(x => x.Id == depositId)).SucursalId);
+            }
+
+            var duplicate = await client.PostAsJsonAsync("/api/sucursales", new
+            {
+                nombre = "Sucursal Fiscal Duplicada", nombreDeposito = "Otro", cuit = "20 12345678 6",
+                puntoVentaAfip = 12, activo = true
+            });
+            Assert.Equal(HttpStatusCode.Created, duplicate.StatusCode);
+            var duplicatePv = await client.PostAsJsonAsync("/api/sucursales", new
+            {
+                nombre = "Sucursal Fiscal Duplicada 2", nombreDeposito = "Otro 2", cuit = "20123456786",
+                puntoVentaAfip = 12, activo = true
+            });
+            Assert.Equal(HttpStatusCode.Conflict, duplicatePv.StatusCode);
+
+            Guid foreignDeposit;
+            using (var scope = factory.Services.CreateScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                foreignDeposit = (await db.Sucursales.SingleAsync(x => x.Nombre == "San Francisco")).DepositoPropioId;
+            }
+            Assert.Equal(HttpStatusCode.Conflict, (await client.PostAsJsonAsync("/api/sucursales", new
+            {
+                nombre = "No roba depósito", depositoPropioId = foreignDeposit, activo = true
+            })).StatusCode);
+
+            Guid installmentId;
+            using (var scope = factory.Services.CreateScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                var customer = new Cliente { SucursalId = branchId, Nombre = "Fiscal", Apellido = "Cliente", Localidad = "Córdoba", Provincia = "Córdoba", Tipo = TipoCliente.Particular };
+                var product = new TipoCesped { DepositoId = depositId, Nombre = "Producto fiscal", PrecioVentaM2 = 10, PrecioContadoM2 = 10, PrecioFinanciadoM2 = 10, CostoM2 = 5 };
+                db.AddRange(customer, product); await db.SaveChangesAsync();
+                var tax = await db.AlicuotasIva.FirstAsync();
+                var sale = new Venta { SucursalId = branchId, DepositoId = depositId, ClienteId = customer.Id, TipoCespedId = product.Id, AlicuotaIvaId = tax.Id, FechaVenta = DateOnly.FromDateTime(DateTime.Today), CantidadM2 = 1, PrecioUnitario = 10, PrecioTotal = 10, CostoCompraUnitario = 5, CostoCompraTotal = 5, FormaPago = FormaPago.Cuotas, Estado = EstadoVenta.Confirmada };
+                db.Add(sale); await db.SaveChangesAsync();
+                var installment = new Cuota { SucursalId = branchId, DepositoId = depositId, VentaId = sale.Id, ClienteId = customer.Id, Numero = 1, FechaVencimiento = DateOnly.FromDateTime(DateTime.Today), FechaPago = DateOnly.FromDateTime(DateTime.Today), ImportePactado = 10, ImportePagado = 10, Estado = EstadoCuota.Pagada };
+                db.Add(installment); await db.SaveChangesAsync();
+                db.Add(new MovimientoCaja { SucursalId = branchId, VentaId = sale.Id, CuotaId = installment.Id, Tipo = TipoMovimiento.Ingreso, Fecha = DateTimeOffset.UtcNow, Monto = 10, Concepto = "Pago", NumeroRecibo = 1 });
+                await db.SaveChangesAsync(); installmentId = installment.Id;
+            }
+            client.DefaultRequestHeaders.Add("X-Sucursal-Id", branchId.ToString());
+            var receipt = await client.GetFromJsonAsync<System.Text.Json.JsonElement>($"/api/cuotas/{installmentId}/comprobante");
+            Assert.Equal("EMPRESA SUCURSAL S.A.", receipt.GetProperty("empresa").GetProperty("razonSocial").GetString());
+            Assert.Equal(System.Text.Json.JsonValueKind.Null, receipt.GetProperty("puntoVenta").ValueKind);
+            Assert.Equal(HttpStatusCode.Conflict, (await client.DeleteAsync($"/api/sucursales/{branchId}")).StatusCode);
+        }
+        finally
+        {
+            SqlConnection.ClearAllPools();
+            await using var master = new SqlConnection(masterConnection);
+            await master.OpenAsync();
+            await using var drop = master.CreateCommand();
+            drop.CommandText = $"ALTER DATABASE [{databaseName}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [{databaseName}]";
+            await drop.ExecuteNonQueryAsync();
+        }
+    }
+
+    [Fact]
     public async Task PostVenta_PersistsUsingSqlServerRetryingExecutionStrategy()
     {
         var masterConnection = Environment.GetEnvironmentVariable("TEST_SQL_CONNECTION");
@@ -149,8 +253,8 @@ public sealed class VentaEndpointIntegrationTests
                 $"Expected 201 Created but got {(int)response.StatusCode} {response.StatusCode}. Body: {responseBody}");
             using var verificationScope = factory.Services.CreateScope();
             var verificationDb = verificationScope.ServiceProvider.GetRequiredService<AppDbContext>();
-            Assert.Equal(1, await verificationDb.Ventas.CountAsync());
-            Assert.Equal(2, await verificationDb.Cuotas.CountAsync());
+            Assert.Equal(1, await verificationDb.Ventas.IgnoreQueryFilters().CountAsync());
+            Assert.Equal(2, await verificationDb.Cuotas.IgnoreQueryFilters().CountAsync());
         }
         finally
         {

@@ -16,6 +16,7 @@ using Api.Features.Presupuestos;
 using Api.Features.Sucursales;
 using Api.Features.Stock;
 using Api.Shared.Behaviors;
+using Api.Shared.Common;
 using Api.Shared.Database;
 using FluentValidation;
 using MediatR;
@@ -42,6 +43,7 @@ builder.Services.AddOpenApi();
 builder.Services.AddProblemDetails();
 builder.Services.AddMemoryCache();
 builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<ICurrentSucursal, HttpCurrentSucursal>();
 builder.Services.AddHttpClient("DolarApi", client =>
 {
     client.BaseAddress = new Uri("https://dolarapi.com/");

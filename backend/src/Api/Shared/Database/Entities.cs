@@ -24,6 +24,15 @@ public sealed class Deposito : AuditableEntity
 public sealed class Sucursal : AuditableEntity
 {
     public string Nombre { get; set; } = "";
+    public string? RazonSocial { get; set; }
+    public string? Cuit { get; set; }
+    public string? CondicionIva { get; set; }
+    public string? DomicilioFiscal { get; set; }
+    public string? Localidad { get; set; }
+    public string? Telefono { get; set; }
+    public string? Email { get; set; }
+    public DateOnly? InicioActividades { get; set; }
+    public string? IngresosBrutos { get; set; }
     public Guid DepositoPropioId { get; set; }
     public Deposito DepositoPropio { get; set; } = null!;
     public int? PuntoVentaAfip { get; set; }
@@ -49,6 +58,7 @@ public sealed class Usuario : AuditableEntity
 public sealed class RegistroAuditoria
 {
     public long Id { get; set; }
+    public Guid? SucursalId { get; set; }
     public DateTimeOffset FechaHora { get; set; }
     public Guid? UsuarioId { get; set; }
     public string Usuario { get; set; } = "sistema";
@@ -109,10 +119,12 @@ public sealed class MovimientoCaja : AuditableEntity, ISucursalScoped
 {
     public Guid SucursalId { get; set; } public Sucursal Sucursal { get; set; } = null!;
     public TipoMovimiento Tipo { get; set; } public DateTimeOffset Fecha { get; set; } public decimal Monto { get; set; }
+    public int? NumeroRecibo { get; set; }
     public string Concepto { get; set; } = ""; public string Usuario { get; set; } = "sistema"; public Guid? VentaId { get; set; } public Guid? CuotaId { get; set; }
 }
-public sealed class Gasto : AuditableEntity
+public sealed class Gasto : AuditableEntity, ISucursalScoped
 {
+    public Guid SucursalId { get; set; } public Sucursal Sucursal { get; set; } = null!;
     public DateOnly Fecha { get; set; } public string Categoria { get; set; } = ""; public string Descripcion { get; set; } = "";
     public decimal Importe { get; set; } public string? Observaciones { get; set; }
 }

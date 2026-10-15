@@ -233,7 +233,7 @@ public static class StockEndpoints
         var code = codigoBarra?.Trim();
         if (string.IsNullOrWhiteSpace(code)) return Results.ValidationProblem(new Dictionary<string, string[]> { ["codigoBarra"] = ["Ingresá un código de barra."] });
         var ownDepositId = await SucursalDepositoService.GetOwnDepositId(currentUser, db, ct);
-        var roll = await db.Rollos.AsNoTracking().Include(x => x.LoteStock).ThenInclude(x => x.Rollos).Include(x => x.LoteStock.Deposito).Include(x => x.LoteStock.TipoCesped)
+        var roll = await db.Rollos.Include(x => x.LoteStock).ThenInclude(x => x.Rollos).Include(x => x.LoteStock.Deposito).Include(x => x.LoteStock.TipoCesped)
             .SingleOrDefaultAsync(x => x.CodigoBarra == code, ct);
         if (roll is null || !await SucursalDepositoService.CanUseDeposit(currentUser, db, roll.LoteStock.DepositoId, ct))
             return Results.NotFound(new { message = "No se encontró ningún rollo con ese código de barra." });

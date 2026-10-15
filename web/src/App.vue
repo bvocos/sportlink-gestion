@@ -91,6 +91,7 @@ const allGroups: NavGroup[] = [
     items: [
       { to: '/admin', label: 'Productos', icon: faGear, permission: 'administracion' },
       { to: '/usuarios', label: 'Usuarios', icon: faUserGear, admin: true },
+      { to: '/sucursales', label: 'Sucursales', icon: faHouse, admin: true },
       { to: '/auditoria', label: 'Auditoría', icon: faClipboardList, admin: true },
     ],
   },
@@ -156,6 +157,11 @@ function onKey(event: KeyboardEvent) {
   if (event.key === 'Escape') closeMenu()
 }
 
+async function loadSucursales() {
+  if (auth.state.user?.rol === 'Administrador')
+    sucursales.value = (await http.get('/sucursales')).data.filter((x: any) => x.activo)
+}
+
 onMounted(() => {
   syncMobile()
   window.addEventListener('online', checkSystem)
@@ -164,8 +170,7 @@ onMounted(() => {
   window.addEventListener('resize', syncMobile)
   checkSystem()
   connectivityTimer = window.setInterval(checkSystem, 30000)
-  if (auth.state.user?.rol === 'Administrador')
-    http.get('/sucursales').then(r => { sucursales.value = r.data.filter((x: any) => x.activo) })
+  loadSucursales()
 })
 
 onBeforeUnmount(() => {
@@ -177,6 +182,7 @@ onBeforeUnmount(() => {
 })
 
 watch(() => route.path, closeMenu)
+watch(() => branchContext.state.version, loadSucursales)
 </script>
 
 <template>

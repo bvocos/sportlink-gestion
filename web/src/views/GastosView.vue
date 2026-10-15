@@ -82,7 +82,9 @@ async function save() {
     cancelForm()
     await load()
   } catch (e: any) {
-    error.value = apiErrorMessage(e, 'No se pudo guardar el gasto.')
+    error.value = e.response?.status === 400
+      ? apiErrorMessage(e, 'Seleccioná una sucursal activa antes de registrar el gasto.')
+      : apiErrorMessage(e, 'No se pudo guardar el gasto.')
   } finally {
     saving.value = false
   }

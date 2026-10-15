@@ -79,7 +79,7 @@ public static class AuthEndpoints
             }
 
             logger.LogWarning(
-                "El usuario {UsuarioId} tiene PermisosJson en un formato no reconocido. Se usar?n permisos vac?os.",
+                "El usuario {UsuarioId} tiene PermisosJson en un formato no reconocido. Se usarán permisos vacíos.",
                 user.Id);
             return [];
         }

@@ -4,7 +4,7 @@ const STORAGE_KEY = 'active-sucursal'
 const storage = typeof window === 'undefined' ? null : window.localStorage
 const saved = JSON.parse(storage?.getItem(STORAGE_KEY) || 'null') as { id: string; nombre: string } | null
 
-const state = reactive<{ active: { id: string; nombre: string } | null }>({ active: saved })
+const state = reactive<{ active: { id: string; nombre: string } | null; version: number }>({ active: saved, version: 0 })
 
 export const branchContext = {
   state,
@@ -15,6 +15,9 @@ export const branchContext = {
   clear() {
     state.active = null
     storage?.removeItem(STORAGE_KEY)
+  },
+  notifyChanged() {
+    state.version++
   },
 }
 

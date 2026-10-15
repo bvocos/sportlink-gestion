@@ -251,12 +251,15 @@ namespace Api.Migrations
                     b.Property<string>("Observaciones")
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<Guid>("SucursalId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<DateTimeOffset?>("UpdatedAt")
                         .HasColumnType("datetimeoffset");
 
                     b.HasKey("Id");
 
-                    b.HasIndex("Fecha");
+                    b.HasIndex("SucursalId", "Fecha");
 
                     b.ToTable("Gastos");
                 });
@@ -335,6 +338,9 @@ namespace Api.Migrations
                     b.Property<decimal>("Monto")
                         .HasColumnType("decimal(18,2)");
 
+                    b.Property<int?>("NumeroRecibo")
+                        .HasColumnType("int");
+
                     b.Property<Guid>("SucursalId")
                         .HasColumnType("uniqueidentifier");
 
@@ -359,6 +365,10 @@ namespace Api.Migrations
                     b.HasIndex("VentaId");
 
                     b.HasIndex("SucursalId", "Fecha");
+
+                    b.HasIndex("SucursalId", "NumeroRecibo")
+                        .IsUnique()
+                        .HasFilter("[NumeroRecibo] IS NOT NULL");
 
                     b.ToTable("MovimientosCaja");
                 });
@@ -572,6 +582,9 @@ namespace Api.Migrations
                         .IsRequired()
                         .HasColumnType("nvarchar(450)");
 
+                    b.Property<Guid?>("SucursalId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<string>("Usuario")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
@@ -584,6 +597,8 @@ namespace Api.Migrations
                     b.HasIndex("FechaHora");
 
                     b.HasIndex("Modulo");
+
+                    b.HasIndex("SucursalId", "FechaHora");
 
                     b.ToTable("RegistrosAuditoria");
                 });
@@ -639,11 +654,38 @@ namespace Api.Migrations
                     b.Property<bool>("Activo")
                         .HasColumnType("bit");
 
+                    b.Property<string>("CondicionIva")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("datetimeoffset");
 
+                    b.Property<string>("Cuit")
+                        .HasMaxLength(11)
+                        .HasColumnType("nvarchar(11)");
+
                     b.Property<Guid>("DepositoPropioId")
                         .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("DomicilioFiscal")
+                        .HasMaxLength(250)
+                        .HasColumnType("nvarchar(250)");
+
+                    b.Property<string>("Email")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("IngresosBrutos")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<DateOnly?>("InicioActividades")
+                        .HasColumnType("date");
+
+                    b.Property<string>("Localidad")
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)");
 
                     b.Property<string>("Nombre")
                         .IsRequired()
@@ -652,6 +694,14 @@ namespace Api.Migrations
 
                     b.Property<int?>("PuntoVentaAfip")
                         .HasColumnType("int");
+
+                    b.Property<string>("RazonSocial")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("Telefono")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
 
                     b.Property<DateTimeOffset?>("UpdatedAt")
                         .HasColumnType("datetimeoffset");
@@ -662,6 +712,10 @@ namespace Api.Migrations
 
                     b.HasIndex("Nombre")
                         .IsUnique();
+
+                    b.HasIndex("Cuit", "PuntoVentaAfip")
+                        .IsUnique()
+                        .HasFilter("[Cuit] IS NOT NULL AND [PuntoVentaAfip] IS NOT NULL");
 
                     b.ToTable("Sucursales");
                 });
@@ -957,6 +1011,17 @@ namespace Api.Migrations
                     b.Navigation("Sucursal");
                 });
 
+            modelBuilder.Entity("Api.Shared.Database.Gasto", b =>
+                {
+                    b.HasOne("Api.Shared.Database.Sucursal", "Sucursal")
+                        .WithMany()
+                        .HasForeignKey("SucursalId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Sucursal");
+                });
+
             modelBuilder.Entity("Api.Shared.Database.LoteStock", b =>
                 {
                     b.HasOne("Api.Shared.Database.Deposito", "Deposito")
@@ -1066,6 +1131,14 @@ namespace Api.Migrations
                         .IsRequired();
 
                     b.Navigation("Presupuesto");
+                });
+
+            modelBuilder.Entity("Api.Shared.Database.RegistroAuditoria", b =>
+                {
+                    b.HasOne("Api.Shared.Database.Sucursal", null)
+                        .WithMany()
+                        .HasForeignKey("SucursalId")
+                        .OnDelete(DeleteBehavior.Restrict);
                 });
 
             modelBuilder.Entity("Api.Shared.Database.Rollo", b =>

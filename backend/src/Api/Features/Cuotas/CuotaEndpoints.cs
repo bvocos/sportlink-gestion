@@ -36,6 +36,7 @@ public static class CuotaEndpoints
     internal static IQueryable<Cuota> VisibleQuery(IQueryable<Cuota> query, ClaimsPrincipal user,
         Guid? sucursalId = null) => query.WhereVisibleParaUsuario(user, sucursalId);
     internal static bool PuedeVerMontos(ClaimsPrincipal user) => user.IsInRole("Administrador") || PermisosMatriz.DesdeClaims(user).PuedeVerMontos("cuotas");
+    internal static int NextReceiptNumber(int? currentMaximum) => (currentMaximum ?? 0) + 1;
 
     public static void MapCuotaEndpoints(this IEndpointRouteBuilder app)
     {
@@ -94,22 +95,34 @@ public static class CuotaEndpoints
         var medioPago = request.MedioPago?.Trim();
         if (string.IsNullOrWhiteSpace(medioPago) || medioPago.Length > 100)
             return Results.ValidationProblem(new Dictionary<string, string[]> { ["medioPago"] = ["Seleccioná un medio de pago válido."] });
-        var cuota = await VisibleQuery(db.Cuotas, user).SingleOrDefaultAsync(x => x.Id == id, ct);
-        if (cuota is null) return Results.NotFound();
-        var paymentError = ValidatePayment(request.Importe, cuota.ImportePactado - cuota.ImportePagado);
-        if (paymentError is not null)
-            return Results.ValidationProblem(new Dictionary<string, string[]> { ["importe"] = [paymentError] });
-        cuota.ImportePagado += request.Importe; cuota.FechaPago = request.FechaPago; cuota.MedioPago = medioPago;
-        cuota.Estado = cuota.ImportePagado >= cuota.ImportePactado ? EstadoCuota.Pagada : EstadoCuota.PagadaParcial;
-        db.MovimientosCaja.Add(new MovimientoCaja { Tipo = TipoMovimiento.Ingreso, Fecha = DateTimeOffset.UtcNow,
-            Monto = request.Importe, Concepto = $"Pago cuota {cuota.Numero}", Usuario = UserName(user),
-            CuotaId = cuota.Id, VentaId = cuota.VentaId, SucursalId = cuota.SucursalId });
-        await db.SaveChangesAsync(ct);
-        return Results.Ok(new { cuota.Id, cuota.ImportePagado, cuota.Estado });
+        var strategy = db.Database.CreateExecutionStrategy();
+        return await strategy.ExecuteAsync(async () =>
+        {
+            await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
+            var cuota = await VisibleQuery(db.Cuotas, user).SingleOrDefaultAsync(x => x.Id == id, ct);
+            if (cuota is null) return (IResult)Results.NotFound();
+            var paymentError = ValidatePayment(request.Importe, cuota.ImportePactado - cuota.ImportePagado);
+            if (paymentError is not null)
+                return Results.ValidationProblem(new Dictionary<string, string[]> { ["importe"] = [paymentError] });
+            cuota.ImportePagado += request.Importe; cuota.FechaPago = request.FechaPago; cuota.MedioPago = medioPago;
+            cuota.Estado = cuota.ImportePagado >= cuota.ImportePactado ? EstadoCuota.Pagada : EstadoCuota.PagadaParcial;
+            var ultimoNumeroRecibo = await db.MovimientosCaja
+                .Where(x => x.SucursalId == cuota.SucursalId && x.NumeroRecibo != null)
+                .MaxAsync(x => (int?)x.NumeroRecibo, ct) ?? 0;
+            db.MovimientosCaja.Add(new MovimientoCaja { Tipo = TipoMovimiento.Ingreso, Fecha = DateTimeOffset.UtcNow,
+                Monto = request.Importe, Concepto = $"Pago cuota {cuota.Numero}", Usuario = UserName(user),
+                CuotaId = cuota.Id, VentaId = cuota.VentaId, SucursalId = cuota.SucursalId,
+                NumeroRecibo = NextReceiptNumber(ultimoNumeroRecibo) });
+            await db.SaveChangesAsync(ct); await transaction.CommitAsync(ct);
+            return Results.Ok(new { cuota.Id, cuota.ImportePagado, cuota.Estado });
+        });
     }
 
     private static async Task<IResult> AnularPago(Guid id, ClaimsPrincipal user, AppDbContext db, CancellationToken ct)
     {
+        var strategy = db.Database.CreateExecutionStrategy();
+        return await strategy.ExecuteAsync(async () =>
+        {
         await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
         var cuota = await VisibleQuery(db.Cuotas, user).SingleOrDefaultAsync(x => x.Id == id, ct);
         if (cuota is null) return Results.NotFound();
@@ -122,6 +135,7 @@ public static class CuotaEndpoints
             CuotaId = cuota.Id, VentaId = cuota.VentaId, SucursalId = cuota.SucursalId });
         await db.SaveChangesAsync(ct); await transaction.CommitAsync(ct);
         return Results.Ok(new { cuota.Id, importeAnulado, cuota.Estado });
+        });
     }
 
     private static async Task<IResult> ActualizarVencimiento(Guid id, ActualizarVencimientoRequest request,
@@ -141,7 +155,7 @@ public static class CuotaEndpoints
         user.Identity?.Name ?? user.FindFirstValue("usuario") ?? "sistema";
 
     private static async Task<ReciboData?> ObtenerDatosRecibo(
-        Guid id, ClaimsPrincipal user, AppDbContext db, IConfiguration config,
+        Guid id, ClaimsPrincipal user, AppDbContext db,
         DolarBlueService dolarBlueService, CancellationToken ct)
     {
         var cuota = await VisibleQuery(db.Cuotas.AsNoTracking(), user)
@@ -157,18 +171,20 @@ public static class CuotaEndpoints
             .FirstOrDefaultAsync(ct);
         if (movimiento is null) return null;
 
-        var numeroRecibo = await db.MovimientosCaja.AsNoTracking()
-            .Where(x => x.CuotaId != null && x.Tipo == TipoMovimiento.Ingreso && x.CreatedAt <= movimiento.CreatedAt)
-            .CountAsync(ct);
-
-        var empresa = config.GetSection("Empresa").Get<EmpresaConfig>() ?? new EmpresaConfig();
+        var sucursal = cuota.Sucursal!;
+        var empresa = new ReciboEmisorDto(
+            string.IsNullOrWhiteSpace(sucursal.RazonSocial) ? sucursal.Nombre : sucursal.RazonSocial,
+            sucursal.DomicilioFiscal ?? "", sucursal.Localidad ?? "", sucursal.Telefono ?? "",
+            sucursal.Email ?? "", sucursal.Cuit ?? "",
+            sucursal.InicioActividades?.ToString("dd/MM/yyyy") ?? "",
+            sucursal.IngresosBrutos ?? "", sucursal.CondicionIva ?? "");
         var cliente = cuota.Venta.Cliente;
         var localidad = string.Join(", ", new[] { cliente.Localidad, cliente.Provincia }.Where(s => !string.IsNullOrWhiteSpace(s)));
         var dolarBlue = await dolarBlueService.GetAsync(ct);
 
         return new ReciboData(
-            NumeroRecibo: numeroRecibo,
-            PuntoVenta: cuota.Sucursal?.PuntoVentaAfip ?? 1,
+            NumeroRecibo: movimiento.NumeroRecibo,
+            PuntoVenta: sucursal.PuntoVentaAfip,
             Fecha: cuota.FechaPago ?? DateOnly.FromDateTime(DateTime.Today),
             Empresa: empresa,
             Cliente: new ReciboClienteDto(
@@ -191,10 +207,10 @@ public static class CuotaEndpoints
 
     private static async Task<IResult> GenerarRecibo(
         Guid id, ClaimsPrincipal user, AppDbContext db,
-        IConfiguration config, DolarBlueService dolarBlueService,
+        DolarBlueService dolarBlueService,
         IWebHostEnvironment env, HttpContext http, CancellationToken ct)
     {
-        var datos = await ObtenerDatosRecibo(id, user, db, config, dolarBlueService, ct);
+        var datos = await ObtenerDatosRecibo(id, user, db, dolarBlueService, ct);
         if (datos is null) return Results.NotFound();
         var bytes = CuotaReciboPdf.Generate(datos, Path.Combine(env.ContentRootPath, "Assets"));
         http.Response.Headers.CacheControl = "no-store, no-cache, must-revalidate";
@@ -203,32 +219,23 @@ public static class CuotaEndpoints
     }
 
     private static async Task<IResult> ObtenerComprobante(
-        Guid id, ClaimsPrincipal user, AppDbContext db, IConfiguration config,
+        Guid id, ClaimsPrincipal user, AppDbContext db,
         DolarBlueService dolarBlueService, CancellationToken ct)
     {
-        var datos = await ObtenerDatosRecibo(id, user, db, config, dolarBlueService, ct);
+        var datos = await ObtenerDatosRecibo(id, user, db, dolarBlueService, ct);
         return datos is null ? Results.NotFound() : Results.Ok(datos);
     }
 }
 
 // ── Records ─────────────────────────────────────────────────────────────────────
 
-internal sealed class EmpresaConfig
-{
-    public string RazonSocial    { get; init; } = "SPORTLINK";
-    public string Domicilio      { get; init; } = "";
-    public string Localidad      { get; init; } = "";
-    public string Telefono       { get; init; } = "";
-    public string Email          { get; init; } = "";
-    public string CUIT           { get; init; } = "";
-    public string InicioActividades { get; init; } = "";
-    public string IngBrutos      { get; init; } = "";
-    public string CondicionFiscal { get; init; } = "RESPONSABLE INSCRIPTO";
-}
+internal sealed record ReciboEmisorDto(string RazonSocial, string Domicilio, string Localidad,
+    string Telefono, string Email, string CUIT, string InicioActividades, string IngBrutos,
+    string CondicionFiscal);
 
 internal sealed record ReciboData(
-    int NumeroRecibo, int PuntoVenta, DateOnly Fecha,
-    EmpresaConfig Empresa, ReciboClienteDto Cliente, ReciboCuotaDto Cuota, ReciboPagoDto Pago);
+    int? NumeroRecibo, int? PuntoVenta, DateOnly Fecha,
+    ReciboEmisorDto Empresa, ReciboClienteDto Cliente, ReciboCuotaDto Cuota, ReciboPagoDto Pago);
 
 internal sealed record ReciboClienteDto(
     string NombreCompleto, string Domicilio, string Localidad,
@@ -303,8 +310,13 @@ internal static class CuotaReciboPdf
                             col.Spacing(2);
                             col.Item().AlignRight().Text("DOCUMENTO NO VALIDO COMO FACTURA").FontSize(7.5f);
                             col.Item().AlignRight().Text("RECIBO").FontSize(22).Bold();
-                            col.Item().AlignRight()
-                                .Text($"N° {d.PuntoVenta:00000}- {d.NumeroRecibo:00000000}").FontSize(11);
+                            var numero = d.NumeroRecibo.HasValue
+                                ? d.PuntoVenta.HasValue
+                                    ? $"N° {d.PuntoVenta:00000}- {d.NumeroRecibo:00000000}"
+                                    : $"N° {d.NumeroRecibo:00000000}"
+                                : "";
+                            if (numero.Length > 0)
+                                col.Item().AlignRight().Text(numero).FontSize(11);
                             col.Item().AlignRight()
                                 .Text($"FECHA: {d.Fecha:dd/MM/yyyy}").FontSize(11).Bold();
                         });
@@ -312,18 +324,17 @@ internal static class CuotaReciboPdf
                         right.Item().Padding(6).Column(col =>
                         {
                             col.Spacing(2);
-                            col.Item().Row(rr =>
-                            {
-                                rr.RelativeItem().Text(d.Empresa.CondicionFiscal).Bold();
-                                rr.AutoItem().Text($"C.U.I.T.: {d.Empresa.CUIT}");
-                            });
-                            if (!string.IsNullOrWhiteSpace(d.Empresa.InicioActividades) ||
-                                !string.IsNullOrWhiteSpace(d.Empresa.IngBrutos))
+                            if (!string.IsNullOrWhiteSpace(d.Empresa.CondicionFiscal) ||
+                                !string.IsNullOrWhiteSpace(d.Empresa.CUIT))
                                 col.Item().Row(rr =>
                                 {
-                                    rr.RelativeItem().Text($"INICIO ACT.: {d.Empresa.InicioActividades}");
-                                    rr.AutoItem().Text($"ING. BRUTOS: {d.Empresa.IngBrutos}");
+                                    rr.RelativeItem().Text(d.Empresa.CondicionFiscal).Bold();
+                                    rr.AutoItem().Text(string.IsNullOrWhiteSpace(d.Empresa.CUIT) ? "" : $"C.U.I.T.: {d.Empresa.CUIT}");
                                 });
+                            if (!string.IsNullOrWhiteSpace(d.Empresa.InicioActividades))
+                                col.Item().Text($"INICIO ACT.: {d.Empresa.InicioActividades}");
+                            if (!string.IsNullOrWhiteSpace(d.Empresa.IngBrutos))
+                                col.Item().Text($"ING. BRUTOS: {d.Empresa.IngBrutos}");
                         });
                     });
                 });

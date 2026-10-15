@@ -5,6 +5,7 @@ using Api.Features.Dashboard;
 using Api.Features.Rentabilidad;
 using Api.Features.Ventas;
 using Api.Features.Presupuestos;
+using Api.Features.Auditoria;
 using Api.Shared.Common;
 using Api.Shared.Database;
 
@@ -86,6 +87,20 @@ public sealed class SucursalIsolationTests
             Assert.Single(rows.WhereVisibleParaUsuario(BranchUser(SanFrancisco))).SucursalId);
         Assert.Equal(BuenosAires,
             Assert.Single(rows.WhereVisibleParaUsuario(Administrator(BuenosAires))).SucursalId);
+    }
+
+    [Fact]
+    public void Audit_ShowsActiveBranchAndHistoricalRowsOnly()
+    {
+        var historical = new RegistroAuditoria { SucursalId = null };
+        var branchA = new RegistroAuditoria { SucursalId = SanFrancisco };
+        var branchB = new RegistroAuditoria { SucursalId = BuenosAires };
+        var visible = AuditoriaEndpoints.VisibleQuery(new[] { historical, branchA, branchB }.AsQueryable(),
+            Administrator(SanFrancisco)).ToList();
+
+        Assert.Contains(historical, visible);
+        Assert.Contains(branchA, visible);
+        Assert.DoesNotContain(branchB, visible);
     }
 
     [Fact]
