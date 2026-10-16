@@ -64,6 +64,8 @@ public sealed class BranchReportingIsolationIntegrationTests
             var rejected = await userA.PostAsJsonAsync("/api/caja/movimientos",
                 new { tipo = "Retiro", monto = 100m, concepto = "No debe usar saldo B", sucursalId = data.BranchB });
             Assert.Equal(HttpStatusCode.Conflict, rejected.StatusCode);
+            var rejectedBody = await rejected.Content.ReadFromJsonAsync<JsonElement>();
+            Assert.Contains("supera el saldo disponible", rejectedBody.GetProperty("message").GetString());
             Assert.Equal(HttpStatusCode.Created, (await userA.PostAsJsonAsync("/api/caja/movimientos",
                 new { tipo = "Retiro", monto = 50m, concepto = "Retiro A", sucursalId = data.BranchB })).StatusCode);
             await AssertCash(userA, 20, 3, false);

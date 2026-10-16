@@ -2,13 +2,11 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Api.Shared.Database;
-using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.DependencyInjection.Extensions;
+using static Api.Tests.BranchTestHost;
 
 namespace Api.Tests;
 
@@ -148,39 +146,6 @@ public sealed class PresupuestoNumberingIntegrationTests
         PrecioVentaM2 = 20, PrecioContadoM2 = 20, PrecioFinanciadoM2 = 22,
         CostoM2 = 10, Activo = true
     };
-
-    private static async Task CreateDatabase(string master, string name)
-    {
-        await using var connection = new SqlConnection(master); await connection.OpenAsync();
-        await using var command = connection.CreateCommand();
-        command.CommandText = $"CREATE DATABASE [{name}]";
-        await command.ExecuteNonQueryAsync();
-    }
-
-    private static async Task DropDatabase(string master, string name)
-    {
-        await using var connection = new SqlConnection(master); await connection.OpenAsync();
-        await using var command = connection.CreateCommand();
-        command.CommandText = $"ALTER DATABASE [{name}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [{name}]";
-        await command.ExecuteNonQueryAsync();
-    }
-
-    private sealed class BranchApiFactory(string connectionString) : WebApplicationFactory<Program>
-    {
-        protected override void ConfigureWebHost(IWebHostBuilder builder)
-        {
-            builder.UseEnvironment("Development");
-            builder.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(
-                new Dictionary<string, string?> { ["SkipDatabaseMigrations"] = "true" }));
-            builder.ConfigureServices(services =>
-            {
-                services.RemoveAll<DbContextOptions<AppDbContext>>();
-                services.RemoveAll<AppDbContext>();
-                services.AddDbContext<AppDbContext>(options =>
-                    options.UseSqlServer(connectionString, sql => sql.EnableRetryOnFailure()));
-            });
-        }
-    }
 
     private sealed record BudgetSeed(Guid BranchA, Guid BranchB, Guid DepositA, Guid DepositB,
         Guid ClientA, Guid ClientB, Guid ProductA, Guid ProductB);

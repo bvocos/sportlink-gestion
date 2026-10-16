@@ -14,6 +14,25 @@ public sealed class PresupuestoPdfTests
         Assert.Equal(expected, PresupuestoEndpoints.NextBudgetNumber(currentMaximum));
 
     [Fact]
+    public void PrepareCreateAttempt_ClearsTrackedEntitiesOnlyOnRetry()
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseSqlServer("Server=localhost;Database=StateOnly;User ID=sa;Password=NotUsed123!;TrustServerCertificate=True")
+            .Options;
+        using var db = new AppDbContext(options);
+        var attempt = 0;
+
+        PresupuestoEndpoints.PrepareCreateAttempt(db, ref attempt);
+        db.Add(new Presupuesto());
+        Assert.Single(db.ChangeTracker.Entries());
+
+        PresupuestoEndpoints.PrepareCreateAttempt(db, ref attempt);
+
+        Assert.Empty(db.ChangeTracker.Entries());
+        Assert.Equal(2, attempt);
+    }
+
+    [Fact]
     public void ReplaceLines_DeletesEveryExistingLineAndAddsAllReplacements()
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()

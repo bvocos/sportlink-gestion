@@ -93,11 +93,11 @@ public static class PresupuestoEndpoints
         if (!await db.Clientes.AnyAsync(x => x.Id == r.ClienteId && x.SucursalId == sucursalId.Value, ct))
             return Results.ValidationProblem(new Dictionary<string, string[]> { ["clienteId"] = ["El cliente no pertenece a la sucursal activa."] });
         Presupuesto? created = null;
+        var attempt = 0;
         var strategy = db.Database.CreateExecutionStrategy();
         await strategy.ExecuteAsync(async () =>
         {
-            if (created is not null)
-                db.ChangeTracker.Clear();
+            PrepareCreateAttempt(db, ref attempt);
 
             await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
             // Serializa las altas de esta sucursal incluso cuando todavía no existen presupuestos
@@ -121,6 +121,12 @@ public static class PresupuestoEndpoints
         });
 
         return Results.Created($"/api/presupuestos/{created!.Id}", new { created.Id, created.Numero });
+    }
+
+    internal static void PrepareCreateAttempt(AppDbContext db, ref int attempt)
+    {
+        if (attempt++ > 0)
+            db.ChangeTracker.Clear();
     }
     private static async Task<IResult> Update(Guid id, PresupuestoRequest r, ClaimsPrincipal user, AppDbContext db, CancellationToken ct)
     {
