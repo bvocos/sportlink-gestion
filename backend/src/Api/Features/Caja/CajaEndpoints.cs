@@ -7,6 +7,8 @@ using System.Security.Claims;
 
 namespace Api.Features.Caja;
 
+// SucursalId se conserva por compatibilidad con clientes anteriores, pero se ignora:
+// todo movimiento se registra en la sucursal activa del usuario.
 public record MovimientoRequest(TipoMovimiento Tipo, decimal Monto, string? Concepto, Guid? SucursalId = null);
 public record ActualizarObservacionRequest(string? Observacion);
 
@@ -19,14 +21,19 @@ public static class CajaEndpoints
     public static void MapCajaEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/api/caja").WithTags("Caja");
-        group.MapGet("/", async (Guid? sucursalId, ClaimsPrincipal user, AppDbContext db, CancellationToken ct) => new
+        group.MapGet("/", async (ClaimsPrincipal user, AppDbContext db, CancellationToken ct) =>
         {
-            saldo = await VisibleQuery(db.MovimientosCaja, user, sucursalId).SumAsync(x => x.Tipo == TipoMovimiento.Ingreso ? x.Monto : -x.Monto, ct),
-            movimientos = await VisibleQuery(db.MovimientosCaja.AsNoTracking(), user, sucursalId).OrderByDescending(x => x.Fecha).Take(100).ToListAsync(ct),
-            sucursales = user.IsInRole("Administrador")
-                ? await db.Sucursales.AsNoTracking().Where(x => x.Activo).OrderBy(x => x.Nombre)
-                    .Select(x => new { x.Id, x.Nombre }).ToListAsync(ct)
-                : []
+            var activeSucursalId = user.SucursalId();
+            return new
+            {
+                saldo = await VisibleQuery(db.MovimientosCaja, user).SumAsync(x => x.Tipo == TipoMovimiento.Ingreso ? x.Monto : -x.Monto, ct),
+                movimientos = await VisibleQuery(db.MovimientosCaja.AsNoTracking(), user).OrderByDescending(x => x.Fecha).Take(100).ToListAsync(ct),
+                sucursales = user.IsInRole("Administrador") && activeSucursalId.HasValue
+                    ? await db.Sucursales.AsNoTracking()
+                        .Where(x => x.Id == activeSucursalId.Value && x.Activo)
+                        .Select(x => new { x.Id, x.Nombre }).ToListAsync(ct)
+                    : []
+            };
         }).RequirePermiso("caja", "ver");
         group.MapPost("/movimientos", RegistrarMovimiento).RequirePermiso("caja", "crear");
         group.MapPut("/movimientos/{id:guid}/observacion", ActualizarObservacion).RequirePermiso("caja", "editar");
@@ -42,8 +49,8 @@ public static class CajaEndpoints
         if (request.Monto <= 0) errors["monto"] = ["El monto debe ser mayor que cero."];
         if (string.IsNullOrWhiteSpace(concepto)) errors["concepto"] = ["La observación es obligatoria."];
         if (concepto?.Length > 500) errors["concepto"] = ["La observación no puede superar 500 caracteres."];
-        var sucursalId = currentUser.IsInRole("Administrador") ? request.SucursalId : currentUser.SucursalId();
-        if (!sucursalId.HasValue) errors["sucursalId"] = ["Seleccioná la sucursal del movimiento."];
+        var sucursalId = currentUser.SucursalId();
+        if (!sucursalId.HasValue) errors["sucursalId"] = ["Elegí una sucursal activa antes de registrar un movimiento."];
         else if (!await db.Sucursales.AnyAsync(x => x.Id == sucursalId.Value && x.Activo, ct))
             errors["sucursalId"] = ["La sucursal seleccionada no existe o está inactiva."];
         if (errors.Count > 0) return Results.ValidationProblem(errors);

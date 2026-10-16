@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, onMounted } from "vue";
 import AppButton from "@/shared/components/AppButton.vue";
-import Panel from "primevue/panel";
 import Column from "primevue/column";
 import DataTable from "primevue/datatable";
 import Dialog from "primevue/dialog";
@@ -13,11 +12,11 @@ import { http, apiErrorMessage } from "@/shared/api/httpClient";
 import { formatCurrency as money } from "@/shared/formatters";
 import { downloadCsv } from "@/shared/csv";
 import { auth } from "@/auth";
-import SucursalFilter from "@/shared/components/SucursalFilter.vue";
+import { branchContext } from "@/branchContext";
 import { TABLE_ROWS, TABLE_ROWS_OPTIONS } from "@/shared/tablePagination";
 
-const sucursalFiltro = ref("");
-const isAdmin = computed(() => auth.state.user?.rol === "Administrador");
+const activeBranchName = computed(() => branchContext.state.active?.nombre ?? auth.state.user?.sucursalNombre);
+const hasActiveBranch = computed(() => Boolean(branchContext.state.active?.id ?? auth.state.user?.sucursalId));
 const data = ref<any>({ saldo: 0, movimientos: [] }),
   show = ref(false),
   error = ref(""),
@@ -26,13 +25,13 @@ const data = ref<any>({ saldo: 0, movimientos: [] }),
   editingMovement = ref<any | null>(null),
   observation = ref(""),
   observationError = ref("");
-const form = ref({ tipo: "Ingreso", monto: 0, concepto: "", sucursalId: null as string | null });
+const form = ref({ tipo: "Ingreso", monto: 0, concepto: "" });
 
 async function load() {
   loading.value = true;
   loadError.value = "";
   try {
-    data.value = (await http.get("/caja", { params: { sucursalId: sucursalFiltro.value || undefined } })).data;
+    data.value = (await http.get("/caja")).data;
   } catch (e: any) {
     loadError.value = apiErrorMessage(e, "No se pudo cargar la caja.");
   } finally {
@@ -41,7 +40,7 @@ async function load() {
 }
 
 function openForm(tipo: "Ingreso" | "Retiro") {
-  form.value = { tipo, monto: 0, concepto: "", sucursalId: isAdmin ? (sucursalFiltro.value || data.value.sucursales?.[0]?.id || null) : auth.state.user?.sucursalId??null };
+  form.value = { tipo, monto: 0, concepto: "" };
   error.value = "";
   show.value = true;
 }
@@ -115,14 +114,14 @@ onMounted(load);
           :disabled="!data.movimientos.length"
           @click="exportCsv"
         />
-        <AppButton label="Ingresar dinero" icon="pi pi-plus" @click="openForm('Ingreso')" />
-        <AppButton label="Retirar dinero" severity="danger" @click="openForm('Retiro')" />
+        <AppButton label="Ingresar dinero" icon="pi pi-plus" :disabled="!hasActiveBranch" @click="openForm('Ingreso')" />
+        <AppButton label="Retirar dinero" severity="danger" :disabled="!hasActiveBranch" @click="openForm('Retiro')" />
       </div>
     </div>
 
-    <Panel v-if="isAdmin" class="filter-panel mb-3">
-      <SucursalFilter v-model="sucursalFiltro" @change="load" />
-    </Panel>
+    <Message v-if="!hasActiveBranch" severity="warn" class="mb-3" :closable="false">
+      Elegí una sucursal activa antes de registrar movimientos de caja.
+    </Message>
 
     <Message v-if="loadError" severity="error" class="mb-3" :closable="false">
       {{ loadError }}
@@ -151,7 +150,7 @@ onMounted(load);
             <div class="text-center py-5">
               <p class="font-bold mb-2">Caja sin movimientos</p>
               <p class="text-color-secondary mb-3">Registrá un ingreso o un retiro para empezar el historial.</p>
-              <AppButton label="Ingresar dinero" icon="pi pi-plus" @click="openForm('Ingreso')" />
+              <AppButton label="Ingresar dinero" icon="pi pi-plus" :disabled="!hasActiveBranch" @click="openForm('Ingreso')" />
             </div>
           </template>
           <Column header="Fecha">
@@ -190,6 +189,7 @@ onMounted(load);
         <p class="mt-0">
           Se registrará a nombre de <b>{{ auth.state.user?.nombre }}</b>.
         </p>
+        <p>Sucursal: <b>{{ activeBranchName }}</b></p>
         <Message v-if="error" severity="error" class="mb-3" :closable="false">{{ error }}</Message>
 
         <div class="grid formgrid p-fluid">

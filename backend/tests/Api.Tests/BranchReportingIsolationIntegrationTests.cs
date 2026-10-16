@@ -75,6 +75,37 @@ public sealed class BranchReportingIsolationIntegrationTests
             await AssertCash(userA, 30, 4, false);
             await AssertCash(adminB, 700, 1, true);
 
+            Assert.Equal(HttpStatusCode.Created, (await adminA.PostAsJsonAsync("/api/caja/movimientos",
+                new { tipo = "Ingreso", monto = 100m, concepto = "Ingreso admin A" })).StatusCode);
+            await AssertCash(adminA, 130, 5, true);
+            await AssertCash(adminB, 700, 1, true);
+
+            Assert.Equal(HttpStatusCode.Created, (await adminA.PostAsJsonAsync("/api/caja/movimientos",
+                new { tipo = "Ingreso", monto = 10m, concepto = "Ingreso con sucursal ajena ignorada", sucursalId = data.BranchB })).StatusCode);
+            await AssertCash(adminA, 140, 6, true);
+            await AssertCash(adminB, 700, 1, true);
+
+            var rejectedAdminWithdrawal = await adminA.PostAsJsonAsync("/api/caja/movimientos",
+                new { tipo = "Retiro", monto = 200m, concepto = "No debe usar saldo B" });
+            Assert.Equal(HttpStatusCode.Conflict, rejectedAdminWithdrawal.StatusCode);
+            var rejectedAdminBody = await rejectedAdminWithdrawal.Content.ReadFromJsonAsync<JsonElement>();
+            Assert.Contains("supera el saldo disponible", rejectedAdminBody.GetProperty("message").GetString());
+            Assert.Equal(HttpStatusCode.Created, (await adminA.PostAsJsonAsync("/api/caja/movimientos",
+                new { tipo = "Retiro", monto = 50m, concepto = "Retiro admin A" })).StatusCode);
+            await AssertCash(adminA, 90, 7, true);
+            await AssertCash(adminB, 700, 1, true);
+
+            var adminABox = await GetJson(adminA, "/api/caja");
+            var adminABranch = Assert.Single(adminABox.GetProperty("sucursales").EnumerateArray());
+            Assert.Equal(data.BranchA, adminABranch.GetProperty("id").GetGuid());
+
+            var noBranchMovement = await adminNoBranch.PostAsJsonAsync("/api/caja/movimientos",
+                new { tipo = "Ingreso", monto = 10m, concepto = "Sin sucursal activa", sucursalId = data.BranchB });
+            Assert.Equal(HttpStatusCode.BadRequest, noBranchMovement.StatusCode);
+            var noBranchBody = await noBranchMovement.Content.ReadFromJsonAsync<JsonElement>();
+            Assert.True(noBranchBody.GetProperty("errors").TryGetProperty("sucursalId", out _));
+            await AssertCash(adminNoBranch, 0, 0, false);
+
             await AssertExpenses(userA, 2, 23, ["Gasto A1", "Gasto A2"]);
             var foreignExpenseSearch = await GetJson(userA, "/api/gastos?buscar=Gasto%20B");
             Assert.Equal(0, foreignExpenseSearch.GetProperty("total").GetInt32());
