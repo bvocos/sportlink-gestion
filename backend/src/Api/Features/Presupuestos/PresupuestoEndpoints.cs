@@ -11,6 +11,8 @@ using QuestPDF.Infrastructure;
 namespace Api.Features.Presupuestos;
 
 public record PresupuestoLineaRequest(Guid TipoCespedId, string? Color, decimal CantidadM2, decimal PrecioContadoM2, decimal PrecioFinanciadoM2);
+public record EntregaSugeridaLineaRequest(Guid TipoCespedId, decimal CantidadM2);
+public record EntregaSugeridaRequest(List<EntregaSugeridaLineaRequest> Lineas);
 public record PresupuestoRequest(Guid ClienteId, DateOnly Fecha, DateOnly ValidezHasta, decimal DescuentoContadoPorcentaje,
     decimal IvaContadoPorcentaje, decimal IvaFinanciadoPorcentaje, decimal EntregaFinanciada,
     string? Observaciones, List<PresupuestoLineaRequest> Lineas, Guid? DepositoId = null);
@@ -23,7 +25,7 @@ public static class PresupuestoEndpoints
     {
         QuestPDF.Settings.License = LicenseType.Evaluation;
         var g = app.MapGroup("/api/presupuestos").WithTags("Presupuestos");
-        g.MapGet("/", List).RequirePermiso("presupuestos", "ver"); g.MapGet("/filtros", Filters).RequirePermiso("presupuestos", "ver"); g.MapGet("/{id:guid}", Get).RequirePermiso("presupuestos", "ver"); g.MapPost("/", Create).RequirePermiso("presupuestos", "crear"); g.MapPut("/{id:guid}", Update).RequirePermiso("presupuestos", "editar");
+        g.MapGet("/", List).RequirePermiso("presupuestos", "ver"); g.MapGet("/filtros", Filters).RequirePermiso("presupuestos", "ver"); g.MapPost("/entrega-sugerida", SuggestedDownPayment).RequirePermiso("presupuestos", "ver"); g.MapGet("/{id:guid}", Get).RequirePermiso("presupuestos", "ver"); g.MapPost("/", Create).RequirePermiso("presupuestos", "crear"); g.MapPut("/{id:guid}", Update).RequirePermiso("presupuestos", "editar");
         g.MapDelete("/{id:guid}", Delete).RequirePermiso("presupuestos", "eliminar"); g.MapGet("/{id:guid}/pdf", Pdf).RequirePermiso("presupuestos", "ver");
     }
 
@@ -45,6 +47,28 @@ public static class PresupuestoEndpoints
         depositos = await SucursalDepositoService.VisibleDeposits(db.Depositos.AsNoTracking().Where(x => x.Activo), user).OrderBy(x => x.Nombre).Select(x => new { x.Id, x.Nombre }).ToListAsync(ct),
         productos = await db.TiposCesped.AsNoTracking().Where(x => x.Activo && (depositIds.Contains(x.DepositoId) || x.Depositos.Any(d => depositIds.Contains(d.DepositoId)))).OrderBy(x => x.Nombre).Select(x => new { x.Id, x.DepositoId, depositoIds = x.Depositos.Select(d => d.DepositoId).ToArray(), x.Nombre, x.Descripcion, x.DescripcionPresupuesto, x.EspecificacionesPresupuesto, x.FichaTecnicaUrl, x.PrecioContadoM2, x.PrecioFinanciadoM2, x.ColoresJson }).ToListAsync(ct)
     }); }
+    private static async Task<IResult> SuggestedDownPayment(EntregaSugeridaRequest request, ClaimsPrincipal user,
+        AppDbContext db, CancellationToken ct)
+    {
+        if (request.Lineas is null || request.Lineas.Count == 0)
+            return Results.ValidationProblem(new Dictionary<string, string[]> { ["lineas"] = ["Agregá al menos un producto."] });
+        if (request.Lineas.Any(x => x.TipoCespedId == Guid.Empty || x.CantidadM2 <= 0))
+            return Results.ValidationProblem(new Dictionary<string, string[]> { ["lineas"] = ["Todos los productos deben tener una cantidad de metros mayor que cero."] });
+        if (!user.SucursalId().HasValue)
+            return Results.ValidationProblem(new Dictionary<string, string[]> { ["sucursalId"] = ["Elegí una sucursal activa para calcular la entrega inicial."] });
+
+        var productIds = request.Lineas.Select(x => x.TipoCespedId).Distinct().ToArray();
+        var products = await SucursalDepositoService.VisibleProducts(
+                db.TiposCesped.AsNoTracking().Where(x => x.Activo && productIds.Contains(x.Id)), user,
+                db.Depositos.AsNoTracking().Where(x => x.Activo))
+            .Select(x => new { x.Id, x.CostoM2 })
+            .ToDictionaryAsync(x => x.Id, ct);
+        if (products.Count != productIds.Length)
+            return Results.ValidationProblem(new Dictionary<string, string[]> { ["lineas"] = ["Uno de los productos no existe o no está disponible en la sucursal activa."] });
+
+        var amount = request.Lineas.Sum(x => products[x.TipoCespedId].CostoM2 * x.CantidadM2);
+        return Results.Ok(new { entregaSugerida = decimal.Round(amount, 2, MidpointRounding.AwayFromZero) });
+    }
     private static async Task<IResult> Get(Guid id, ClaimsPrincipal user, AppDbContext db, CancellationToken ct) { var x = await Query(db, user).SingleOrDefaultAsync(x => x.Id == id, ct); return x is null ? Results.NotFound() : Results.Ok(Dto(x)); }
 
     private static string? Validate(PresupuestoRequest r)

@@ -17,6 +17,7 @@ import ClienteAutocomplete from '@/shared/components/ClienteAutocomplete.vue'
 import NuevoClienteForm from '@/shared/components/NuevoClienteForm.vue'
 import { auth } from '@/auth'
 import { notify } from '@/shared/uiFeedback'
+import { resolveSuggestedDownPayment } from '@/presupuestoEntrega'
 
 const route = useRoute()
 const router = useRouter()
@@ -36,6 +37,10 @@ const showPreview = ref(false)
 const previewPanelRef = ref<HTMLElement | null>(null)
 const presupuestoNumero = ref<number | null>(null)
 const CASH_PAYMENT_TEXT = 'Pago de contado en dólar billete (efectivo).'
+const suggestedDownPayment = ref(0)
+const downPaymentManuallyModified = ref(false)
+let suggestionTimer: ReturnType<typeof setTimeout> | undefined
+let suggestionRequest = 0
 
 const today = new Date()
 function addDay(value: string) {
@@ -69,6 +74,53 @@ const usd = (v: number) => new Intl.NumberFormat('es-AR', { style: 'currency', c
 const productosDisponibles = computed(() => productos.value.filter((x: any) =>
   (x.depositoIds?.length ? x.depositoIds : [x.depositoId]).includes(form.value.depositoId)))
 
+function suggestionPayload() {
+  const lineas = form.value.lineas
+    .filter(l => l.tipoCespedId && Number(l.cantidadM2) > 0)
+    .map(l => ({ tipoCespedId: l.tipoCespedId, cantidadM2: Number(l.cantidadM2) }))
+  return lineas.length === form.value.lineas.length ? { lineas } : null
+}
+
+async function requestSuggestedDownPayment(requestId: number) {
+  const payload = suggestionPayload()
+  if (!payload) return
+  try {
+    const response = await http.post('/presupuestos/entrega-sugerida', payload)
+    if (requestId !== suggestionRequest) return
+    const decision = resolveSuggestedDownPayment(
+      Number(form.value.entregaFinanciada),
+      Number(response.data.entregaSugerida),
+      financiado.value,
+      downPaymentManuallyModified.value,
+    )
+    suggestedDownPayment.value = decision.suggested
+    if (decision.apply) form.value.entregaFinanciada = decision.value
+  } catch {
+    // La sugerencia es una ayuda no bloqueante: se conserva el valor actual.
+  }
+}
+
+function scheduleSuggestedDownPayment() {
+  const requestId = ++suggestionRequest
+  if (suggestionTimer) clearTimeout(suggestionTimer)
+  suggestionTimer = setTimeout(() => requestSuggestedDownPayment(requestId), 300)
+}
+
+function markDownPaymentAsManual() {
+  downPaymentManuallyModified.value = true
+}
+
+function resetSuggestedDownPayment() {
+  downPaymentManuallyModified.value = false
+  if (suggestionTimer) clearTimeout(suggestionTimer)
+  requestSuggestedDownPayment(++suggestionRequest)
+}
+
+watch(
+  () => form.value.lineas.map(l => `${l.tipoCespedId}:${l.cantidadM2}:${l.precioFinanciadoM2}`).join('|'),
+  scheduleSuggestedDownPayment,
+)
+
 function product(l: any) { return productosDisponibles.value.find(x => x.id === l.tipoCespedId) }
 function selectProduct(l: any) {
   const p = product(l)
@@ -94,6 +146,7 @@ async function load() {
     if (id.value) {
       const p = (await http.get(`/presupuestos/${id.value}`)).data
       presupuestoNumero.value = p.numero
+      downPaymentManuallyModified.value = true
       form.value = {
         clienteId: p.clienteId, depositoId: p.depositoId, fecha: p.fecha, validezHasta: addDay(p.fecha),
         descuentoContadoPorcentaje: p.descuentoContadoPorcentaje, ivaContadoPorcentaje: p.ivaContadoPorcentaje,
@@ -165,7 +218,11 @@ async function save() {
   }
 }
 onMounted(load)
-onBeforeUnmount(closePreview)
+onBeforeUnmount(() => {
+  closePreview()
+  if (suggestionTimer) clearTimeout(suggestionTimer)
+  suggestionRequest++
+})
 </script>
 
 <template>
@@ -329,8 +386,15 @@ onBeforeUnmount(closePreview)
               </div>
               <div class="field col-12 md:col-6">
                 <label>Entrega inicial (USD)</label>
-                <InputNumber v-model="form.entregaFinanciada" :min="0" :min-fraction-digits="2" :max-fraction-digits="2" />
+                <InputNumber v-model="form.entregaFinanciada" :min="0" :min-fraction-digits="2" :max-fraction-digits="2"
+                  @update:model-value="markDownPaymentAsManual" />
                 <small class="text-color-secondary">El importe ingresado ya incluye IVA.</small>
+                <small class="text-color-secondary block">Cálculo automático: costo del producto × m² = {{ usd(suggestedDownPayment) }}</small>
+                <div v-if="downPaymentManuallyModified" class="flex align-items-center gap-2 mt-2">
+                  <small class="text-color-secondary">Modificado manualmente</small>
+                  <AppButton type="button" label="Restablecer cálculo" size="small" severity="secondary"
+                    @click="resetSuggestedDownPayment" />
+                </div>
               </div>
             </div>
             <strong class="text-xl">{{ usd(financiado) }}</strong>
