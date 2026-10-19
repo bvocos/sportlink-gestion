@@ -35,6 +35,7 @@ const previewLoading = ref(false)
 const showPreview = ref(false)
 const previewPanelRef = ref<HTMLElement | null>(null)
 const presupuestoNumero = ref<number | null>(null)
+const CASH_PAYMENT_TEXT = 'Pago de contado en dólar billete (efectivo).'
 
 const today = new Date()
 function addDay(value: string) {
@@ -306,6 +307,7 @@ onBeforeUnmount(closePreview)
         <div class="quote-payment grid">
           <article class="quote-option col-12 md:col-6">
             <h4>Contado</h4>
+            <p class="text-color-secondary">{{ CASH_PAYMENT_TEXT }}</p>
             <div class="grid formgrid p-fluid">
               <div class="field col-12 md:col-6">
                 <label>Descuento (%)</label>
