@@ -36,7 +36,7 @@ const previewLoading = ref(false)
 const showPreview = ref(false)
 const previewPanelRef = ref<HTMLElement | null>(null)
 const presupuestoNumero = ref<number | null>(null)
-const CASH_PAYMENT_TEXT = 'Pago de contado en dólar billete (efectivo).'
+const CASH_PAYMENT_TEXT = 'Pago de contado en dólar billete o pesos en efectivo a cotización del dólar blue.'
 const suggestedDownPayment = ref(0)
 const downPaymentManuallyModified = ref(false)
 let suggestionTimer: ReturnType<typeof setTimeout> | undefined

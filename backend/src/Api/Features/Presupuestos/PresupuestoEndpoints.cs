@@ -203,8 +203,8 @@ internal static class PresupuestoCalculator
 internal static class PresupuestoPdf
 {
     private const string Green = "#173F32"; private const string Lime = "#79C817"; private const string Orange = "#F04A22";
-    internal const string CashPaymentText = "Pago de contado en dólar billete.";
-    internal const string PaymentClarificationText = "Opción contado: pago de contado en dólar billete. Opción financiada: valores en dólares; las cuotas abonadas en pesos toman la cotización de venta del dólar blue del día del pago.";
+    internal const string CashPaymentText = "Pago de contado en dólar billete o pesos en efectivo a cotización del dólar blue.";
+    internal const string PaymentClarificationText = "Opción contado: pago de contado en dólar billete o pesos en efectivo a cotización del dólar blue. Opción financiada: valores en dólares; las cuotas abonadas en pesos toman la cotización de venta del dólar blue del día del pago.";
     private static string Usd(decimal value) => $"USD {value:N2}";
     public static byte[] Generate(Presupuesto p, string assets, SucursalBranding branding)
     {

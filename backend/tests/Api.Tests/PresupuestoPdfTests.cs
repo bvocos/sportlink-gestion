@@ -10,8 +10,8 @@ public sealed class PresupuestoPdfTests
     [Fact]
     public void PdfPaymentTexts_ClarifyCashInUsdBillsAndFinancedPesoConversion()
     {
-        Assert.Equal("Pago de contado en dólar billete.", PresupuestoPdf.CashPaymentText);
-        Assert.Contains("Opción contado: pago de contado en dólar billete.", PresupuestoPdf.PaymentClarificationText);
+        Assert.Equal("Pago de contado en dólar billete o pesos en efectivo a cotización del dólar blue.", PresupuestoPdf.CashPaymentText);
+        Assert.Contains("Opción contado: pago de contado en dólar billete o pesos en efectivo a cotización del dólar blue.", PresupuestoPdf.PaymentClarificationText);
         Assert.Contains("Opción financiada: valores en dólares", PresupuestoPdf.PaymentClarificationText);
         Assert.Contains("cotización de venta del dólar blue del día del pago", PresupuestoPdf.PaymentClarificationText);
     }
