@@ -16,8 +16,9 @@ import { http, apiErrorMessage } from '@/shared/api/httpClient'
 import ClienteAutocomplete from '@/shared/components/ClienteAutocomplete.vue'
 import NuevoClienteForm from '@/shared/components/NuevoClienteForm.vue'
 import { auth } from '@/auth'
+import { branchContext } from '@/branchContext'
 import { notify } from '@/shared/uiFeedback'
-import { resolveSuggestedDownPayment } from '@/presupuestoEntrega'
+import { isDownPaymentSuggestionEnabled, resolveSuggestedDownPayment } from '@/presupuestoEntrega'
 
 const route = useRoute()
 const router = useRouter()
@@ -39,6 +40,8 @@ const presupuestoNumero = ref<number | null>(null)
 const CASH_PAYMENT_TEXT = 'Pago de contado en dólar billete o pesos en efectivo a cotización del dólar blue.'
 const suggestedDownPayment = ref(0)
 const downPaymentManuallyModified = ref(false)
+const activeBranchId = computed(() => branchContext.state.active?.id ?? auth.state.user?.sucursalId ?? null)
+const showDownPaymentSuggestion = computed(() => isDownPaymentSuggestionEnabled(activeBranchId.value))
 let suggestionTimer: ReturnType<typeof setTimeout> | undefined
 let suggestionRequest = 0
 
@@ -83,10 +86,10 @@ function suggestionPayload() {
 
 async function requestSuggestedDownPayment(requestId: number) {
   const payload = suggestionPayload()
-  if (!payload) return
+  if (!payload || !showDownPaymentSuggestion.value) return
   try {
     const response = await http.post('/presupuestos/entrega-sugerida', payload)
-    if (requestId !== suggestionRequest) return
+    if (requestId !== suggestionRequest || !showDownPaymentSuggestion.value) return
     const decision = resolveSuggestedDownPayment(
       Number(form.value.entregaFinanciada),
       Number(response.data.entregaSugerida),
@@ -103,6 +106,10 @@ async function requestSuggestedDownPayment(requestId: number) {
 function scheduleSuggestedDownPayment() {
   const requestId = ++suggestionRequest
   if (suggestionTimer) clearTimeout(suggestionTimer)
+  if (!showDownPaymentSuggestion.value) {
+    suggestedDownPayment.value = 0
+    return
+  }
   suggestionTimer = setTimeout(() => requestSuggestedDownPayment(requestId), 300)
 }
 
@@ -120,6 +127,7 @@ watch(
   () => form.value.lineas.map(l => `${l.tipoCespedId}:${l.cantidadM2}:${l.precioFinanciadoM2}`).join('|'),
   scheduleSuggestedDownPayment,
 )
+watch(activeBranchId, scheduleSuggestedDownPayment)
 
 function product(l: any) { return productosDisponibles.value.find(x => x.id === l.tipoCespedId) }
 function selectProduct(l: any) {
@@ -389,8 +397,8 @@ onBeforeUnmount(() => {
                 <InputNumber v-model="form.entregaFinanciada" :min="0" :min-fraction-digits="2" :max-fraction-digits="2"
                   @update:model-value="markDownPaymentAsManual" />
                 <small class="text-color-secondary">El importe ingresado ya incluye IVA.</small>
-                <small class="text-color-secondary block">Cálculo automático: costo del producto × m² = {{ usd(suggestedDownPayment) }}</small>
-                <div v-if="downPaymentManuallyModified" class="flex align-items-center gap-2 mt-2">
+                <small v-if="showDownPaymentSuggestion" class="text-color-secondary block">Cálculo automático: costo del producto × m² = {{ usd(suggestedDownPayment) }}</small>
+                <div v-if="showDownPaymentSuggestion && downPaymentManuallyModified" class="flex align-items-center gap-2 mt-2">
                   <small class="text-color-secondary">Modificado manualmente</small>
                   <AppButton type="button" label="Restablecer cálculo" size="small" severity="secondary"
                     @click="resetSuggestedDownPayment" />

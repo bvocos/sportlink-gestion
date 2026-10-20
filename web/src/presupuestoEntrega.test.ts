@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { resolveSuggestedDownPayment } from './presupuestoEntrega'
+import { isDownPaymentSuggestionEnabled, resolveSuggestedDownPayment } from './presupuestoEntrega'
 
 describe('entrega inicial sugerida de presupuestos', () => {
+  it('deshabilita la sugerencia automática para Buenos Aires', () => {
+    expect(isDownPaymentSuggestionEnabled('7b100000-0000-0000-0000-000000000002')).toBe(false)
+    expect(isDownPaymentSuggestionEnabled('7B100000-0000-0000-0000-000000000002')).toBe(false)
+    expect(isDownPaymentSuggestionEnabled('7b100000-0000-0000-0000-000000000001')).toBe(true)
+  })
+
   it('aplica la sugerencia mientras el campo permanece automático', () => {
     expect(resolveSuggestedDownPayment(0, 255, 500, false)).toEqual({
       suggested: 255,
