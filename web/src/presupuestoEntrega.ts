@@ -4,10 +4,10 @@ export interface SuggestedDownPaymentDecision {
   apply: boolean
 }
 
-const BUENOS_AIRES_BRANCH_ID = '7b100000-0000-0000-0000-000000000002'
+const SAN_FRANCISCO_BRANCH_ID = '7b100000-0000-0000-0000-000000000001'
 
 export function isDownPaymentSuggestionEnabled(sucursalId: string | null | undefined): boolean {
-  return sucursalId?.toLowerCase() !== BUENOS_AIRES_BRANCH_ID
+  return sucursalId?.toLowerCase() === SAN_FRANCISCO_BRANCH_ID
 }
 
 export function resolveSuggestedDownPayment(

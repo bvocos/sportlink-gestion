@@ -396,7 +396,7 @@ onBeforeUnmount(() => {
                 <label>Entrega inicial (USD)</label>
                 <InputNumber v-model="form.entregaFinanciada" :min="0" :min-fraction-digits="2" :max-fraction-digits="2"
                   @update:model-value="markDownPaymentAsManual" />
-                <small class="text-color-secondary">El importe ingresado ya incluye IVA.</small>
+                <small v-if="showDownPaymentSuggestion" class="text-color-secondary">El importe ingresado ya incluye IVA.</small>
                 <small v-if="showDownPaymentSuggestion" class="text-color-secondary block">Cálculo automático: costo del producto × m² = {{ usd(suggestedDownPayment) }}</small>
                 <div v-if="showDownPaymentSuggestion && downPaymentManuallyModified" class="flex align-items-center gap-2 mt-2">
                   <small class="text-color-secondary">Modificado manualmente</small>
