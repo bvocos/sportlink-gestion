@@ -1,9 +1,8 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from 'vue'
-import Button from 'primevue/button'
+import AppButton from '@/shared/components/AppButton.vue'
 import Column from 'primevue/column'
 import DataTable from 'primevue/datatable'
-import Dialog from 'primevue/dialog'
 import InputNumber from 'primevue/inputnumber'
 import InputText from 'primevue/inputtext'
 import Message from 'primevue/message'
@@ -17,7 +16,7 @@ import { normalizeCuit, readAndValidateSucursalLogoDimensions, validateSucursalF
 
 const items = ref<any[]>([])
 const loading = ref(false)
-const dialog = ref(false)
+const showForm = ref(false)
 const saving = ref(false)
 const editingId = ref<string | null>(null)
 const error = ref('')
@@ -41,12 +40,13 @@ async function load() {
   finally { loading.value = false }
 }
 function releaseLogoPreview() { if (logoPreview.value) URL.revokeObjectURL(logoPreview.value); logoPreview.value = '' }
-function openCreate() { releaseLogoPreview(); logoFile.value = null; logoError.value = ''; editingId.value = null; form.value = blank(); errors.value = {}; error.value = ''; dialog.value = true }
+function cancelForm() { showForm.value = false; error.value = ''; errors.value = {} }
+function openCreate() { releaseLogoPreview(); logoFile.value = null; logoError.value = ''; editingId.value = null; form.value = blank(); errors.value = {}; error.value = ''; showForm.value = true }
 async function openEdit(x: any) {
   releaseLogoPreview(); logoFile.value = null; logoError.value = ''
   editingId.value = x.id
   form.value = { ...blank(), ...x, inicioActividades: x.inicioActividades || '', nombreDeposito: '' }
-  errors.value = {}; error.value = ''; dialog.value = true
+  errors.value = {}; error.value = ''; showForm.value = true
   await loadStoredLogo(x.id, x.tieneLogo)
 }
 async function loadStoredLogo(id: string, tieneLogo: boolean) {
@@ -117,7 +117,7 @@ async function save() {
       logoFile.value = null
       form.value.tieneLogo = true
     }
-    dialog.value = false; await load(); branchContext.notifyChanged()
+    showForm.value = false; await load(); branchContext.notifyChanged()
     notify('Sucursal guardada correctamente.', 'success')
   } catch (e) { readBackendErrors(e) } finally { saving.value = false }
 }
@@ -136,59 +136,268 @@ onBeforeUnmount(releaseLogoPreview)
 </script>
 
 <template>
-  <section class="page">
-    <div class="page-header">
-      <div><h1>Sucursales</h1><p>Datos operativos y fiscales de cada sede.</p></div>
-      <Button label="Nueva sucursal" icon="pi pi-plus" @click="openCreate" />
+  <section class="page compact-page">
+    <div class="page-toolbar flex justify-content-between align-items-center flex-wrap gap-2">
+      <p class="page-desc text-color-secondary m-0">
+        {{ showForm
+          ? (editingId ? 'Editando sucursal' : 'Nueva sucursal')
+          : 'Datos operativos y fiscales de cada sede.' }}
+      </p>
+      <AppButton
+        v-if="showForm"
+        label="Volver al listado"
+        icon="pi pi-arrow-left"
+        severity="secondary"
+        size="small"
+        @click="cancelForm"
+      />
+      <AppButton
+        v-else
+        label="Nueva sucursal"
+        icon="pi pi-plus"
+        size="small"
+        @click="openCreate"
+      />
     </div>
-    <Message severity="info" :closable="false">El CUIT y el punto de venta identifican la numeración fiscal de cada sucursal. Los datos vacíos no aparecerán en el recibo.</Message>
-    <DataTable :value="items" :loading="loading" paginator :rows="10" striped-rows>
+
+    <!-- Advertencia fiscal — solo visible en el listado -->
+    <Message v-if="!showForm" severity="info" :closable="false" class="mb-3">
+      El CUIT y el punto de venta identifican la numeración fiscal de cada sucursal. Los datos vacíos no aparecerán en el recibo.
+    </Message>
+
+    <!-- ── Formulario inline ────────────────────────────────────────── -->
+    <article v-if="showForm" class="card inline-form-panel inline-form-panel-wide">
+      <form @submit.prevent="save">
+        <Message v-if="error" severity="error" class="inline-form-error" :closable="false">{{ error }}</Message>
+
+        <section class="inline-form-block">
+          <header class="inline-form-block-head">
+            <span>1. Identificación</span>
+          </header>
+          <div class="grid formgrid p-fluid inline-form-grid">
+            <div class="field col-12 md:col-6">
+              <label>Nombre *</label>
+              <InputText v-model="form.nombre" />
+              <small v-if="errors.nombre" class="field-error">{{ errors.nombre }}</small>
+            </div>
+            <div v-if="!editingId" class="field col-12 md:col-6">
+              <label>Nombre del depósito inicial</label>
+              <InputText v-model="form.nombreDeposito" placeholder="Si queda vacío, usa el nombre de la sucursal" />
+            </div>
+          </div>
+        </section>
+
+        <section class="inline-form-block">
+          <header class="inline-form-block-head">
+            <span>2. Datos fiscales</span>
+          </header>
+          <div class="grid formgrid p-fluid inline-form-grid">
+            <div class="field col-12 md:col-6">
+              <label>Razón social</label>
+              <InputText v-model="form.razonSocial" />
+            </div>
+            <div class="field col-12 md:col-6">
+              <label>CUIT</label>
+              <InputText v-model="form.cuit" placeholder="20-12345678-6" />
+              <small v-if="errors.cuit" class="field-error">{{ errors.cuit }}</small>
+            </div>
+            <div class="field col-12 md:col-6">
+              <label>Condición de IVA</label>
+              <Select v-model="form.condicionIva" :options="condiciones" show-clear />
+            </div>
+            <div class="field col-12 md:col-6">
+              <label>Punto de venta ARCA</label>
+              <InputNumber v-model="form.puntoVentaAfip" :min="1" :max="99999" :use-grouping="false" />
+              <small v-if="errors.puntoVentaAfip" class="field-error">{{ errors.puntoVentaAfip }}</small>
+            </div>
+            <div class="field col-12 md:col-6">
+              <label>Inicio de actividades</label>
+              <input v-model="form.inicioActividades" class="native-input" type="date">
+            </div>
+            <div class="field col-12 md:col-6">
+              <label>Ingresos brutos</label>
+              <InputText v-model="form.ingresosBrutos" />
+            </div>
+          </div>
+        </section>
+
+        <section class="inline-form-block">
+          <header class="inline-form-block-head">
+            <span>3. Contacto y ubicación</span>
+          </header>
+          <div class="grid formgrid p-fluid inline-form-grid">
+            <div class="field col-12 md:col-6">
+              <label>Domicilio fiscal</label>
+              <InputText v-model="form.domicilioFiscal" />
+            </div>
+            <div class="field col-12 md:col-6">
+              <label>Localidad</label>
+              <InputText v-model="form.localidad" />
+            </div>
+            <div class="field col-12 md:col-6">
+              <label>Teléfono</label>
+              <InputText v-model="form.telefono" />
+            </div>
+            <div class="field col-12 md:col-6">
+              <label>Email</label>
+              <InputText v-model="form.email" type="email" />
+            </div>
+          </div>
+        </section>
+
+        <section class="inline-form-block">
+          <header class="inline-form-block-head">
+            <span>4. Logo y estado</span>
+          </header>
+          <div class="logo-section">
+            <div class="logo-preview-box">
+              <img v-if="logoPreview" :src="logoPreview" alt="Logo de la sucursal">
+              <span v-else>{{ form.razonSocial || form.nombre || 'Razón social' }}</span>
+            </div>
+            <div class="logo-controls">
+              <small>PNG o JPG, máximo 1 MB. Vista previa del encabezado del recibo.</small>
+              <input type="file" accept="image/png,image/jpeg" @change="chooseLogo">
+              <small v-if="logoError" class="field-error">{{ logoError }}</small>
+              <AppButton v-if="logoPreview" label="Quitar logo" severity="danger" text size="small" @click="removeLogo" />
+            </div>
+          </div>
+          <div class="toggle-activo mt-3">
+            <ToggleSwitch v-model="form.activo" input-id="sucursal-activo" />
+            <label for="sucursal-activo">Sucursal activa</label>
+          </div>
+        </section>
+
+        <div class="inline-form-footer">
+          <small class="inline-form-note text-color-secondary">Los campos marcados con * son obligatorios.</small>
+          <div class="flex gap-2">
+            <AppButton type="button" label="Cancelar" severity="secondary" size="small" @click="cancelForm" />
+            <AppButton type="submit" label="Guardar sucursal" :loading="saving" size="small" />
+          </div>
+        </div>
+      </form>
+    </article>
+
+    <!-- ── Tabla ────────────────────────────────────────────────────── -->
+    <DataTable v-else :value="items" :loading="loading" paginator :rows="10" striped-rows>
       <Column field="nombre" header="Sucursal" />
       <Column field="depositoPropioNombre" header="Depósito propio" />
-      <Column field="cuit" header="CUIT"><template #body="{ data }">{{ data.cuit || '—' }}</template></Column>
-      <Column field="puntoVentaAfip" header="Punto de venta"><template #body="{ data }">{{ data.puntoVentaAfip || '—' }}</template></Column>
+      <Column field="cuit" header="CUIT">
+        <template #body="{ data }">{{ data.cuit || '—' }}</template>
+      </Column>
+      <Column field="puntoVentaAfip" header="Punto de venta">
+        <template #body="{ data }">{{ data.puntoVentaAfip || '—' }}</template>
+      </Column>
       <Column field="usuariosAsignados" header="Usuarios" />
-      <Column header="Estado"><template #body="{ data }"><Tag v-if="isHistorical(data)" severity="info" value="Histórica" /><Tag v-else :severity="data.activo ? 'success' : 'secondary'" :value="data.activo ? 'Activa' : 'Inactiva'" /></template></Column>
-      <Column header="Configuración"><template #body="{ data }"><Tag v-if="incomplete(data)" severity="warn" value="Fiscal incompleta" /><Tag v-else severity="success" value="Completa" /></template></Column>
-      <Column header="Acciones"><template #body="{ data }"><div v-if="!isHistorical(data)" class="actions">
-        <Button icon="pi pi-pencil" text rounded aria-label="Editar" @click="openEdit(data)" />
-        <Button icon="pi pi-power-off" text rounded :severity="data.activo ? 'warn' : 'success'" aria-label="Cambiar estado" @click="toggle(data)" />
-        <Button icon="pi pi-trash" text rounded severity="danger" aria-label="Eliminar" @click="remove(data)" />
-      </div></template></Column>
+      <Column header="Estado">
+        <template #body="{ data }">
+          <Tag v-if="isHistorical(data)" severity="info" value="Histórica" />
+          <Tag v-else :severity="data.activo ? 'success' : 'secondary'" :value="data.activo ? 'Activa' : 'Inactiva'" />
+        </template>
+      </Column>
+      <Column header="Configuración">
+        <template #body="{ data }">
+          <Tag v-if="incomplete(data)" severity="warn" value="Fiscal incompleta" />
+          <Tag v-else severity="success" value="Completa" />
+        </template>
+      </Column>
+      <Column header="Acciones">
+        <template #body="{ data }">
+          <div v-if="!isHistorical(data)" class="actions">
+            <AppButton
+              icon="pi pi-pencil"
+              text
+              rounded
+              size="small"
+              tooltip="Editar sucursal"
+              aria-label="Editar sucursal"
+              @click="openEdit(data)"
+            />
+            <ToggleSwitch
+              :model-value="data.activo"
+              v-tooltip.top="data.activo ? 'Desactivar sucursal' : 'Activar sucursal'"
+              class="sucursal-toggle"
+              @change="toggle(data)"
+            />
+            <AppButton
+              icon="pi pi-trash"
+              text
+              rounded
+              size="small"
+              severity="danger"
+              tooltip="Eliminar sucursal"
+              aria-label="Eliminar sucursal"
+              @click="remove(data)"
+            />
+          </div>
+        </template>
+      </Column>
     </DataTable>
-
-    <Dialog v-model:visible="dialog" modal :header="editingId ? 'Editar sucursal' : 'Nueva sucursal'" :style="{ width: '760px', maxWidth: '96vw' }">
-      <Message v-if="error" severity="error">{{ error }}</Message>
-      <div class="form-grid">
-        <label>Nombre *<InputText v-model="form.nombre" /><small v-if="errors.nombre">{{ errors.nombre }}</small></label>
-        <label v-if="!editingId">Nombre del depósito inicial<InputText v-model="form.nombreDeposito" placeholder="Si queda vacío, usa el nombre de la sucursal" /></label>
-        <label>Razón social<InputText v-model="form.razonSocial" /></label>
-        <label>CUIT<InputText v-model="form.cuit" placeholder="20-12345678-6" /><small v-if="errors.cuit">{{ errors.cuit }}</small></label>
-        <label>Condición de IVA<Select v-model="form.condicionIva" :options="condiciones" show-clear /></label>
-        <label>Punto de venta ARCA<InputNumber v-model="form.puntoVentaAfip" :min="1" :max="99999" :use-grouping="false" /><small v-if="errors.puntoVentaAfip">{{ errors.puntoVentaAfip }}</small></label>
-        <label>Domicilio fiscal<InputText v-model="form.domicilioFiscal" /></label>
-        <label>Localidad<InputText v-model="form.localidad" /></label>
-        <label>Teléfono<InputText v-model="form.telefono" /></label>
-        <label>Email<InputText v-model="form.email" type="email" /></label>
-        <label>Inicio de actividades<input v-model="form.inicioActividades" class="native-input" type="date"></label>
-        <label>Ingresos brutos<InputText v-model="form.ingresosBrutos" /></label>
-        <div class="logo-field">
-          <strong>Logo de la sucursal</strong>
-          <div class="logo-preview"><img v-if="logoPreview" :src="logoPreview" alt="Logo de la sucursal"><span v-else>{{ form.razonSocial || form.nombre || 'Razón social' }}</span></div>
-          <input type="file" accept="image/png,image/jpeg" @change="chooseLogo">
-          <small>PNG o JPG, máximo 1 MB. Vista previa del encabezado del recibo.</small>
-          <small v-if="logoError" class="field-error">{{ logoError }}</small>
-          <Button v-if="logoPreview" label="Quitar logo" severity="danger" text @click="removeLogo" />
-        </div>
-        <label class="toggle"><ToggleSwitch v-model="form.activo" /> Sucursal activa</label>
-      </div>
-      <template #footer><Button label="Cancelar" severity="secondary" text @click="dialog = false" /><Button label="Guardar" :loading="saving" @click="save" /></template>
-    </Dialog>
   </section>
 </template>
 
 <style scoped>
-.page-header{display:flex;align-items:center;justify-content:space-between;gap:1rem;margin-bottom:1rem}.page-header h1{margin:0}.page-header p{margin:.25rem 0;color:var(--text-color-secondary)}
-.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-top:1rem}.form-grid label{display:flex;flex-direction:column;gap:.4rem;font-weight:600}.form-grid label>*{width:100%}.form-grid small{color:#c62828}.toggle{flex-direction:row!important;align-items:center;grid-column:1/-1}.toggle>*{width:auto!important}.native-input{padding:.7rem;border:1px solid var(--surface-border);border-radius:6px}.actions{display:flex;gap:.25rem}@media(max-width:650px){.form-grid{grid-template-columns:1fr}}
-.logo-field{grid-column:1/-1;display:flex;flex-direction:column;gap:.5rem}.logo-preview{height:90px;border:1px solid var(--surface-border);display:flex;align-items:center;justify-content:center;padding:10px;font-size:1.25rem;font-weight:700}.logo-preview img{max-width:100%;max-height:100%;object-fit:contain}.field-error{color:#c62828!important}
+.inline-form-grid {
+  gap: 0;
+}
+
+.native-input {
+  padding: .7rem;
+  border: 1px solid var(--surface-border);
+  border-radius: 6px;
+  width: 100%;
+}
+
+.field-error {
+  color: #c62828;
+}
+
+.logo-section {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.logo-preview-box {
+  width: 220px;
+  height: 90px;
+  border: 1px solid var(--surface-border);
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px;
+  font-size: 1.1rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.logo-preview-box img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.logo-controls {
+  display: flex;
+  flex-direction: column;
+  gap: .5rem;
+}
+
+.toggle-activo {
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+  font-weight: 600;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+}
+
+.sucursal-toggle {
+  transform: scale(0.85);
+}
 </style>
