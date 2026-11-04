@@ -75,11 +75,12 @@ async function load() {
   loading.value = true
   loadError.value = ''
   try {
-    const requests: Promise<any>[] = [http.get('/maestros/tipos-cesped')]
-    if (auth.state.user?.rol === 'Administrador') requests.push(http.get('/sucursales/depositos'))
-    const responses = await Promise.all(requests)
-    items.value = responses[0].data
-    if (responses[1]) depositos.value = responses[1].data
+    const [products, branchDeposits] = await Promise.all([
+      http.get('/maestros/tipos-cesped'),
+      http.get('/maestros/tipos-cesped/depositos'),
+    ])
+    items.value = products.data
+    depositos.value = branchDeposits.data
   } catch (e) {
     loadError.value = apiErrorMessage(e, 'No se pudieron cargar los productos.')
   } finally {
@@ -139,6 +140,20 @@ function edit(x: any) {
   showPdfSection.value = !!(x.descripcionPresupuesto || x.especificacionesPresupuesto || x.fichaTecnicaUrl)
   showForm.value = true
   focusForm()
+}
+
+function sameId(left?: string | null, right?: string | null) {
+  return !!left && !!right && left.toLowerCase() === right.toLowerCase()
+}
+
+function depositLabel(product: any) {
+  const named = (product.depositos ?? []).map((deposit: any) => deposit.nombre).filter(Boolean)
+  if (named.length) return named.join(', ')
+  const ids: string[] = product.depositoIds?.length ? product.depositoIds : [product.depositoId]
+  const resolved = ids
+    .map(id => depositos.value.find(deposit => sameId(deposit.id, id))?.nombre)
+    .filter(Boolean)
+  return resolved.join(', ') || '—'
 }
 
 function addColor() {
@@ -302,7 +317,7 @@ onMounted(load)
           <template #body="{ data }"><b>{{ data.nombre }}</b></template>
         </Column>
         <Column header="Depósitos">
-          <template #body="{ data }">{{ (data.depositoIds?.length ? data.depositoIds : [data.depositoId]).map((id: string) => depositos.find(x => x.id === id)?.nombre).filter(Boolean).join(', ') || 'Depósito' }}</template>
+          <template #body="{ data }">{{ depositLabel(data) }}</template>
         </Column>
         <Column header="Descripción">
           <template #body="{ data }">{{ data.descripcion || '—' }}</template>
