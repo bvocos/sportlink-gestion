@@ -22,6 +22,8 @@ using FluentValidation;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.Authorization;
@@ -29,13 +31,27 @@ using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.ConfigureHttpJsonOptions(o => o.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
+DatabaseConnection.UseLegacyTimestampBehavior();
 builder.Services.AddDbContext<AppDbContext>(o =>
-    o.UseSqlServer(
-        builder.Configuration.GetConnectionString("Default"),
+    o.UseNpgsql(
+        DatabaseConnection.Resolve(builder.Configuration),
         sql => sql.EnableRetryOnFailure(
             maxRetryCount: 5,
             maxRetryDelay: TimeSpan.FromSeconds(30),
-            errorNumbersToAdd: null)));
+            errorCodesToAdd: null)));
+// Las claves que firman la cookie de sesión se guardan en la base para que un redeploy
+// o un reinicio del contenedor no cierre la sesión de todos los usuarios.
+builder.Services.AddDataProtection()
+    .SetApplicationName("sportlink-gestion")
+    .PersistKeysToDbContext<AppDbContext>();
+// Railway (y cualquier proxy) termina TLS antes del contenedor: confiar en X-Forwarded-*
+// para que UseHttpsRedirection y las cookies seguras vean el esquema real.
+builder.Services.Configure<ForwardedHeadersOptions>(o =>
+{
+    o.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    o.KnownNetworks.Clear();
+    o.KnownProxies.Clear();
+});
 builder.Services.AddMediatR(c => c.RegisterServicesFromAssemblyContaining<Program>());
 builder.Services.AddTransient(typeof(IPipelineBehavior<,>), typeof(ValidationBehavior<,>));
 builder.Services.AddValidatorsFromAssemblyContaining<Program>();
@@ -84,6 +100,7 @@ builder.Services.AddSingleton<IAuthorizationPolicyProvider, PermisoPolicyProvide
 builder.Services.AddCors(o => o.AddDefaultPolicy(p => p.WithOrigins(builder.Configuration.GetSection("AllowedOrigins").Get<string[]>() ?? ["http://localhost:5173"]).AllowAnyHeader().AllowAnyMethod()));
 
 var app = builder.Build();
+app.UseForwardedHeaders();
 app.UseExceptionHandler();
 if (!app.Environment.IsDevelopment())
 {

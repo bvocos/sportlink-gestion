@@ -127,7 +127,7 @@ public static class PresupuestoEndpoints
             // Serializa las altas de esta sucursal incluso cuando todavía no existen presupuestos
             // (MAX sobre un conjunto vacío no garantiza por sí solo un bloqueo de rango estable).
             await db.Database.ExecuteSqlInterpolatedAsync(
-                $"SELECT 1 FROM dbo.Sucursales WITH (UPDLOCK, HOLDLOCK) WHERE Id = {sucursalId.Value}", ct);
+                $"SELECT 1 FROM \"Sucursales\" WHERE \"Id\" = {sucursalId.Value} FOR UPDATE", ct);
             var currentMaximum = await db.Presupuestos.IgnoreQueryFilters()
                 .Where(x => x.SucursalId == sucursalId.Value)
                 .MaxAsync(x => (int?)x.Numero, ct);

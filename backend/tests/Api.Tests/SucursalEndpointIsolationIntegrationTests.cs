@@ -6,7 +6,7 @@ using Api.Shared.Database;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
-using Microsoft.Data.SqlClient;
+using Npgsql;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -23,11 +23,11 @@ public sealed class SucursalEndpointIsolationIntegrationTests
         var masterConnection = SqlIntegrationEnvironment.ConnectionOrSkip();
         if (masterConnection is null) return;
         var databaseName = $"SportlinkReceiptHttpTests_{Guid.NewGuid():N}";
-        var connection = new SqlConnectionStringBuilder(masterConnection) { InitialCatalog = databaseName }.ConnectionString;
+        var connection = new NpgsqlConnectionStringBuilder(masterConnection) { Database = databaseName }.ConnectionString;
         await CreateDatabase(masterConnection, databaseName);
         try
         {
-            var options = new DbContextOptionsBuilder<AppDbContext>().UseSqlServer(connection).Options;
+            var options = new DbContextOptionsBuilder<AppDbContext>().UseNpgsql(connection).Options;
             await using (var schema = new AppDbContext(options)) await schema.Database.EnsureCreatedAsync();
             await using var factory = new BranchApiFactory(connection);
             _ = factory.CreateClient();
@@ -55,7 +55,7 @@ public sealed class SucursalEndpointIsolationIntegrationTests
         }
         finally
         {
-            SqlConnection.ClearAllPools();
+            NpgsqlConnection.ClearAllPools();
             await DropDatabase(masterConnection, databaseName);
         }
     }
@@ -67,11 +67,11 @@ public sealed class SucursalEndpointIsolationIntegrationTests
         if (masterConnection is null) return;
 
         var databaseName = $"SportlinkBranchTests_{Guid.NewGuid():N}";
-        var connection = new SqlConnectionStringBuilder(masterConnection) { InitialCatalog = databaseName }.ConnectionString;
+        var connection = new NpgsqlConnectionStringBuilder(masterConnection) { Database = databaseName }.ConnectionString;
         await CreateDatabase(masterConnection, databaseName);
         try
         {
-            var options = new DbContextOptionsBuilder<AppDbContext>().UseSqlServer(connection).Options;
+            var options = new DbContextOptionsBuilder<AppDbContext>().UseNpgsql(connection).Options;
             await using (var schema = new AppDbContext(options)) await schema.Database.EnsureCreatedAsync();
             await using var factory = new BranchApiFactory(connection);
             _ = factory.CreateClient(); // Inicia Program y SeedData.
@@ -117,7 +117,7 @@ public sealed class SucursalEndpointIsolationIntegrationTests
         }
         finally
         {
-            SqlConnection.ClearAllPools();
+            NpgsqlConnection.ClearAllPools();
             await DropDatabase(masterConnection, databaseName);
         }
     }

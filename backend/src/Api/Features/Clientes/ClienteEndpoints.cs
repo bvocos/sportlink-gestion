@@ -99,7 +99,7 @@ public static class ClienteEndpoints
     {
         var query = db.Clientes.AsNoTracking().WhereVisibleParaUsuario(user);
         if (!string.IsNullOrWhiteSpace(buscar))
-            query = query.Where(x => (x.Nombre + " " + x.Apellido).Contains(buscar));
+            query = query.Where(x => (x.Nombre + " " + x.Apellido).ToLower().Contains(buscar.ToLower()));
         var total = await query.CountAsync(ct);
         var rows = await query.OrderBy(x => x.Apellido).ThenBy(x => x.Nombre)
             .Skip((page - 1) * pageSize).Take(pageSize).ToListAsync(ct);

@@ -2,7 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Api.Shared.Database;
-using Microsoft.Data.SqlClient;
+using Npgsql;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using static Api.Tests.BranchTestHost;
@@ -17,11 +17,11 @@ public sealed class PresupuestoSuggestedDownPaymentIntegrationTests
         var master = SqlIntegrationEnvironment.ConnectionOrSkip();
         if (master is null) return;
         var databaseName = $"SportlinkBudgetSuggestion_{Guid.NewGuid():N}";
-        var connection = new SqlConnectionStringBuilder(master) { InitialCatalog = databaseName }.ConnectionString;
+        var connection = new NpgsqlConnectionStringBuilder(master) { Database = databaseName }.ConnectionString;
         await CreateDatabase(master, databaseName);
         try
         {
-            var options = new DbContextOptionsBuilder<AppDbContext>().UseSqlServer(connection).Options;
+            var options = new DbContextOptionsBuilder<AppDbContext>().UseNpgsql(connection).Options;
             await using (var schema = new AppDbContext(options)) await schema.Database.EnsureCreatedAsync();
             await using var factory = new BranchApiFactory(connection);
             _ = factory.CreateClient();
@@ -69,7 +69,7 @@ public sealed class PresupuestoSuggestedDownPaymentIntegrationTests
         }
         finally
         {
-            SqlConnection.ClearAllPools();
+            NpgsqlConnection.ClearAllPools();
             await DropDatabase(master, databaseName);
         }
     }
