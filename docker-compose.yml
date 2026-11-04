@@ -1,10 +1,10 @@
 services:
-  sqlserver:
-    image: mcr.microsoft.com/mssql/server:2022-latest
+  postgres:
+    image: postgres:17
     environment:
-      ACCEPT_EULA: "Y"
-      MSSQL_SA_PASSWORD: "Your_strong_Password123"
-    ports: ["1433:1433"]
-    volumes: ["sql-data:/var/opt/mssql"]
+      POSTGRES_DB: CespedVentas
+      POSTGRES_PASSWORD: postgres_local
+    ports: ["5432:5432"]
+    volumes: ["pg-data:/var/lib/postgresql/data"]
 volumes:
-  sql-data:
+  pg-data:

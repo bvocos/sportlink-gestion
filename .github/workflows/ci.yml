@@ -1,0 +1,67 @@
+name: Validar
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    branches:
+      - main
+      - develop
+  workflow_dispatch:
+
+# El despliegue lo hace Railway desde GitHub (main -> production, develop -> develop)
+# con "Wait for CI" activado: solo publica si este workflow pasa.
+permissions:
+  contents: read
+
+env:
+  DOTNET_VERSION: 9.0.x
+  NODE_VERSION: 22
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: "Sportlink_Test_2026"
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_SQL_CONNECTION: "Host=localhost;Port=5432;Database=postgres;Username=postgres;Password=Sportlink_Test_2026"
+    steps:
+      - name: Descargar código
+        uses: actions/checkout@v4
+
+      - name: Configurar .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Configurar Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Restaurar y probar backend
+        run: |
+          dotnet restore CespedSintetico.sln
+          dotnet test backend/tests/Api.Tests/Api.Tests.csproj --configuration Release --no-restore
+
+      - name: Probar frontend
+        working-directory: web
+        run: |
+          npm ci
+          npm test
+          npm run build
+          npm audit --omit=dev

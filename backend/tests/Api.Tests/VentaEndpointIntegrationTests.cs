@@ -5,7 +5,7 @@ using Api.Features.Auth;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
-using Microsoft.Data.SqlClient;
+using Npgsql;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -21,18 +21,18 @@ public sealed class VentaEndpointIntegrationTests
         var masterConnection = SqlIntegrationEnvironment.ConnectionOrSkip();
         if (masterConnection is null) return;
         var databaseName = $"SportlinkSucursalTests_{Guid.NewGuid():N}";
-        var databaseConnection = new SqlConnectionStringBuilder(masterConnection) { InitialCatalog = databaseName }.ConnectionString;
-        await WaitForSqlServer(masterConnection);
-        await using (var master = new SqlConnection(masterConnection))
+        var databaseConnection = new NpgsqlConnectionStringBuilder(masterConnection) { Database = databaseName }.ConnectionString;
+        await WaitForDatabase(masterConnection);
+        await using (var master = new NpgsqlConnection(masterConnection))
         {
             await master.OpenAsync();
             await using var create = master.CreateCommand();
-            create.CommandText = $"CREATE DATABASE [{databaseName}]";
+            create.CommandText = $"CREATE DATABASE \"{databaseName}\"";
             await create.ExecuteNonQueryAsync();
         }
         try
         {
-            var options = new DbContextOptionsBuilder<AppDbContext>().UseSqlServer(databaseConnection).Options;
+            var options = new DbContextOptionsBuilder<AppDbContext>().UseNpgsql(databaseConnection).Options;
             await using (var schema = new AppDbContext(options)) await schema.Database.EnsureCreatedAsync();
             await using var factory = new VentaApiFactory(databaseConnection);
             using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
@@ -166,37 +166,37 @@ public sealed class VentaEndpointIntegrationTests
         }
         finally
         {
-            SqlConnection.ClearAllPools();
-            await using var master = new SqlConnection(masterConnection);
+            NpgsqlConnection.ClearAllPools();
+            await using var master = new NpgsqlConnection(masterConnection);
             await master.OpenAsync();
             await using var drop = master.CreateCommand();
-            drop.CommandText = $"ALTER DATABASE [{databaseName}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [{databaseName}]";
+            drop.CommandText = $"DROP DATABASE IF EXISTS \"{databaseName}\" WITH (FORCE)";
             await drop.ExecuteNonQueryAsync();
         }
     }
 
     [Fact]
-    public async Task PostVenta_PersistsUsingSqlServerRetryingExecutionStrategy()
+    public async Task PostVenta_PersistsUsingRetryingExecutionStrategy()
     {
         var masterConnection = SqlIntegrationEnvironment.ConnectionOrSkip();
         if (masterConnection is null) return;
 
         var databaseName = $"SportlinkTests_{Guid.NewGuid():N}";
-        var databaseConnection = new SqlConnectionStringBuilder(masterConnection) { InitialCatalog = databaseName }.ConnectionString;
-        await WaitForSqlServer(masterConnection);
+        var databaseConnection = new NpgsqlConnectionStringBuilder(masterConnection) { Database = databaseName }.ConnectionString;
+        await WaitForDatabase(masterConnection);
 
-        await using (var master = new SqlConnection(masterConnection))
+        await using (var master = new NpgsqlConnection(masterConnection))
         {
             await master.OpenAsync();
             await using var create = master.CreateCommand();
-            create.CommandText = $"CREATE DATABASE [{databaseName}]";
+            create.CommandText = $"CREATE DATABASE \"{databaseName}\"";
             await create.ExecuteNonQueryAsync();
         }
 
         try
         {
             var options = new DbContextOptionsBuilder<AppDbContext>()
-                .UseSqlServer(databaseConnection, sql => sql.EnableRetryOnFailure())
+                .UseNpgsql(databaseConnection, sql => sql.EnableRetryOnFailure())
                 .Options;
             await using (var schema = new AppDbContext(options))
                 await schema.Database.EnsureCreatedAsync();
@@ -316,23 +316,23 @@ public sealed class VentaEndpointIntegrationTests
         }
         finally
         {
-            SqlConnection.ClearAllPools();
-            await using var master = new SqlConnection(masterConnection);
+            NpgsqlConnection.ClearAllPools();
+            await using var master = new NpgsqlConnection(masterConnection);
             await master.OpenAsync();
             await using var drop = master.CreateCommand();
-            drop.CommandText = $"ALTER DATABASE [{databaseName}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [{databaseName}]";
+            drop.CommandText = $"DROP DATABASE IF EXISTS \"{databaseName}\" WITH (FORCE)";
             await drop.ExecuteNonQueryAsync();
         }
     }
 
-    private static async Task WaitForSqlServer(string connectionString)
+    private static async Task WaitForDatabase(string connectionString)
     {
         Exception? lastError = null;
         for (var attempt = 0; attempt < 30; attempt++)
         {
             try
             {
-                await using var connection = new SqlConnection(connectionString);
+                await using var connection = new NpgsqlConnection(connectionString);
                 await connection.OpenAsync();
                 return;
             }
@@ -342,7 +342,7 @@ public sealed class VentaEndpointIntegrationTests
                 await Task.Delay(TimeSpan.FromSeconds(2));
             }
         }
-        throw new InvalidOperationException("SQL Server de pruebas no estuvo disponible.", lastError);
+        throw new InvalidOperationException("PostgreSQL de pruebas no estuvo disponible.", lastError);
     }
 
     private static async Task<HttpResponseMessage> PutLogo(HttpClient client, Guid branchId,
@@ -371,9 +371,9 @@ public sealed class VentaEndpointIntegrationTests
             {
                 services.RemoveAll<DbContextOptions<AppDbContext>>();
                 services.RemoveAll<AppDbContext>();
-                services.AddDbContext<AppDbContext>(options => options.UseSqlServer(
+                services.AddDbContext<AppDbContext>(options => options.UseNpgsql(
                     connectionString,
-                    sql => sql.EnableRetryOnFailure(maxRetryCount: 5, maxRetryDelay: TimeSpan.FromSeconds(5), errorNumbersToAdd: null)));
+                    sql => sql.EnableRetryOnFailure(maxRetryCount: 5, maxRetryDelay: TimeSpan.FromSeconds(5), errorCodesToAdd: null)));
             });
         }
     }

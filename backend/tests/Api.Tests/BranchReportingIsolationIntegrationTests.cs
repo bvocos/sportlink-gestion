@@ -4,7 +4,7 @@ using System.Text.Json;
 using Api.Features.Auth;
 using Api.Shared.Database;
 using Microsoft.AspNetCore.Identity;
-using Microsoft.Data.SqlClient;
+using Npgsql;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using static Api.Tests.BranchTestHost;
@@ -19,11 +19,11 @@ public sealed class BranchReportingIsolationIntegrationTests
         var master = SqlIntegrationEnvironment.ConnectionOrSkip();
         if (master is null) return;
         var databaseName = $"SportlinkBranchReporting_{Guid.NewGuid():N}";
-        var connection = new SqlConnectionStringBuilder(master) { InitialCatalog = databaseName }.ConnectionString;
+        var connection = new NpgsqlConnectionStringBuilder(master) { Database = databaseName }.ConnectionString;
         await CreateDatabase(master, databaseName);
         try
         {
-            var options = new DbContextOptionsBuilder<AppDbContext>().UseSqlServer(connection).Options;
+            var options = new DbContextOptionsBuilder<AppDbContext>().UseNpgsql(connection).Options;
             await using (var schema = new AppDbContext(options)) await schema.Database.EnsureCreatedAsync();
             await using var factory = new BranchApiFactory(connection);
             _ = factory.CreateClient();
@@ -133,7 +133,7 @@ public sealed class BranchReportingIsolationIntegrationTests
         }
         finally
         {
-            SqlConnection.ClearAllPools();
+            NpgsqlConnection.ClearAllPools();
             await DropDatabase(master, databaseName);
         }
     }

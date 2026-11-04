@@ -39,8 +39,8 @@ public static class RentabilidadEndpoints
         if (string.IsNullOrWhiteSpace(buscar)) return query;
         if (Guid.TryParse(buscar, out var ventaId))
             return query.Where(x => x.Id == ventaId ||
-                (x.Cliente.Nombre + " " + x.Cliente.Apellido).Contains(buscar));
-        return query.Where(x => (x.Cliente.Nombre + " " + x.Cliente.Apellido).Contains(buscar));
+                (x.Cliente.Nombre + " " + x.Cliente.Apellido).ToLower().Contains(buscar.ToLower()));
+        return query.Where(x => (x.Cliente.Nombre + " " + x.Cliente.Apellido).ToLower().Contains(buscar.ToLower()));
     }
 
     internal static IQueryable<Venta> VisibleQuery(IQueryable<Venta> query, ClaimsPrincipal user,

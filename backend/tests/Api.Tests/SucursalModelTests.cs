@@ -8,7 +8,7 @@ public sealed class SucursalModelTests
     private static AppDbContext CreateContext()
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()
-            .UseSqlServer("Server=(localdb)\\mssqllocaldb;Database=SportlinkModelTests;Trusted_Connection=True;")
+            .UseNpgsql("Server=(localdb)\\mssqllocaldb;Database=SportlinkModelTests;Trusted_Connection=True;")
             .Options;
         return new AppDbContext(options);
     }

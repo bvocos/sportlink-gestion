@@ -18,9 +18,10 @@ RUN dotnet publish backend/src/Api/Api.csproj \
 
 FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS final
 WORKDIR /app
-ENV ASPNETCORE_URLS=http://+:8080
+# Railway inyecta PORT; fuera de Railway se usa 8080.
+ENV PORT=8080
 EXPOSE 8080
 COPY --from=build /app/publish .
 COPY --from=frontend /src/web/dist ./wwwroot
 USER $APP_UID
-ENTRYPOINT ["dotnet", "Api.dll"]
+ENTRYPOINT ["sh", "-c", "ASPNETCORE_URLS=http://+:${PORT} exec dotnet Api.dll"]

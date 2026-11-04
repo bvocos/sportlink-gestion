@@ -83,7 +83,7 @@ public static class CuotaEndpoints
         var query = VisibleQuery(db.Cuotas.AsNoTracking(), user, sucursalId).Where(x => x.ImportePagado < x.ImportePactado);
         var term = buscar?.Trim();
         if (!string.IsNullOrWhiteSpace(term))
-            query = query.Where(x => EF.Functions.Like(x.Venta.Cliente.Nombre + " " + x.Venta.Cliente.Apellido, $"%{term}%"));
+            query = query.Where(x => (x.Venta.Cliente.Nombre + " " + x.Venta.Cliente.Apellido).ToLower().Contains(term.ToLower()));
         var resumen = await query.GroupBy(_ => 1)
             .Select(g => new { cantidad = g.Count(), totalPendiente = g.Sum(x => x.ImportePactado - x.ImportePagado) })
             .SingleOrDefaultAsync(ct);

@@ -3,7 +3,7 @@ using System.Net.Http.Json;
 using Api.Shared.Database;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
-using Microsoft.Data.SqlClient;
+using Npgsql;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -15,17 +15,17 @@ internal static class BranchTestHost
 {
     public static async Task CreateDatabase(string master, string name)
     {
-        await using var connection = new SqlConnection(master); await connection.OpenAsync();
+        await using var connection = new NpgsqlConnection(master); await connection.OpenAsync();
         await using var command = connection.CreateCommand();
-        command.CommandText = $"CREATE DATABASE [{name}]";
+        command.CommandText = $"CREATE DATABASE \"{name}\"";
         await command.ExecuteNonQueryAsync();
     }
 
     public static async Task DropDatabase(string master, string name)
     {
-        await using var connection = new SqlConnection(master); await connection.OpenAsync();
+        await using var connection = new NpgsqlConnection(master); await connection.OpenAsync();
         await using var command = connection.CreateCommand();
-        command.CommandText = $"ALTER DATABASE [{name}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [{name}]";
+        command.CommandText = $"DROP DATABASE IF EXISTS \"{name}\" WITH (FORCE)";
         await command.ExecuteNonQueryAsync();
     }
 
@@ -91,7 +91,7 @@ internal sealed class BranchApiFactory(string connectionString) : WebApplication
             services.RemoveAll<DbContextOptions<AppDbContext>>();
             services.RemoveAll<AppDbContext>();
             services.AddDbContext<AppDbContext>(options =>
-                options.UseSqlServer(connectionString, sql => sql.EnableRetryOnFailure()));
+                options.UseNpgsql(connectionString, sql => sql.EnableRetryOnFailure()));
         });
     }
 }

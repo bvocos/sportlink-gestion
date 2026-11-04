@@ -26,7 +26,7 @@ public sealed class PresupuestoPdfTests
     public void PrepareCreateAttempt_ClearsTrackedEntitiesOnlyOnRetry()
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()
-            .UseSqlServer("Server=localhost;Database=StateOnly;User ID=sa;Password=NotUsed123!;TrustServerCertificate=True")
+            .UseNpgsql("Host=localhost;Database=StateOnly;Username=x;Password=x")
             .Options;
         using var db = new AppDbContext(options);
         var attempt = 0;
@@ -45,7 +45,7 @@ public sealed class PresupuestoPdfTests
     public void ReplaceLines_DeletesEveryExistingLineAndAddsAllReplacements()
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()
-            .UseSqlServer("Server=localhost;Database=StateOnly;User ID=sa;Password=NotUsed123!;TrustServerCertificate=True")
+            .UseNpgsql("Host=localhost;Database=StateOnly;Username=x;Password=x")
             .Options;
         using var db = new AppDbContext(options);
         var first = new PresupuestoLinea { Producto = "Anterior 1" };
