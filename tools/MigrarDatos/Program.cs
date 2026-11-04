@@ -22,7 +22,17 @@ if (origen is null || destino is null)
 destino = ToNpgsql(destino);
 
 await using var sql = new SqlConnection(origen);
-await sql.OpenAsync();
+// Azure SQL serverless se pausa sin uso: el primer intento la reanuda (error 40613) y tarda ~1 minuto.
+for (var intento = 1; ; intento++)
+{
+    try { await sql.OpenAsync(); break; }
+    catch (SqlException ex) when (intento < 12 && ex.Number is 40613 or 40197 or 40501 or 49918 or 4060 or -2)
+    {
+        Console.WriteLine($"Base de origen no disponible todavía (error {ex.Number}), reintentando en 15 s...");
+        SqlConnection.ClearPool(sql);
+        await Task.Delay(TimeSpan.FromSeconds(15));
+    }
+}
 await using var pg = new NpgsqlConnection(destino);
 await pg.OpenAsync();
 
