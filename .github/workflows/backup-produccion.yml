@@ -1,0 +1,67 @@
+name: Backup base de producción
+
+# Volcado completo de la base PostgreSQL de producción (Railway), cifrado.
+# El repositorio es público: el archivo se cifra con la llave pública de
+# .github/backup/clave-publica-backups.pem y solo se puede abrir con la llave
+# privada, que NO está en GitHub. Restauración: scripts/restaurar-backup.sh
+on:
+  schedule:
+    - cron: "0 6 * * *" # todos los días a las 03:00 (hora de Argentina)
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backup-produccion
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PG_IMAGE: postgres:18 # misma versión mayor que el servidor de Railway
+    steps:
+      - name: Descargar código
+        uses: actions/checkout@v4
+
+      - name: Volcar la base
+        env:
+          DATABASE_URL: ${{ secrets.RAILWAY_PROD_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DATABASE_URL}" ]; then echo "Falta el secret RAILWAY_PROD_DATABASE_URL"; exit 1; fi
+          mkdir -p work
+          docker run --rm -e PGSSLMODE=require -v "$PWD/work:/work" "$PG_IMAGE" \
+            pg_dump --dbname="$DATABASE_URL" --format=custom --no-owner --no-privileges \
+            --file=/work/sportlink.dump
+          # Comprobar que el volcado se puede leer y contiene las tablas del sistema.
+          docker run --rm -v "$PWD/work:/work" "$PG_IMAGE" pg_restore --list /work/sportlink.dump > work/contenido.txt
+          for tabla in Ventas Cuotas Clientes Usuarios MovimientosCaja Presupuestos; do
+            grep -q "TABLE DATA public \"\?$tabla\"\? " work/contenido.txt || { echo "Falta la tabla $tabla en el volcado"; exit 1; }
+          done
+          ls -lh work/sportlink.dump
+
+      - name: Cifrar
+        run: |
+          set -euo pipefail
+          cd work
+          openssl rand -out clave.bin 32
+          openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt -in sportlink.dump -out sportlink.dump.enc -pass file:clave.bin
+          openssl pkeyutl -encrypt -pubin -inkey ../.github/backup/clave-publica-backups.pem \
+            -pkeyopt rsa_padding_mode:oaep -in clave.bin -out clave.bin.enc
+          shred -u clave.bin sportlink.dump contenido.txt
+          sha256sum sportlink.dump.enc clave.bin.enc > SHA256SUMS
+          echo "STAMP=$(date -u +%Y-%m-%d_%H%M)" >> "$GITHUB_ENV"
+
+      - name: Guardar backup (90 días)
+        uses: actions/upload-artifact@v4
+        with:
+          name: backup-produccion-${{ env.STAMP }}
+          path: |
+            work/sportlink.dump.enc
+            work/clave.bin.enc
+            work/SHA256SUMS
+          retention-days: 90
+          if-no-files-found: error
