@@ -312,15 +312,18 @@ onMounted(load)
         :rows="TABLE_ROWS"
         :rows-per-page-options="TABLE_ROWS_OPTIONS"
         striped-rows
+        class="productos-table"
       >
-        <Column header="Nombre">
+        <Column header="Nombre" body-class="col-wrap col-nombre">
           <template #body="{ data }"><b>{{ data.nombre }}</b></template>
         </Column>
-        <Column header="Depósitos">
+        <Column header="Depósitos" body-class="col-wrap col-depositos">
           <template #body="{ data }">{{ depositLabel(data) }}</template>
         </Column>
-        <Column header="Descripción">
-          <template #body="{ data }">{{ data.descripcion || '—' }}</template>
+        <Column header="Descripción" body-class="col-wrap col-descripcion">
+          <template #body="{ data }">
+            <span class="descripcion-recortada" :title="data.descripcion || ''">{{ data.descripcion || '—' }}</span>
+          </template>
         </Column>
         <Column header="Venta / m²">
           <template #body="{ data }">{{ money(data.precioVentaM2) }}</template>
@@ -334,7 +337,7 @@ onMounted(load)
         <Column header="Financiado / m²">
           <template #body="{ data }">{{ money(data.precioFinanciadoM2) }}</template>
         </Column>
-        <Column header="Colores">
+        <Column header="Colores" body-class="col-wrap col-colores">
           <template #body="{ data }">
             <div class="flex flex-wrap gap-1">
               <Tag v-for="color in data.colores" :key="color" :value="color" severity="secondary" />
@@ -518,3 +521,24 @@ onMounted(load)
     </article>
   </section>
 </template>
+
+<style scoped>
+/* Productos: las columnas de texto pasan a la línea siguiente en vez de ensanchar la tabla
+   (el estilo global de tablas mantiene cada celda en una sola línea). */
+.productos-table :deep(.p-datatable-tbody > tr > td.col-wrap) {
+  white-space: normal;
+  overflow-wrap: break-word;
+}
+.productos-table :deep(.p-datatable-tbody > tr > td.col-nombre) { min-width: 9rem; max-width: 13rem; }
+.productos-table :deep(.p-datatable-tbody > tr > td.col-depositos) { min-width: 8rem; max-width: 11rem; }
+.productos-table :deep(.p-datatable-tbody > tr > td.col-descripcion) { min-width: 12rem; max-width: 20rem; }
+.productos-table :deep(.p-datatable-tbody > tr > td.col-colores) { min-width: 6rem; max-width: 12rem; }
+/* Descripción larga: 2 líneas y "…"; el texto completo aparece al pasar el mouse. */
+.descripcion-recortada {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+</style>
