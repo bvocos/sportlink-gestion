@@ -63,6 +63,16 @@ public sealed class PresupuestoPdfTests
     }
 
     [Fact]
+    public void CashOption_ShowsDiscountButNotVat()
+    {
+        var quote = new Presupuesto { DescuentoContadoPorcentaje = 5, IvaContadoPorcentaje = 10.5m };
+        var text = PresupuestoPdf.CashDetailText(quote);
+        Assert.StartsWith("Descuento 5", text);
+        Assert.DoesNotContain("IVA", text);
+        Assert.DoesNotContain("10", text);
+    }
+
+    [Fact]
     public void Totals_UseConfiguredPricesWithoutAddingInformationalTaxPercentages()
     {
         var quote = new Presupuesto { DescuentoContadoPorcentaje = 5, IvaContadoPorcentaje = 10.5m, IvaFinanciadoPorcentaje = 21, EntregaFinanciada = 1000,
