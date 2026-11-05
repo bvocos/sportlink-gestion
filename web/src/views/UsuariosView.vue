@@ -14,6 +14,7 @@ import AppIcon from '@/shared/components/AppIcon.vue'
 import { faPen, faTrash } from '@/shared/icons'
 import { http, apiErrorMessage } from '@/shared/api/httpClient'
 import { confirmAction, notify } from '@/shared/uiFeedback'
+import { auth } from '@/auth'
 import { TABLE_ROWS, TABLE_ROWS_OPTIONS } from '@/shared/tablePagination'
 
 const permissionModules = [
@@ -168,6 +169,8 @@ const blank = () => ({
 })
 
 const form = ref(blank())
+// Editar el propio usuario: la contraseña nueva queda definitiva. Para otros usuarios es provisional.
+const editingSelf = computed(() => !!editing.value && editing.value === auth.state.user?.id)
 const sucursalesActivas = computed(() => sucursales.value.filter(x => x.activo))
 
 async function loadSucursales() {
@@ -418,6 +421,13 @@ onMounted(async () => {
                 @click="togglePasswordChange"
               />
             </div>
+            <div v-if="!editing || changingPassword" class="field col-12">
+              <small class="password-hint">
+                {{ editingSelf
+                  ? 'Es tu propio usuario: la nueva contraseña queda activa y no se te pedirá cambiarla.'
+                  : 'Es una contraseña provisional: el usuario deberá elegir una propia la próxima vez que ingrese.' }}
+              </small>
+            </div>
           </div>
         </section>
 
@@ -498,3 +508,10 @@ onMounted(async () => {
     </article>
   </section>
 </template>
+
+<style scoped>
+.password-hint {
+  color: #5c6f65;
+  font-size: 12px;
+}
+</style>

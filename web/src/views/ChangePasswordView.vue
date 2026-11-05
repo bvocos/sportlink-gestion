@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import AppButton from '@/shared/components/AppButton.vue'
 import Message from 'primevue/message'
@@ -12,6 +12,13 @@ const nueva = ref('')
 const confirmacion = ref('')
 const error = ref('')
 const loading = ref(false)
+// Obligatorio: primer ingreso o contraseña provisional asignada por un administrador.
+const obligatorio = computed(() => auth.state.user?.debeCambiarPassword === true)
+
+function volver() {
+  if (window.history.length > 1) router.back()
+  else router.push('/')
+}
 
 async function submit() {
   error.value = ''
@@ -41,7 +48,8 @@ async function submit() {
     <form class="login-card p-fluid" @submit.prevent="submit">
       <img src="/brand/sportlink-logo.png" alt="Sportlink by Empire">
       <h1>Cambiar contraseña</h1>
-      <p>Por seguridad, debés crear una contraseña personal antes de continuar.</p>
+      <p v-if="obligatorio">Por seguridad, debés crear una contraseña personal antes de continuar.</p>
+      <p v-else>Ingresá tu contraseña actual y elegí una nueva.</p>
       <div class="field">
         <label for="actual">Contraseña actual</label>
         <Password
@@ -81,6 +89,16 @@ async function submit() {
       </div>
       <Message v-if="error" severity="error" :closable="false">{{ error }}</Message>
       <AppButton type="submit" :label="loading ? 'Guardando…' : 'Cambiar contraseña'" :loading="loading" class="w-full" />
+      <AppButton
+        v-if="!obligatorio"
+        type="button"
+        label="Volver"
+        severity="secondary"
+        text
+        class="w-full mt-2"
+        :disabled="loading"
+        @click="volver"
+      />
     </form>
   </main>
 </template>
