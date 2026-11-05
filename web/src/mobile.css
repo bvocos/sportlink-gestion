@@ -79,7 +79,8 @@ body {
     display: revert !important;
   }
 
-  .shell.sidebar-collapsed nav a {
+  .shell.sidebar-collapsed nav a,
+  .shell.sidebar-collapsed .profile .logout {
     justify-content: flex-start !important;
     padding: 7px 10px !important;
   }

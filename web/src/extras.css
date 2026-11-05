@@ -205,6 +205,18 @@ nav a.router-link-active {
   border-radius: 8px;
   font-size: 13px;
 }
+/* Acciones del perfil (Cambiar contraseña, Salir): una línea, alineadas a la izquierda
+   y con el mismo color que los enlaces del menú. */
+.profile .logout {
+  width: 100%;
+  justify-content: flex-start;
+  gap: 10px;
+  white-space: nowrap;
+  color: #c6d6ce;
+  font-weight: 600;
+}
+.profile .logout:hover { background: #ffffff12; color: #fff; }
+.sidebar-collapsed .profile .logout { justify-content: center; }
 .logout:hover { background: #ffffff12; color: #fff; }
 .shell-overlay {
   display: none;
