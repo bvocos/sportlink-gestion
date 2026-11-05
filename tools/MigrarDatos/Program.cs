@@ -86,6 +86,23 @@ await using (var tx = await pg.BeginTransactionAsync())
         var copied = await CopyTable(sql, pg, table, columns);
         Console.WriteLine($"  {table,-28} {copied,8} filas copiadas");
     }
+    // Las filas se copiaron con su Id: adelantar los contadores automáticos (identity) al máximo,
+    // si no los próximos INSERT chocan con Ids existentes (p. ej. RegistrosAuditoria).
+    await Exec(pg, """
+        DO $$
+        DECLARE r record; maxv bigint;
+        BEGIN
+          FOR r IN
+            SELECT c.table_name, c.column_name, pg_get_serial_sequence(format('%I', c.table_name), c.column_name) AS seq
+            FROM information_schema.columns c
+            WHERE c.table_schema = 'public' AND (c.is_identity = 'YES' OR c.column_default LIKE 'nextval%')
+          LOOP
+            CONTINUE WHEN r.seq IS NULL;
+            EXECUTE format('SELECT max(%I) FROM %I', r.column_name, r.table_name) INTO maxv;
+            IF maxv IS NULL THEN PERFORM setval(r.seq, 1, false); ELSE PERFORM setval(r.seq, maxv, true); END IF;
+          END LOOP;
+        END $$;
+        """, tx);
     await tx.CommitAsync();
 }
 

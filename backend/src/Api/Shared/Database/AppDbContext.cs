@@ -199,6 +199,8 @@ public static class SeedData
     public static async Task InitializeAsync(IServiceProvider services)
     {
         using var scope = services.CreateScope(); var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        // Tras copiar o restaurar datos con Ids explícitos, los contadores automáticos deben quedar por encima.
+        await IdentitySequences.AlignAsync(db);
         // Filas fijas que el sistema espera encontrar (sucursales base y los "Sin asignar" de datos históricos).
         // El esquema lo crean las migraciones; aquí solo se insertan los datos si faltan.
         await EnsureBranch(db, SanFranciscoSucursalId, SanFranciscoDepositoId, "San Francisco", activo: true);
