@@ -122,11 +122,11 @@ public static class AuthEndpoints
         if (user is null)
         {
             await Task.Delay(200, ct);
-            return Results.Problem(statusCode: 401, title: "Usuario o contrase?a incorrectos");
+            return Results.Problem(statusCode: 401, title: "Usuario o contraseña incorrectos");
         }
         if (user.BloqueadoHasta > DateTimeOffset.UtcNow)
             return Results.Problem(statusCode: 429, title: "Cuenta temporalmente bloqueada",
-                detail: "Esper? 15 minutos antes de volver a intentar.");
+                detail: "Esperá 15 minutos antes de volver a intentar.");
 
         if (hasher.VerifyHashedPassword(user, user.PasswordHash, request.Password) == PasswordVerificationResult.Failed)
         {
@@ -137,7 +137,7 @@ public static class AuthEndpoints
                 user.BloqueadoHasta = DateTimeOffset.UtcNow.Add(DuracionBloqueo);
             }
             await db.SaveChangesAsync(ct);
-            return Results.Problem(statusCode: 401, title: "Usuario o contrase?a incorrectos");
+            return Results.Problem(statusCode: 401, title: "Usuario o contraseña incorrectos");
         }
 
         user.IntentosFallidos = 0;
@@ -157,13 +157,13 @@ public static class AuthEndpoints
         var user = await db.Usuarios.Include(x => x.Sucursal).SingleOrDefaultAsync(x => x.Id == id, ct);
         if (user is null || !user.Activo) return Results.Unauthorized();
         if (hasher.VerifyHashedPassword(user, user.PasswordHash, request.PasswordActual) == PasswordVerificationResult.Failed)
-            return Results.ValidationProblem(new Dictionary<string, string[]> { ["passwordActual"] = ["La contrase?a actual no es correcta."] });
+            return Results.ValidationProblem(new Dictionary<string, string[]> { ["passwordActual"] = ["La contraseña actual no es correcta."] });
         if (request.PasswordNueva.Length < 8)
-            return Results.ValidationProblem(new Dictionary<string, string[]> { ["passwordNueva"] = ["La nueva contrase?a debe tener al menos 8 caracteres."] });
+            return Results.ValidationProblem(new Dictionary<string, string[]> { ["passwordNueva"] = ["La nueva contraseña debe tener al menos 8 caracteres."] });
         if (request.PasswordNueva != request.Confirmacion)
-            return Results.ValidationProblem(new Dictionary<string, string[]> { ["confirmacion"] = ["Las contrase?as no coinciden."] });
+            return Results.ValidationProblem(new Dictionary<string, string[]> { ["confirmacion"] = ["Las contraseñas no coinciden."] });
         if (hasher.VerifyHashedPassword(user, user.PasswordHash, request.PasswordNueva) != PasswordVerificationResult.Failed)
-            return Results.ValidationProblem(new Dictionary<string, string[]> { ["passwordNueva"] = ["La nueva contrase?a debe ser diferente de la actual."] });
+            return Results.ValidationProblem(new Dictionary<string, string[]> { ["passwordNueva"] = ["La nueva contraseña debe ser diferente de la actual."] });
 
         user.PasswordHash = hasher.HashPassword(user, request.PasswordNueva);
         user.DebeCambiarPassword = false;
@@ -193,7 +193,7 @@ public static class AuthEndpoints
         if (!request.SucursalId.HasValue)
             return new() { ["sucursalId"] = ["La sucursal es obligatoria para usuarios que no son administradores."] };
         if (!await db.Sucursales.AnyAsync(x => x.Id == request.SucursalId.Value && x.Activo, ct))
-            return new() { ["sucursalId"] = ["Seleccion? una sucursal activa."] };
+            return new() { ["sucursalId"] = ["Seleccioná una sucursal activa."] };
         return null;
     }
 
@@ -203,7 +203,7 @@ public static class AuthEndpoints
         if (string.IsNullOrWhiteSpace(request.Nombre) || string.IsNullOrWhiteSpace(request.NombreUsuario))
             return Results.ValidationProblem(new Dictionary<string, string[]> { ["usuario"] = ["Nombre y usuario son obligatorios."] });
         if (string.IsNullOrWhiteSpace(request.Password) || request.Password.Length < 8)
-            return Results.ValidationProblem(new Dictionary<string, string[]> { ["password"] = ["La contrase?a debe tener al menos 8 caracteres."] });
+            return Results.ValidationProblem(new Dictionary<string, string[]> { ["password"] = ["La contraseña debe tener al menos 8 caracteres."] });
         if (await db.Usuarios.AnyAsync(x => x.NombreUsuario == request.NombreUsuario.Trim(), ct))
             return Results.Conflict(new { message = "El usuario ya existe." });
         var permissionErrors = request.Permisos?.Validar() ?? new() { ["permisos"] = ["La matriz de permisos es obligatoria."] };
@@ -223,7 +223,7 @@ public static class AuthEndpoints
         return Results.Created($"/api/usuarios/{user.Id}", new { user.Id });
     }
 
-    private static async Task<IResult> Update(Guid id, UsuarioRequest request, AppDbContext db,
+    private static async Task<IResult> Update(Guid id, UsuarioRequest request, ClaimsPrincipal current, AppDbContext db,
         IPasswordHasher<Usuario> hasher, CancellationToken ct)
     {
         var user = await db.Usuarios.FindAsync([id], ct);
@@ -243,18 +243,26 @@ public static class AuthEndpoints
         if (!string.IsNullOrWhiteSpace(request.Password))
         {
             if (request.Password.Length < 8)
-                return Results.BadRequest(new { message = "La contrase?a debe tener al menos 8 caracteres." });
+                return Results.BadRequest(new { message = "La contraseña debe tener al menos 8 caracteres." });
             user.PasswordHash = hasher.HashPassword(user, request.Password);
-            user.DebeCambiarPassword = true;
+            // Si el administrador cambia su propia contraseña, la eligió él: queda definitiva.
+            // Si se la cambia a otro usuario es provisional y ese usuario debe reemplazarla al ingresar.
+            user.DebeCambiarPassword = !EsUsuarioActual(current, id);
+            // Una contraseña nueva también desbloquea la cuenta si estaba bloqueada por intentos fallidos.
+            user.IntentosFallidos = 0;
+            user.BloqueadoHasta = null;
         }
         await db.SaveChangesAsync(ct);
         return Results.NoContent();
     }
 
+    internal static bool EsUsuarioActual(ClaimsPrincipal current, Guid id) =>
+        Guid.TryParse(current.FindFirstValue(ClaimTypes.NameIdentifier), out var currentId) && currentId == id;
+
     private static async Task<IResult> Delete(Guid id, ClaimsPrincipal current, AppDbContext db, CancellationToken ct)
     {
-        if (current.FindFirstValue(ClaimTypes.NameIdentifier) == id.ToString())
-            return Results.Conflict(new { message = "No pod?s eliminar tu propio usuario." });
+        if (EsUsuarioActual(current, id))
+            return Results.Conflict(new { message = "No podés eliminar tu propio usuario." });
         var user = await db.Usuarios.FindAsync([id], ct);
         if (user is null) return Results.NotFound();
         db.Remove(user);

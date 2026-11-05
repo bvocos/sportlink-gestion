@@ -61,8 +61,9 @@ router.beforeEach(async to => {
     return { name: 'login' }
   if (auth.state.user.debeCambiarPassword && !to.meta.passwordChange)
     return { name: 'cambiar-password' }
+  // Cualquier usuario puede cambiar su contraseña cuando quiera (no solo cuando es obligatorio).
   if (to.meta.passwordChange)
-    return auth.state.user.debeCambiarPassword ? true : landingPage()
+    return true
   if (to.meta.admin && auth.state.user.rol !== 'Administrador')
     return landingPage()
   if (auth.state.user.rol === 'Administrador' && !branchContext.state.active && !to.meta.branchSelection)

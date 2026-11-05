@@ -18,6 +18,7 @@ import {
   faFileLines,
   faGear,
   faHouse,
+  faKey,
   faReceipt,
   faRightFromBracket,
   faTruck,
@@ -244,6 +245,16 @@ watch(() => branchContext.state.version, loadSucursales)
             <small>{{ auth.state.user?.rol }}</small>
           </span>
         </div>
+        <AppButton
+          v-tooltip.top="'Cambiar contraseña'"
+          class="logout"
+          text
+          aria-label="Cambiar contraseña"
+          @click="router.push({ name: 'cambiar-password' })"
+        >
+          <AppIcon :icon="faKey" />
+          <span>Cambiar contraseña</span>
+        </AppButton>
         <AppButton v-tooltip.top="'Salir'" class="logout" text aria-label="Salir" @click="logout">
           <AppIcon :icon="faRightFromBracket" />
           <span>Salir</span>
