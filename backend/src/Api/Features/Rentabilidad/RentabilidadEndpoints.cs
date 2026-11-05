@@ -28,6 +28,25 @@ public static class RentabilidadEndpoints
         var group = app.MapGroup("/api/rentabilidad").WithTags("Rentabilidad");
         group.MapGet("/", GetReport).RequirePermiso("rentabilidad", "ver");
         group.MapGet("/exportar", ExportAll).RequirePermiso("rentabilidad", "ver");
+        group.MapGet("/rango-inicial", GetInitialRange).RequirePermiso("rentabilidad", "ver");
+    }
+
+    /// <summary>
+    /// Fecha "Desde" por defecto del reporte. Solo San Francisco arranca en su primera venta (no cancelada);
+    /// el resto de las sucursales mantiene el mes en curso (null = usar el rango por defecto del frontend).
+    /// </summary>
+    internal static async Task<DateOnly?> InitialFromAsync(Guid? sucursalId, IQueryable<Venta> ventasVisibles,
+        CancellationToken ct = default)
+    {
+        if (sucursalId != SeedData.SanFranciscoSucursalId) return null;
+        return await ventasVisibles.Where(x => x.Estado != EstadoVenta.Cancelada)
+            .MinAsync(x => (DateOnly?)x.FechaVenta, ct);
+    }
+
+    private static async Task<IResult> GetInitialRange(ClaimsPrincipal user, AppDbContext db, CancellationToken ct)
+    {
+        var desde = await InitialFromAsync(user.SucursalId(), VisibleQuery(db.Ventas.AsNoTracking(), user), ct);
+        return Results.Ok(new { desde });
     }
 
     internal static IQueryable<Venta> ApplyFilters(IQueryable<Venta> query, string? buscar,

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import AppButton from '@/shared/components/AppButton.vue'
 import Column from 'primevue/column'
 import DataTable from 'primevue/datatable'
@@ -87,13 +87,30 @@ async function load(reset = false) {
     loading.value = false
   }
 }
-function clearFilters() {
-  buscar.value = ''
+// Rango por defecto: mes en curso. En San Francisco el servidor devuelve la fecha de su primera
+// venta y el reporte arranca desde ahí (Buenos Aires sigue con el mes en curso).
+// Mientras se fijan los filtros por código, el observador no recarga (la carga la hace quien llama).
+let applyingRange = true
+async function applyInitialRange() {
+  applyingRange = true
   const range = monthRange()
-  desde.value = range.desde
+  let initialFrom: string | null = null
+  try {
+    initialFrom = (await http.get('/rentabilidad/rango-inicial')).data?.desde ?? null
+  } catch {
+    initialFrom = null
+  }
+  desde.value = initialFrom ?? range.desde
   hasta.value = range.hasta
+  await nextTick()
+  applyingRange = false
+}
+async function clearFilters() {
+  applyingRange = true
+  buscar.value = ''
   estadoFinanciero.value = ''
   sucursalId.value = ''
+  await applyInitialRange()
   load(true)
 }
 function onPage(event: DataTablePageEvent) {
@@ -137,9 +154,14 @@ async function exportAll() {
     exporting.value = false
   }
 }
-onMounted(() => load())
+onMounted(async () => {
+  await applyInitialRange()
+  load()
+})
 useDebouncedSearch(buscar, () => load(true))
-useImmediateFilters([desde, hasta, estadoFinanciero, sucursalId], () => load(true))
+useImmediateFilters([desde, hasta, estadoFinanciero, sucursalId], () => {
+  if (!applyingRange) load(true)
+})
 </script>
 
 <template>
