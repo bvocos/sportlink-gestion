@@ -42,4 +42,24 @@ public sealed class MaestroScopeTests
 
         Assert.Equal(visibleNew, product.DepositoId);
     }
+
+    [Fact]
+    public void Usuario_de_buenos_aires_ve_el_deposito_de_su_sucursal_en_el_producto()
+    {
+        var buenosAires = Guid.NewGuid();
+        var sanFrancisco = Guid.NewGuid();
+        var product = new TipoCesped
+        {
+            DepositoId = buenosAires,
+            Depositos =
+            [
+                new TipoCespedDeposito { DepositoId = sanFrancisco },
+                new TipoCespedDeposito { DepositoId = buenosAires }
+            ]
+        };
+
+        var visible = MaestroEndpoints.VisibleAssignedDepositIds(product, new HashSet<Guid> { buenosAires });
+
+        Assert.Equal([buenosAires], visible);
+    }
 }

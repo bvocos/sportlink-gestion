@@ -47,6 +47,41 @@ public sealed class StockVisibilityTests
         Assert.DoesNotContain(visible, x => x.Id == DepositoBuenosAires);
     }
 
+    [Fact]
+    public void Usuario_de_buenos_aires_ve_deposito_de_buenos_aires()
+    {
+        var deposits = Deposits().AsQueryable();
+        var visible = StockEndpoints.VisibleDepositQuery(deposits, BuenosAiresUser(), DepositoBuenosAires).ToList();
+        Assert.Single(visible);
+        Assert.Equal(DepositoBuenosAires, visible[0].Id);
+    }
+
+    [Fact]
+    public void Usuario_de_buenos_aires_no_ve_depositos_de_san_francisco()
+    {
+        var deposits = Deposits().AsQueryable();
+        var visible = StockEndpoints.VisibleDepositQuery(deposits, BuenosAiresUser(), DepositoBuenosAires).ToList();
+        Assert.DoesNotContain(visible, x => x.SucursalId == SanFrancisco);
+    }
+
+    [Fact]
+    public void Usuario_de_buenos_aires_ve_movimientos_de_su_deposito()
+    {
+        var deposits = Deposits().ToDictionary(x => x.Id);
+        var rows = deposits.Values.Select(x => new MovimientoStock { DepositoId = x.Id, Deposito = x }).AsQueryable();
+        var visible = StockEndpoints.VisibleMovementQuery(rows, BuenosAiresUser(), DepositoBuenosAires, null).ToList();
+        Assert.Single(visible);
+        Assert.Equal(DepositoBuenosAires, visible[0].DepositoId);
+    }
+
+    [Fact]
+    public void Usuario_de_buenos_aires_no_ve_lotes_de_san_francisco()
+    {
+        var deposits = Deposits().ToDictionary(x => x.Id);
+        var rows = deposits.Values.Select(x => new LoteStock { DepositoId = x.Id, Deposito = x }).AsQueryable();
+        Assert.Empty(StockEndpoints.VisibleLotQuery(rows, BuenosAiresUser(), DepositoBuenosAires, DepositoCentral));
+    }
+
     private static Deposito[] Deposits() =>
     [
         new() { Id = DepositoCentral, SucursalId = SanFrancisco },
@@ -54,8 +89,9 @@ public sealed class StockVisibilityTests
         new() { Id = DepositoBuenosAires, SucursalId = BuenosAires }
     ];
 
-    private static ClaimsPrincipal BranchUser() => Principal("Usuario");
-    private static ClaimsPrincipal Administrator() => Principal("Administrador");
-    private static ClaimsPrincipal Principal(string role) => new(new ClaimsIdentity(
-        [new Claim(ClaimTypes.Name, role), new Claim(ClaimTypes.Role, role), new Claim("sucursal_id", SanFrancisco.ToString())], "Test"));
+    private static ClaimsPrincipal BranchUser() => Principal("Usuario", SanFrancisco);
+    private static ClaimsPrincipal BuenosAiresUser() => Principal("Usuario", BuenosAires);
+    private static ClaimsPrincipal Administrator() => Principal("Administrador", SanFrancisco);
+    private static ClaimsPrincipal Principal(string role, Guid sucursalId) => new(new ClaimsIdentity(
+        [new Claim(ClaimTypes.Name, role), new Claim(ClaimTypes.Role, role), new Claim("sucursal_id", sucursalId.ToString())], "Test"));
 }

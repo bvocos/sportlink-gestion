@@ -19,36 +19,67 @@ public static class MaestroEndpoints
         app.MapGet("/api/maestros", GetAll).WithTags("Maestros").RequirePermiso("ventas", "ver");
         var types = app.MapGroup("/api/maestros/tipos-cesped").WithTags("Maestros - Tipos de césped");
         types.MapGet("/", GetTypes).RequirePermiso("administracion", "ver");
+        types.MapGet("/depositos", ListVisibleDeposits).RequirePermiso("administracion", "ver");
         types.MapPost("/", CreateType).RequirePermiso("administracion", "crear");
         types.MapPut("/{id:guid}", UpdateType).RequirePermiso("administracion", "editar");
         types.MapDelete("/{id:guid}", DeleteType).RequirePermiso("administracion", "editar");
     }
 
     private static string[] Colors(TipoCesped type) => JsonSerializer.Deserialize<string[]>(type.ColoresJson) ?? [];
-    private static object ToDto(TipoCesped type) => new
+
+    internal static Guid[] AssignedDepositIds(TipoCesped type) =>
+        type.Depositos.Select(x => x.DepositoId).Append(type.DepositoId)
+            .Where(x => x != Guid.Empty).Distinct().ToArray();
+
+    internal static Guid[] VisibleAssignedDepositIds(TipoCesped type, IReadOnlySet<Guid> visibleDepositIds) =>
+        AssignedDepositIds(type).Where(visibleDepositIds.Contains).ToArray();
+
+    private static object ToDto(TipoCesped type, IReadOnlyDictionary<Guid, string>? visibleDeposits = null)
     {
-        type.Id, type.DepositoId, depositoIds = type.Depositos.Count > 0
-            ? type.Depositos.Select(x => x.DepositoId).Distinct().ToArray() : new[] { type.DepositoId },
-        type.Nombre, type.Descripcion, type.DescripcionPresupuesto, type.EspecificacionesPresupuesto,
-        type.FichaTecnicaUrl, type.PrecioVentaM2, type.PrecioContadoM2, type.PrecioFinanciadoM2, type.CostoM2,
-        colores = Colors(type), type.ControlPorLotes, type.Activo
-    };
+        var ids = visibleDeposits is null
+            ? AssignedDepositIds(type)
+            : VisibleAssignedDepositIds(type, visibleDeposits.Keys.ToHashSet());
+        return new
+        {
+            type.Id, depositoId = ids.Length > 0 ? ids[0] : type.DepositoId, depositoIds = ids,
+            depositos = ids.Where(id => visibleDeposits?.ContainsKey(id) == true)
+                .Select(id => new { id, nombre = visibleDeposits![id] }).ToArray(),
+            type.Nombre, type.Descripcion, type.DescripcionPresupuesto, type.EspecificacionesPresupuesto,
+            type.FichaTecnicaUrl, type.PrecioVentaM2, type.PrecioContadoM2, type.PrecioFinanciadoM2, type.CostoM2,
+            colores = Colors(type), type.ControlPorLotes, type.Activo
+        };
+    }
+
+    private static async Task<Dictionary<Guid, string>> VisibleDepositNames(ClaimsPrincipal user, AppDbContext db, CancellationToken ct) =>
+        await SucursalDepositoService.VisibleDeposits(db.Depositos.AsNoTracking(), user)
+            .ToDictionaryAsync(x => x.Id, x => x.Nombre, ct);
+
+    private static async Task<IResult> ListVisibleDeposits(ClaimsPrincipal user, AppDbContext db, CancellationToken ct)
+    {
+        var deposits = await SucursalDepositoService.VisibleDeposits(db.Depositos.AsNoTracking(), user)
+            .OrderBy(x => x.Nombre)
+            .Select(x => new { x.Id, x.SucursalId, x.Nombre, x.Activo })
+            .ToListAsync(ct);
+        return Results.Ok(deposits);
+    }
 
     private static async Task<IReadOnlyList<object>> GetTypes(ClaimsPrincipal user, AppDbContext db, CancellationToken ct)
     {
+        var deposits = await VisibleDepositNames(user, db, ct);
         return (await SucursalDepositoService.VisibleProducts(
                 db.TiposCesped.AsNoTracking().Include(x => x.Depositos), user, db.Depositos.AsNoTracking())
-            .OrderBy(x => x.Nombre).ToListAsync(ct)).Select(ToDto).ToList();
+            .OrderBy(x => x.Nombre).ToListAsync(ct)).Select(type => ToDto(type, deposits)).ToList();
     }
 
     private static async Task<object> GetAll(ClaimsPrincipal user, AppDbContext db, CancellationToken ct)
     {
+        var deposits = await VisibleDepositNames(user, db, ct);
         return new
         {
             tiposCesped = (await SucursalDepositoService.VisibleProducts(
                     db.TiposCesped.AsNoTracking().Include(x => x.Depositos).Where(x => x.Activo), user,
                     db.Depositos.AsNoTracking().Where(x => x.Activo))
-                .OrderBy(x => x.Nombre).ToListAsync(ct)).Select(ToDto).ToList(),
+                .OrderBy(x => x.Nombre).ToListAsync(ct)).Select(type => ToDto(type, deposits)).ToList(),
             alicuotasIva = await db.AlicuotasIva.AsNoTracking().OrderBy(x => x.Porcentaje).ToListAsync(ct),
             tiposCliente = Enum.GetNames<TipoCliente>(), formasPago = Enum.GetNames<FormaPago>()
         };
