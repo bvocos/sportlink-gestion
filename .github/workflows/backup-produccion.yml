@@ -33,11 +33,12 @@ jobs:
           set -euo pipefail
           if [ -z "${DATABASE_URL}" ]; then echo "Falta el secret RAILWAY_PROD_DATABASE_URL"; exit 1; fi
           mkdir -p work
-          docker run --rm -e PGSSLMODE=require -v "$PWD/work:/work" "$PG_IMAGE" \
+          # --user: que los archivos queden del usuario del runner (si no, son de root y no se pueden borrar)
+          docker run --rm --user "$(id -u):$(id -g)" -e PGSSLMODE=require -v "$PWD/work:/work" "$PG_IMAGE" \
             pg_dump --dbname="$DATABASE_URL" --format=custom --no-owner --no-privileges \
             --file=/work/sportlink.dump
           # Comprobar que el volcado se puede leer y contiene las tablas del sistema.
-          docker run --rm -v "$PWD/work:/work" "$PG_IMAGE" pg_restore --list /work/sportlink.dump > work/contenido.txt
+          docker run --rm --user "$(id -u):$(id -g)" -v "$PWD/work:/work" "$PG_IMAGE" pg_restore --list /work/sportlink.dump > work/contenido.txt
           for tabla in Ventas Cuotas Clientes Usuarios MovimientosCaja Presupuestos; do
             grep -q "TABLE DATA public \"\?$tabla\"\? " work/contenido.txt || { echo "Falta la tabla $tabla en el volcado"; exit 1; }
           done
