@@ -57,15 +57,22 @@ public static class CuotaEndpoints
         var query = VisibleQuery(db.Cuotas.AsNoTracking(), user, sucursalId)
             .Include(x => x.Venta).ThenInclude(x => x.Cliente)
             .Include(x => x.Venta).ThenInclude(x => x.TipoCesped)
-            .Where(x => abonadas ? x.ImportePagado >= x.ImportePactado : x.ImportePagado < x.ImportePactado);
+            // Abonadas: con algún cobro (las que quedaron en $0 por un pago adelantado no se listan).
+            .Where(x => abonadas ? x.ImportePagado > 0 && x.ImportePagado >= x.ImportePactado : x.ImportePagado < x.ImportePactado);
         var rows = await query.OrderByDescending(x => abonadas ? x.FechaPago : null).ThenBy(x => x.FechaVencimiento)
-            .Select(x => new { x.Id, x.VentaId, cliente = x.Venta.Cliente.Nombre + " " + x.Venta.Cliente.Apellido,
+            .Select(x => new { x.Id, x.VentaId, x.SucursalId, cliente = x.Venta.Cliente.Nombre + " " + x.Venta.Cliente.Apellido,
                 fechaVenta = x.Venta.FechaVenta, tipoCesped = x.Venta.TipoCesped.Nombre, totalVenta = x.Venta.PrecioTotal,
                 x.Numero, x.FechaVencimiento, x.FechaPago, fechaImpacto = x.UpdatedAt ?? x.CreatedAt, x.MedioPago,
                 x.ImportePactado, x.ImportePagado,
                 estado = abonadas ? EstadoCuota.Pagada : x.FechaVencimiento < DateOnly.FromDateTime(DateTime.Today) && x.Estado != EstadoCuota.Pagada ? EstadoCuota.Vencida : x.Estado })
             .ToListAsync(ct);
         var verMontos = PuedeVerMontos(user);
+        // San Francisco: saldo total de cada venta y cuotas abiertas, para mostrar el recálculo al cobrar.
+        var ventasRecalculo = abonadas ? new List<Guid>() : rows.Where(x => PlanCuotas.UsaRecalculo(x.SucursalId)).Select(x => x.VentaId).Distinct().ToList();
+        var planes = ventasRecalculo.Count == 0 ? new Dictionary<Guid, List<Cuota>>()
+            : (await VisibleQuery(db.Cuotas.AsNoTracking(), user, sucursalId)
+                .Where(x => ventasRecalculo.Contains(x.VentaId)).ToListAsync(ct))
+                .GroupBy(x => x.VentaId).ToDictionary(g => g.Key, g => g.ToList());
         return Results.Ok(rows.Select(x => new
         {
             x.Id, x.VentaId, x.cliente, x.fechaVenta, x.tipoCesped,
@@ -74,7 +81,11 @@ public static class CuotaEndpoints
             importePactado = verMontos ? (decimal?)x.ImportePactado : null,
             importePagado = verMontos ? (decimal?)x.ImportePagado : null,
             saldoPendiente = verMontos ? (decimal?)(x.ImportePactado - x.ImportePagado) : null,
-            x.estado
+            x.estado,
+            recalculaCuotas = PlanCuotas.UsaRecalculo(x.SucursalId),
+            saldoVenta = verMontos && planes.TryGetValue(x.VentaId, out var plan) ? (decimal?)PlanCuotas.Saldo(plan) : null,
+            cuotasRestantes = planes.TryGetValue(x.VentaId, out var cuotas)
+                ? cuotas.Count(c => c.Id != x.Id && PlanCuotas.EstaAbierta(c)) : 0
         }));
     }
 
@@ -102,11 +113,25 @@ public static class CuotaEndpoints
             await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
             var cuota = await VisibleQuery(db.Cuotas, user).SingleOrDefaultAsync(x => x.Id == id, ct);
             if (cuota is null) return (IResult)Results.NotFound();
-            var paymentError = ValidatePayment(request.Importe, cuota.ImportePactado - cuota.ImportePagado);
+            string? paymentError;
+            if (PlanCuotas.UsaRecalculo(cuota.SucursalId))
+            {
+                // San Francisco: un importe distinto al de la cuota recalcula las cuotas pendientes de la venta.
+                var cuotasVenta = await db.Cuotas.Where(x => x.VentaId == cuota.VentaId).ToListAsync(ct);
+                paymentError = PlanCuotas.AplicarPago(cuota, cuotasVenta, request.Importe);
+            }
+            else
+            {
+                paymentError = ValidatePayment(request.Importe, cuota.ImportePactado - cuota.ImportePagado);
+                if (paymentError is null)
+                {
+                    cuota.ImportePagado += request.Importe;
+                    cuota.Estado = cuota.ImportePagado >= cuota.ImportePactado ? EstadoCuota.Pagada : EstadoCuota.PagadaParcial;
+                }
+            }
             if (paymentError is not null)
                 return Results.ValidationProblem(new Dictionary<string, string[]> { ["importe"] = [paymentError] });
-            cuota.ImportePagado += request.Importe; cuota.FechaPago = request.FechaPago; cuota.MedioPago = medioPago;
-            cuota.Estado = cuota.ImportePagado >= cuota.ImportePactado ? EstadoCuota.Pagada : EstadoCuota.PagadaParcial;
+            cuota.FechaPago = request.FechaPago; cuota.MedioPago = medioPago;
             var ultimoNumeroRecibo = await db.MovimientosCaja
                 .Where(x => x.SucursalId == cuota.SucursalId && x.NumeroRecibo != null)
                 .MaxAsync(x => (int?)x.NumeroRecibo, ct) ?? 0;
@@ -130,7 +155,17 @@ public static class CuotaEndpoints
         var cancellationError = ValidateCancellation(cuota.ImportePagado, cuota.ImportePactado);
         if (cancellationError is not null) return Results.Conflict(new { message = cancellationError });
         var importeAnulado = cuota.ImportePagado;
-        cuota.ImportePagado = 0; cuota.FechaPago = null; cuota.MedioPago = null; cuota.Estado = EstadoCuota.Pendiente;
+        cuota.FechaPago = null; cuota.MedioPago = null;
+        if (PlanCuotas.UsaRecalculo(cuota.SucursalId))
+        {
+            // San Francisco: la cuota vuelve a pendiente y el saldo se reparte otra vez entre las pendientes.
+            var cuotasVenta = await db.Cuotas.Where(x => x.VentaId == cuota.VentaId).ToListAsync(ct);
+            PlanCuotas.AplicarAnulacion(cuota, cuotasVenta);
+        }
+        else
+        {
+            cuota.ImportePagado = 0; cuota.Estado = EstadoCuota.Pendiente;
+        }
         db.MovimientosCaja.Add(new MovimientoCaja { Tipo = TipoMovimiento.Retiro, Fecha = DateTimeOffset.UtcNow,
             Monto = importeAnulado, Concepto = $"Anulación cobro cuota {cuota.Numero}", Usuario = UserName(user),
             CuotaId = cuota.Id, VentaId = cuota.VentaId, SucursalId = cuota.SucursalId });

@@ -135,6 +135,26 @@ function closePayment() {
   selected.value = null;
 }
 
+// San Francisco: si quedan otras cuotas pendientes, se puede cobrar un importe distinto
+// (hasta el saldo total de la venta) y el resto se reparte entre esas cuotas.
+const recalcula = computed(() =>
+  !!selected.value?.recalculaCuotas && selected.value.cuotasRestantes > 0 && selected.value.saldoVenta != null);
+const maximoCobro = computed(() => {
+  const c = selected.value;
+  if (!c) return 0;
+  return recalcula.value ? c.saldoVenta : c.importePactado - c.importePagado;
+});
+const nuevoValorCuotas = computed(() => {
+  const c = selected.value;
+  if (!recalcula.value || !c) return null;
+  const restante = Math.max(c.saldoVenta - (payment.value.importe || 0), 0);
+  return restante / c.cuotasRestantes;
+});
+const importeDistinto = computed(() => {
+  const c = selected.value;
+  return !!c && Math.abs((payment.value.importe || 0) - (c.importePactado - c.importePagado)) >= 0.005;
+});
+
 function closeDueDate() {
   editingDueDate.value = null;
 }
@@ -318,7 +338,7 @@ async function cancelPayment(c: any) {
   if (
     !(await confirmAction({
       title: "Anular cobro de cuota",
-      message: `¿Querés anular el cobro de la cuota #${c.numero} de ${c.cliente} por ${money(c.importePagado)}? Se registrará un retiro compensatorio en Caja.`,
+      message: `¿Querés anular el cobro de la cuota #${c.numero} de ${c.cliente} por ${money(c.importePagado)}? Se registrará un retiro compensatorio en Caja.${c.recalculaCuotas ? ' El saldo de la venta se volverá a repartir entre las cuotas pendientes.' : ''}`,
       confirmText: "Anular cobro",
       danger: true,
     }))
@@ -635,7 +655,7 @@ onBeforeUnmount(() => { if (resumenTimer) clearTimeout(resumenTimer); releaseCom
             <InputNumber
               v-model="payment.importe"
               :min="0.01"
-              :max="selected.importePactado - selected.importePagado"
+              :max="maximoCobro"
               :min-fraction-digits="2"
               :max-fraction-digits="2"
               mode="currency"
@@ -645,6 +665,12 @@ onBeforeUnmount(() => { if (resumenTimer) clearTimeout(resumenTimer); releaseCom
             />
             <small class="text-color-secondary">
               Saldo pendiente: {{ money(selected.importePactado - selected.importePagado) }}
+              <template v-if="recalcula"> · Saldo total de la venta: {{ money(selected.saldoVenta) }}</template>
+            </small>
+            <small v-if="recalcula && importeDistinto && nuevoValorCuotas != null" class="block mt-1 font-semibold">
+              {{ selected.cuotasRestantes === 1
+                ? `La cuota pendiente se recalcula a ${money(nuevoValorCuotas)}.`
+                : `Las ${selected.cuotasRestantes} cuotas pendientes se recalculan a ${money(nuevoValorCuotas)} c/u.` }}
             </small>
           </div>
           <div class="field col-12">
