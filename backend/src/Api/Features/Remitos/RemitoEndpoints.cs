@@ -218,25 +218,17 @@ internal static class RemitoPdf
             page.DefaultTextStyle(x => x.FontFamily("Arial").FontSize(9).FontColor(Colors.Black));
             page.Header().Border(1).Padding(10).Row(row =>
             {
-                row.RelativeItem().Column(left =>
+                row.RelativeItem().Row(issuer =>
                 {
                     if (branding.Logo is not null)
-                        left.Item().Height(45).AlignLeft().Image(branding.Logo).FitArea();
-                    else
-                        left.Item().Text(branding.RazonSocial).FontSize(16).Bold();
-                    left.Item().PaddingTop(4).Text(branding.RazonSocial).Bold();
-                    if (!string.IsNullOrWhiteSpace(branding.NombreSucursal)) left.Item().Text(branding.NombreSucursal!);
-                    var location = string.Join(" - ", new[] { branding.Domicilio, branding.Localidad }.Where(x => !string.IsNullOrWhiteSpace(x)));
-                    if (location.Length > 0) left.Item().Text(location);
-                    if (!string.IsNullOrWhiteSpace(branding.Telefono)) left.Item().Text($"Tel.: {branding.Telefono}");
-                    var tax = string.Join(" - ", new[] { branding.CondicionIva, string.IsNullOrWhiteSpace(branding.Cuit) ? null : $"CUIT: {branding.Cuit}" }.Where(x => !string.IsNullOrWhiteSpace(x)));
-                    if (tax.Length > 0) left.Item().Text(tax);
-                    var fiscal = string.Join("   ", new[]
+                        issuer.ConstantItem(105).PaddingRight(10).AlignTop().Height(55)
+                            .Background(Colors.White).Padding(3).Image(branding.Logo).FitArea();
+                    issuer.RelativeItem().Column(left =>
                     {
-                        branding.InicioActividades.HasValue ? $"Inicio Act.: {branding.InicioActividades:dd/MM/yyyy}" : null,
-                        string.IsNullOrWhiteSpace(branding.IngresosBrutos) ? null : $"Ing. Brutos: {branding.IngresosBrutos}"
-                    }.Where(x => !string.IsNullOrWhiteSpace(x)));
-                    if (fiscal.Length > 0) left.Item().Text(fiscal);
+                        var lines = IssuerLines(branding);
+                        left.Item().Text(lines[0]).FontSize(14).Bold();
+                        foreach (var line in lines.Skip(1)) left.Item().PaddingTop(2).Text(line);
+                    });
                 });
                 row.ConstantItem(180).BorderLeft(1).PaddingLeft(10).Column(right =>
                 {
@@ -292,6 +284,28 @@ internal static class RemitoPdf
                 footer.Item().PaddingTop(5).AlignCenter().Text("Documento no válido como factura.").Bold();
             });
         })).GeneratePdf();
+    }
+
+    internal static IReadOnlyList<string> IssuerLines(SucursalBranding branding)
+    {
+        var lines = new List<string> { branding.RazonSocial };
+        if (!string.IsNullOrWhiteSpace(branding.NombreSucursal) &&
+            !branding.NombreSucursal.Equals(branding.RazonSocial, StringComparison.OrdinalIgnoreCase))
+            lines.Add($"Sucursal: {branding.NombreSucursal}");
+        var location = string.Join(" - ", new[] { branding.Domicilio, branding.Localidad }
+            .Where(x => !string.IsNullOrWhiteSpace(x)));
+        if (location.Length > 0) lines.Add($"Domicilio: {location}");
+        if (!string.IsNullOrWhiteSpace(branding.Cuit)) lines.Add($"CUIT: {branding.Cuit}");
+        if (!string.IsNullOrWhiteSpace(branding.CondicionIva)) lines.Add($"IVA: {branding.CondicionIva}");
+        if (!string.IsNullOrWhiteSpace(branding.Telefono)) lines.Add($"Tel.: {branding.Telefono}");
+        if (!string.IsNullOrWhiteSpace(branding.Email)) lines.Add($"Email: {branding.Email}");
+        var fiscal = string.Join("   ", new[]
+        {
+            branding.InicioActividades.HasValue ? $"Inicio Act.: {branding.InicioActividades:dd/MM/yyyy}" : null,
+            string.IsNullOrWhiteSpace(branding.IngresosBrutos) ? null : $"Ing. Brutos: {branding.IngresosBrutos}"
+        }.Where(x => !string.IsNullOrWhiteSpace(x)));
+        if (fiscal.Length > 0) lines.Add(fiscal);
+        return lines;
     }
 
     private static void Field(ColumnDescriptor column, string label, string? value)
