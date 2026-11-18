@@ -26,7 +26,7 @@ public static class DashboardEndpoints
         ClaimsPrincipal user,
         CancellationToken ct)
     {
-        var today = DateOnly.FromDateTime(DateTime.Today);
+        var today = FechaArgentina.Hoy();
         var start = desde ?? new DateOnly(today.Year, today.Month, 1);
         var end = hasta ?? today;
         if (start > end)

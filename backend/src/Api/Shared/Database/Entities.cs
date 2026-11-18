@@ -3,6 +3,12 @@ using Api.Shared.Common;
 namespace Api.Shared.Database;
 
 public enum TipoCliente { Club, Particular, Empresa, Constructor, Revendedor, Otro }
+public enum TipoDocumentoCliente { Dni, Cuit, Cuil }
+public enum CondicionIvaCliente
+{
+    ConsumidorFinal, ResponsableInscripto, Monotributista, Exento,
+    SujetoNoCategorizado, MonotributistaSocial, IvaNoAlcanzado
+}
 public enum FormaPago { Cuotas, Contado, Transferencia, Cheque, Otros }
 public enum EstadoVenta { Confirmada, Futura, Entregada, Cancelada }
 public enum EstadoCuota { Pendiente, Pagada, PagadaParcial, Vencida }
@@ -87,6 +93,12 @@ public sealed class Cliente : AuditableEntity, ISucursalScoped
     public string Localidad { get; set; } = ""; public string Provincia { get; set; } = "";
     public string? LocalidadId { get; set; } public string? ProvinciaId { get; set; }
     public TipoCliente Tipo { get; set; } public DateOnly FechaPrimerContacto { get; set; } public string? Observaciones { get; set; }
+    public string? RazonSocial { get; set; }
+    public TipoDocumentoCliente? TipoDocumento { get; set; }
+    public string? NumeroDocumento { get; set; }
+    public CondicionIvaCliente? CondicionIva { get; set; }
+    public string? Domicilio { get; set; }
+    public string? CodigoPostal { get; set; }
 }
 public sealed class TipoCesped : AuditableEntity { public Guid DepositoId { get; set; } public Deposito Deposito { get; set; } = null!; public List<TipoCespedDeposito> Depositos { get; set; } = []; public string Nombre { get; set; } = ""; public string? Descripcion { get; set; } public string? DescripcionPresupuesto { get; set; } public string? EspecificacionesPresupuesto { get; set; } public string? FichaTecnicaUrl { get; set; } public decimal PrecioVentaM2 { get; set; } public decimal PrecioContadoM2 { get; set; } public decimal PrecioFinanciadoM2 { get; set; } public decimal CostoM2 { get; set; } public string ColoresJson { get; set; } = "[]"; public bool ControlPorLotes { get; set; } public bool Activo { get; set; } = true; }
 public sealed class TipoCespedDeposito
@@ -122,7 +134,7 @@ public sealed class Remito : AuditableEntity, ISucursalScoped
     public Guid SucursalId { get; set; } public Sucursal Sucursal { get; set; } = null!;
     public Guid VentaId { get; set; } public Venta Venta { get; set; } = null!;
     public int Numero { get; set; }
-    public DateOnly Fecha { get; set; } = DateOnly.FromDateTime(DateTime.Today);
+    public DateOnly Fecha { get; set; } = FechaArgentina.Hoy();
     public string ReceptorNombre { get; set; } = "";
     public string? ReceptorDomicilio { get; set; }
     public string? ReceptorLocalidad { get; set; }

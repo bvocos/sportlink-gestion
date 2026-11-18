@@ -186,6 +186,6 @@ public static class RentabilidadEndpoints
             }));
         var bytes = Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(csv.ToString())).ToArray();
         return Results.File(bytes, "text/csv; charset=utf-8",
-            $"rentabilidad-{DateTime.Today:yyyy-MM-dd}.csv");
+            $"rentabilidad-{FechaArgentina.Hoy():yyyy-MM-dd}.csv");
     }
 }

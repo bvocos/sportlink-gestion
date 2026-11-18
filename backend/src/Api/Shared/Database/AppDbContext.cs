@@ -40,7 +40,14 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, IHttpCo
         b.Entity<Gasto>().HasQueryFilter(x => CurrentSucursalId != null && x.SucursalId == CurrentSucursalId);
         foreach (var t in new[] { typeof(Venta), typeof(Cuota), typeof(MovimientoCaja), typeof(MovimientoStock), typeof(LoteStock), typeof(Rollo), typeof(Gasto), typeof(TipoCesped), typeof(AlicuotaIva), typeof(Configuracion), typeof(Presupuesto), typeof(PresupuestoLinea) })
             foreach (var p in b.Entity(t).Metadata.GetProperties().Where(p => p.ClrType == typeof(decimal))) p.SetColumnType("decimal(18,2)");
-        b.Entity<Cliente>().Property(x => x.Tipo).HasConversion<string>(); b.Entity<Venta>().Property(x => x.Estado).HasConversion<string>();
+        b.Entity<Cliente>().Property(x => x.Tipo).HasConversion<string>();
+        b.Entity<Cliente>().Property(x => x.TipoDocumento).HasConversion<string>();
+        b.Entity<Cliente>().Property(x => x.CondicionIva).HasConversion<string>();
+        b.Entity<Cliente>().Property(x => x.RazonSocial).HasMaxLength(200);
+        b.Entity<Cliente>().Property(x => x.NumeroDocumento).HasMaxLength(11);
+        b.Entity<Cliente>().Property(x => x.Domicilio).HasMaxLength(250);
+        b.Entity<Cliente>().Property(x => x.CodigoPostal).HasMaxLength(20);
+        b.Entity<Venta>().Property(x => x.Estado).HasConversion<string>();
         b.Entity<Venta>().Property(x => x.FormaPago).HasConversion<string>(); b.Entity<Cuota>().Property(x => x.Estado).HasConversion<string>();
         b.Entity<MovimientoCaja>().Property(x => x.Tipo).HasConversion<string>(); b.Entity<Configuracion>().HasIndex(x => x.Clave).IsUnique();
         b.Entity<Deposito>().Property(x => x.Nombre).HasMaxLength(150);
@@ -71,6 +78,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, IHttpCo
         b.Entity<Cliente>().HasOne(x => x.Sucursal).WithMany()
             .HasForeignKey(x => x.SucursalId).OnDelete(DeleteBehavior.Restrict);
         b.Entity<Cliente>().HasIndex(x => new { x.SucursalId, x.Apellido, x.Nombre });
+        b.Entity<Cliente>().HasIndex(x => new { x.SucursalId, x.NumeroDocumento });
         b.Entity<RegistroAuditoria>().HasIndex(x => x.FechaHora); b.Entity<RegistroAuditoria>().HasIndex(x => x.Modulo);
         b.Entity<RegistroAuditoria>().HasIndex(x => new { x.SucursalId, x.FechaHora });
         b.Entity<RegistroAuditoria>().HasOne<Sucursal>().WithMany().HasForeignKey(x => x.SucursalId).OnDelete(DeleteBehavior.Restrict);

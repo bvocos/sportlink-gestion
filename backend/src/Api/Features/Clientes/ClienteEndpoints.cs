@@ -10,10 +10,14 @@ namespace Api.Features.Clientes;
 
 public record CrearClienteCommand(string Nombre, string Apellido, string Telefono, string? Correo,
     string Localidad, string Provincia, string? LocalidadId, string? ProvinciaId, TipoCliente Tipo,
-    DateOnly FechaPrimerContacto, string? Observaciones);
+    DateOnly FechaPrimerContacto, string? Observaciones, string? RazonSocial = null,
+    TipoDocumentoCliente? TipoDocumento = null, string? NumeroDocumento = null,
+    CondicionIvaCliente? CondicionIva = null, string? Domicilio = null, string? CodigoPostal = null);
 public record ClienteDto(Guid Id, Guid SucursalId, string Nombre, string Apellido, string NombreCompleto, string Telefono,
     string? Correo, string Localidad, string Provincia, string? LocalidadId, string? ProvinciaId,
-    TipoCliente Tipo, DateOnly FechaPrimerContacto, string? Observaciones);
+    TipoCliente Tipo, DateOnly FechaPrimerContacto, string? Observaciones, string? RazonSocial,
+    TipoDocumentoCliente? TipoDocumento, string? NumeroDocumento, CondicionIvaCliente? CondicionIva,
+    string? Domicilio, string? CodigoPostal, string? NumeroDocumentoFormateado);
 
 public sealed class CrearClienteValidator : AbstractValidator<CrearClienteCommand>
 {
@@ -31,6 +35,31 @@ public sealed class CrearClienteValidator : AbstractValidator<CrearClienteComman
         RuleFor(x => x.LocalidadId).NotEmpty().When(x => !string.IsNullOrWhiteSpace(x.ProvinciaId))
             .WithMessage("La localidad oficial es obligatoria cuando se selecciona una provincia oficial.");
         RuleFor(x => x.Observaciones).MaximumLength(1000);
+        RuleFor(x => x.RazonSocial).MaximumLength(200);
+        RuleFor(x => x.Domicilio).MaximumLength(250);
+        RuleFor(x => x.CodigoPostal).MaximumLength(20);
+        RuleFor(x => x.TipoDocumento).NotNull().When(x => DocumentoFiscal.Normalizar(x.NumeroDocumento) is not null)
+            .WithMessage("Indicá el tipo de documento.");
+        RuleFor(x => x.NumeroDocumento).Must(x => DocumentoFiscal.Normalizar(x) is not null)
+            .When(x => x.TipoDocumento.HasValue).WithMessage("Indicá el número de documento.");
+        RuleFor(x => x).Custom((request, context) =>
+        {
+            var document = DocumentoFiscal.Normalizar(request.NumeroDocumento);
+            var needsCuit = request.CondicionIva is CondicionIvaCliente.ResponsableInscripto or
+                CondicionIvaCliente.Monotributista or CondicionIvaCliente.MonotributistaSocial or
+                CondicionIvaCliente.Exento;
+            if (needsCuit && request.TipoDocumento != TipoDocumentoCliente.Cuit)
+                context.AddFailure(nameof(request.TipoDocumento),
+                    "Para esta condición de IVA se necesita el CUIT del cliente.");
+            if (document is null || !request.TipoDocumento.HasValue) return;
+            if (request.TipoDocumento is TipoDocumentoCliente.Cuit or TipoDocumentoCliente.Cuil &&
+                !DocumentoFiscal.EsCuitValido(document))
+                context.AddFailure(nameof(request.NumeroDocumento),
+                    $"El {ArcaCodigos.Etiqueta(request.TipoDocumento.Value)} ingresado no es válido. Revisá los dígitos.");
+            if (request.TipoDocumento == TipoDocumentoCliente.Dni && !DocumentoFiscal.EsDniValido(document))
+                context.AddFailure(nameof(request.NumeroDocumento),
+                    "El DNI ingresado no es válido. Debe tener 7 u 8 dígitos.");
+        });
     }
 }
 
@@ -60,12 +89,23 @@ public static class CrearClienteHandler
         cliente.Tipo = request.Tipo;
         cliente.FechaPrimerContacto = request.FechaPrimerContacto;
         cliente.Observaciones = request.Observaciones?.Trim();
+        cliente.RazonSocial = Clean(request.RazonSocial);
+        cliente.TipoDocumento = request.TipoDocumento;
+        cliente.NumeroDocumento = DocumentoFiscal.Normalizar(request.NumeroDocumento);
+        cliente.CondicionIva = request.CondicionIva;
+        cliente.Domicilio = Clean(request.Domicilio);
+        cliente.CodigoPostal = Clean(request.CodigoPostal);
     }
 
     internal static ClienteDto ToDto(Cliente cliente) => new(cliente.Id, cliente.SucursalId, cliente.Nombre,
         cliente.Apellido, $"{cliente.Nombre} {cliente.Apellido}", cliente.Telefono, cliente.Correo,
         cliente.Localidad, cliente.Provincia, cliente.LocalidadId, cliente.ProvinciaId, cliente.Tipo,
-        cliente.FechaPrimerContacto, cliente.Observaciones);
+        cliente.FechaPrimerContacto, cliente.Observaciones, cliente.RazonSocial, cliente.TipoDocumento,
+        cliente.NumeroDocumento, cliente.CondicionIva, cliente.Domicilio, cliente.CodigoPostal,
+        cliente.TipoDocumento.HasValue && cliente.NumeroDocumento is not null
+            ? DocumentoFiscal.Formatear(cliente.TipoDocumento.Value, cliente.NumeroDocumento) : null);
+
+    private static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }
 
 public static class ClienteEndpoints
@@ -99,7 +139,13 @@ public static class ClienteEndpoints
     {
         var query = db.Clientes.AsNoTracking().WhereVisibleParaUsuario(user);
         if (!string.IsNullOrWhiteSpace(buscar))
-            query = query.Where(x => (x.Nombre + " " + x.Apellido).ToLower().Contains(buscar.ToLower()));
+        {
+            var term = buscar.Trim().ToLower();
+            var digits = DocumentoFiscal.Normalizar(buscar);
+            query = query.Where(x => (x.Nombre + " " + x.Apellido).ToLower().Contains(term) ||
+                (x.RazonSocial != null && x.RazonSocial.ToLower().Contains(term)) ||
+                (digits != null && digits.Length >= 3 && x.NumeroDocumento != null && x.NumeroDocumento.Contains(digits)));
+        }
         var total = await query.CountAsync(ct);
         var rows = await query.OrderBy(x => x.Apellido).ThenBy(x => x.Nombre)
             .Skip((page - 1) * pageSize).Take(pageSize).ToListAsync(ct);

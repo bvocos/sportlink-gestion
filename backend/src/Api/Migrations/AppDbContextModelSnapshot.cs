@@ -57,11 +57,22 @@ namespace Api.Migrations
                         .IsRequired()
                         .HasColumnType("citext");
 
+                    b.Property<string>("CodigoPostal")
+                        .HasMaxLength(20)
+                        .HasColumnType("citext");
+
+                    b.Property<string>("CondicionIva")
+                        .HasColumnType("text");
+
                     b.Property<string>("Correo")
                         .HasColumnType("citext");
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Domicilio")
+                        .HasMaxLength(250)
+                        .HasColumnType("citext");
 
                     b.Property<DateOnly>("FechaPrimerContacto")
                         .HasColumnType("date");
@@ -77,6 +88,10 @@ namespace Api.Migrations
                         .IsRequired()
                         .HasColumnType("citext");
 
+                    b.Property<string>("NumeroDocumento")
+                        .HasMaxLength(11)
+                        .HasColumnType("citext");
+
                     b.Property<string>("Observaciones")
                         .HasColumnType("citext");
 
@@ -85,6 +100,10 @@ namespace Api.Migrations
                         .HasColumnType("citext");
 
                     b.Property<string>("ProvinciaId")
+                        .HasColumnType("citext");
+
+                    b.Property<string>("RazonSocial")
+                        .HasMaxLength(200)
                         .HasColumnType("citext");
 
                     b.Property<Guid>("SucursalId")
@@ -98,10 +117,15 @@ namespace Api.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<string>("TipoDocumento")
+                        .HasColumnType("text");
+
                     b.Property<DateTimeOffset?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("SucursalId", "NumeroDocumento");
 
                     b.HasIndex("SucursalId", "Apellido", "Nombre");
 

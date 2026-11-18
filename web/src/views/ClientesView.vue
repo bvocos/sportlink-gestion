@@ -18,6 +18,7 @@ import GeografiaAutocomplete from '@/shared/components/GeografiaAutocomplete.vue
 import { pluralize } from '@/shared/formatters'
 import { isSearchFilterActive, searchQuery, useDebouncedSearch } from '@/shared/composables/useFilterTriggers'
 import { TABLE_ROWS, TABLE_ROWS_OPTIONS, tableFirst, type DataTablePageEvent } from '@/shared/tablePagination'
+import { condicionIvaOptions, esCuitValido, esDniValido, normalizarDocumento, tipoDocumentoOptions } from '@/shared/fiscal'
 
 interface GeoOption { id: string; nombre: string }
 
@@ -45,6 +46,8 @@ const blank = () => ({
   nombre: '', apellido: '', telefono: '', correo: '', localidad: '', provincia: '',
   localidadId: '', provinciaId: '', tipo: 'Particular',
   fechaPrimerContacto: new Date().toISOString().slice(0, 10), observaciones: '',
+  razonSocial: '', tipoDocumento: null as string | null, numeroDocumento: '',
+  condicionIva: null as string | null, domicilio: '', codigoPostal: '',
 })
 const form = ref(blank())
 
@@ -120,7 +123,9 @@ async function edit(c: any) {
     nombre: c.nombre, apellido: c.apellido, telefono: c.telefono, correo: c.correo ?? '',
     localidad: c.localidad, provincia: c.provincia, localidadId: c.localidadId ?? '',
     provinciaId: c.provinciaId ?? '', tipo: c.tipo, fechaPrimerContacto: c.fechaPrimerContacto,
-    observaciones: c.observaciones ?? '',
+    observaciones: c.observaciones ?? '', razonSocial: c.razonSocial ?? '',
+    tipoDocumento: c.tipoDocumento ?? null, numeroDocumento: c.numeroDocumento ?? '',
+    condicionIva: c.condicionIva ?? null, domicilio: c.domicilio ?? '', codigoPostal: c.codigoPostal ?? '',
   }
   error.value = ''
   geoMode.value = geoAvailable.value && !!c.provinciaId && !!c.localidadId
@@ -172,6 +177,11 @@ async function save() {
     error.value = 'Seleccioná una provincia y una localidad de las opciones oficiales.'
     return
   }
+  const documentError = fiscalDocumentError()
+  if (documentError) {
+    error.value = documentError
+    return
+  }
   saving.value = true
   error.value = ''
   try {
@@ -184,6 +194,19 @@ async function save() {
   } finally {
     saving.value = false
   }
+}
+
+function fiscalDocumentError() {
+  const digits = normalizarDocumento(form.value.numeroDocumento)
+  if (['ResponsableInscripto', 'Monotributista', 'MonotributistaSocial', 'Exento'].includes(form.value.condicionIva ?? '') && form.value.tipoDocumento !== 'Cuit')
+    return 'Para esta condición de IVA se necesita el CUIT del cliente.'
+  if (digits && !form.value.tipoDocumento) return 'Indicá el tipo de documento.'
+  if (form.value.tipoDocumento && !digits) return 'Indicá el número de documento.'
+  if (digits && (form.value.tipoDocumento === 'Cuit' || form.value.tipoDocumento === 'Cuil') && !esCuitValido(digits))
+    return `El ${form.value.tipoDocumento === 'Cuit' ? 'CUIT' : 'CUIL'} ingresado no es válido. Revisá los dígitos.`
+  if (digits && form.value.tipoDocumento === 'Dni' && !esDniValido(digits))
+    return 'El DNI ingresado no es válido. Debe tener 7 u 8 dígitos.'
+  return ''
 }
 
 async function remove(c: any) {
@@ -230,7 +253,7 @@ useDebouncedSearch(buscar, () => load(true))
       <div class="grid formgrid p-fluid filter-form">
         <div class="field col-12 md:col-10">
           <label for="buscar">Buscar cliente</label>
-          <InputText id="buscar" v-model="buscar" type="search" placeholder="Nombre o apellido" />
+          <InputText id="buscar" v-model="buscar" type="search" placeholder="Nombre, razón social o documento" />
           <small v-if="buscar.trim() && !isSearchFilterActive(buscar)" class="text-color-secondary">Escribí al menos 3 caracteres</small>
         </div>
         <div class="field col-12 md:col-2 filter-actions flex align-items-end">
@@ -275,6 +298,9 @@ useDebouncedSearch(buscar, () => load(true))
           </Column>
           <Column header="Tipo">
             <template #body="{ data }"><Tag :value="data.tipo" severity="success" /></template>
+          </Column>
+          <Column header="Documento">
+            <template #body="{ data }">{{ data.numeroDocumentoFormateado ?? '' }}</template>
           </Column>
           <Column header="Contacto" body-class="cell-wrap">
             <template #body="{ data }">
@@ -395,6 +421,32 @@ useDebouncedSearch(buscar, () => load(true))
           <div class="field">
             <label>Primer contacto</label>
             <AppDatePicker v-model="form.fechaPrimerContacto" required />
+          </div>
+          <div class="cliente-form-banner"><Tag value="Datos fiscales (opcional)" severity="info" /></div>
+          <div class="field">
+            <label>Razón social</label>
+            <InputText v-model="form.razonSocial" maxlength="200" size="small" />
+          </div>
+          <div class="field">
+            <label>Tipo de documento</label>
+            <Select v-model="form.tipoDocumento" :options="tipoDocumentoOptions" option-label="label" option-value="value" show-clear size="small" />
+          </div>
+          <div class="field">
+            <label>Número de documento</label>
+            <InputText v-model="form.numeroDocumento" maxlength="13" size="small" inputmode="numeric" />
+            <small v-if="fiscalDocumentError()" class="p-error">{{ fiscalDocumentError() }}</small>
+          </div>
+          <div class="field">
+            <label>Condición frente al IVA</label>
+            <Select v-model="form.condicionIva" :options="condicionIvaOptions" option-label="label" option-value="value" show-clear size="small" />
+          </div>
+          <div class="field">
+            <label>Domicilio</label>
+            <InputText v-model="form.domicilio" maxlength="250" size="small" />
+          </div>
+          <div class="field">
+            <label>Código postal</label>
+            <InputText v-model="form.codigoPostal" maxlength="20" size="small" />
           </div>
           <div class="field field-full">
             <label>Observaciones</label>

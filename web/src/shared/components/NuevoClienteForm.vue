@@ -9,6 +9,7 @@ import Tag from 'primevue/tag'
 import Textarea from 'primevue/textarea'
 import { http, apiErrorMessage } from '@/shared/api/httpClient'
 import GeografiaAutocomplete from './GeografiaAutocomplete.vue'
+import { condicionIvaOptions, esCuitValido, esDniValido, normalizarDocumento, tipoDocumentoOptions } from '@/shared/fiscal'
 
 interface GeoOption { id: string; nombre: string }
 
@@ -30,12 +31,28 @@ const saving = ref(false)
 const error = ref('')
 const geoNotice = ref('')
 const tipos = ['Particular', 'Club', 'Empresa', 'Constructor', 'Revendedor', 'Otro']
+const fiscalExpanded = ref(false)
 
 const form = ref({
   nombre: '', apellido: '', telefono: '', correo: '', localidad: '', provincia: '',
   localidadId: '', provinciaId: '', tipo: 'Particular',
   fechaPrimerContacto: new Date().toISOString().slice(0, 10), observaciones: '',
+  razonSocial: '', tipoDocumento: null as string | null, numeroDocumento: '',
+  condicionIva: null as string | null, domicilio: '', codigoPostal: '',
 })
+
+function fiscalDocumentError() {
+  const digits = normalizarDocumento(form.value.numeroDocumento)
+  if (['ResponsableInscripto', 'Monotributista', 'MonotributistaSocial', 'Exento'].includes(form.value.condicionIva ?? '') && form.value.tipoDocumento !== 'Cuit')
+    return 'Para esta condición de IVA se necesita el CUIT del cliente.'
+  if (digits && !form.value.tipoDocumento) return 'Indicá el tipo de documento.'
+  if (form.value.tipoDocumento && !digits) return 'Indicá el número de documento.'
+  if (digits && (form.value.tipoDocumento === 'Cuit' || form.value.tipoDocumento === 'Cuil') && !esCuitValido(digits))
+    return `El ${form.value.tipoDocumento === 'Cuit' ? 'CUIT' : 'CUIL'} ingresado no es válido. Revisá los dígitos.`
+  if (digits && form.value.tipoDocumento === 'Dni' && !esDniValido(digits))
+    return 'El DNI ingresado no es válido. Debe tener 7 u 8 dígitos.'
+  return ''
+}
 
 async function loadProvincias() {
   try {
@@ -104,6 +121,12 @@ async function save() {
   }
   if (geoMode.value && (!form.value.provinciaId || !form.value.localidadId)) {
     error.value = 'Seleccioná una provincia y una localidad de las opciones oficiales.'
+    return
+  }
+  const documentError = fiscalDocumentError()
+  if (documentError) {
+    error.value = documentError
+    fiscalExpanded.value = true
     return
   }
   saving.value = true
@@ -199,6 +222,36 @@ onMounted(loadProvincias)
           <label>Primer contacto</label>
           <AppDatePicker v-model="form.fechaPrimerContacto" required />
         </div>
+        <div class="field field-full">
+          <AppButton type="button" :label="`${fiscalExpanded ? 'Ocultar' : 'Agregar'} datos fiscales (opcional)`" severity="secondary" size="small" @click="fiscalExpanded = !fiscalExpanded" />
+        </div>
+        <template v-if="fiscalExpanded">
+          <div class="field">
+            <label>Razón social</label>
+            <InputText v-model="form.razonSocial" maxlength="200" size="small" />
+          </div>
+          <div class="field">
+            <label>Tipo de documento</label>
+            <Select v-model="form.tipoDocumento" :options="tipoDocumentoOptions" option-label="label" option-value="value" show-clear size="small" />
+          </div>
+          <div class="field">
+            <label>Número de documento</label>
+            <InputText v-model="form.numeroDocumento" maxlength="13" inputmode="numeric" size="small" />
+            <small v-if="fiscalDocumentError()" class="p-error">{{ fiscalDocumentError() }}</small>
+          </div>
+          <div class="field">
+            <label>Condición frente al IVA</label>
+            <Select v-model="form.condicionIva" :options="condicionIvaOptions" option-label="label" option-value="value" show-clear size="small" />
+          </div>
+          <div class="field">
+            <label>Domicilio</label>
+            <InputText v-model="form.domicilio" maxlength="250" size="small" />
+          </div>
+          <div class="field">
+            <label>Código postal</label>
+            <InputText v-model="form.codigoPostal" maxlength="20" size="small" />
+          </div>
+        </template>
         <div class="field field-full">
           <label>Observaciones</label>
           <Textarea v-model="form.observaciones" maxlength="1000" rows="3" auto-resize />

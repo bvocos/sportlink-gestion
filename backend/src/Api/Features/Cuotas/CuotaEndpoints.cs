@@ -64,7 +64,7 @@ public static class CuotaEndpoints
                 fechaVenta = x.Venta.FechaVenta, tipoCesped = x.Venta.TipoCesped.Nombre, totalVenta = x.Venta.PrecioTotal,
                 x.Numero, x.FechaVencimiento, x.FechaPago, fechaImpacto = x.UpdatedAt ?? x.CreatedAt, x.MedioPago,
                 x.ImportePactado, x.ImportePagado,
-                estado = abonadas ? EstadoCuota.Pagada : x.FechaVencimiento < DateOnly.FromDateTime(DateTime.Today) && x.Estado != EstadoCuota.Pagada ? EstadoCuota.Vencida : x.Estado })
+                estado = abonadas ? EstadoCuota.Pagada : x.FechaVencimiento < FechaArgentina.Hoy() && x.Estado != EstadoCuota.Pagada ? EstadoCuota.Vencida : x.Estado })
             .ToListAsync(ct);
         var verMontos = PuedeVerMontos(user);
         // San Francisco: saldo total de cada venta y cuotas abiertas, para mostrar el recálculo al cobrar.
@@ -225,7 +225,7 @@ public static class CuotaEndpoints
             Logo: branding.Logo,
             NumeroRecibo: movimiento.NumeroRecibo,
             PuntoVenta: sucursal.PuntoVentaAfip,
-            Fecha: cuota.FechaPago ?? DateOnly.FromDateTime(DateTime.Today),
+            Fecha: cuota.FechaPago ?? FechaArgentina.Hoy(),
             Empresa: empresa,
             Cliente: new ReciboClienteDto(
                 NombreCompleto: $"{cliente.Apellido.ToUpper()}, {cliente.Nombre.ToUpper()}",

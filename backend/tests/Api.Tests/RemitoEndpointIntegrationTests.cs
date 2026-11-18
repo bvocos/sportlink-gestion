@@ -39,6 +39,10 @@ public sealed class RemitoEndpointIntegrationTests
             var draftText = await draftResponse.Content.ReadAsStringAsync();
             AssertPriceFree(draftText);
             Assert.Contains(data.ProductAName, draftText);
+            Assert.Contains("Empresa Fiscal A", draftText);
+            Assert.Contains("20-12345678-6", draftText);
+            Assert.Contains("Responsable inscripto", draftText);
+            Assert.DoesNotContain("nota interna", draftText, StringComparison.OrdinalIgnoreCase);
 
             var a1 = await CreateRemito(adminA, data.SaleA, "Recibe A", maliciousLines: true);
             var a2 = await CreateRemito(adminA, data.SaleA, "Recibe A2");
@@ -75,9 +79,21 @@ public sealed class RemitoEndpointIntegrationTests
             var userPdf = await userA.GetAsync($"/api/remitos/{userCreated.Id}/pdf");
             Assert.Equal(HttpStatusCode.OK, userPdf.StatusCode);
             Assert.Equal("application/pdf", userPdf.Content.Headers.ContentType?.MediaType);
+            var dniRemito = await adminA.PostAsJsonAsync($"/api/ventas/{data.SaleA}/remitos", new
+            {
+                receptorNombre = "Cliente DNI", receptorCuit = "12.345.678"
+            });
+            Assert.Equal(HttpStatusCode.Created, dniRemito.StatusCode);
 
             await using var verify = new AppDbContext(new DbContextOptionsBuilder<AppDbContext>().UseNpgsql(connection).Options);
+            var changedClient = await verify.Clientes.IgnoreQueryFilters().SingleAsync(x => x.Id == data.ClientA);
+            changedClient.RazonSocial = "Razón social modificada";
+            changedClient.Domicilio = "Otro domicilio";
+            await verify.SaveChangesAsync();
+            verify.ChangeTracker.Clear();
             var stored = await verify.Remitos.IgnoreQueryFilters().SingleAsync(x => x.Id == a1.Id);
+            Assert.Equal("Recibe A", stored.ReceptorNombre);
+            Assert.Equal("Calle 1", stored.ReceptorDomicilio);
             var lines = RemitoEndpoints.DeserializeLines(stored.LineasJson);
             var onlyLine = Assert.Single(lines);
             Assert.Equal(data.ProductAName, onlyLine.Producto);
@@ -194,6 +210,11 @@ public sealed class RemitoEndpointIntegrationTests
         };
         user.PasswordHash = hasher.HashPassword(user, "Test123!");
         var clientA = NewClient(branchA.Id, "Remito A");
+        clientA.RazonSocial = "Empresa Fiscal A";
+        clientA.TipoDocumento = TipoDocumentoCliente.Cuit;
+        clientA.NumeroDocumento = "20123456786";
+        clientA.CondicionIva = CondicionIvaCliente.ResponsableInscripto;
+        clientA.Domicilio = "Calle Fiscal 123";
         var clientB = NewClient(branchB.Id, "Remito B");
         var productA = NewProduct(branchA.DepositoPropioId, "Remito A"); productA.ControlPorLotes = false;
         var productB = NewProduct(depositB.Id, "Remito B"); productB.ControlPorLotes = false;
@@ -201,12 +222,13 @@ public sealed class RemitoEndpointIntegrationTests
         await db.SaveChangesAsync();
         var tax = await db.AlicuotasIva.FirstAsync();
         var saleA = Sale(branchA.Id, branchA.DepositoPropioId, clientA.Id, productA, tax.Id, EstadoVenta.Confirmada, 25.5m);
+        saleA.Observaciones = "nota interna que no debe imprimirse";
         var userSaleA = Sale(branchA.Id, branchA.DepositoPropioId, clientA.Id, productA, tax.Id, EstadoVenta.Entregada, 4m);
         var cancelledSaleA = Sale(branchA.Id, branchA.DepositoPropioId, clientA.Id, productA, tax.Id, EstadoVenta.Cancelada, 2m);
         var saleB = Sale(branchB.Id, depositB.Id, clientB.Id, productB, tax.Id, EstadoVenta.Confirmada, 5m);
         db.AddRange(saleA, userSaleA, cancelledSaleA, saleB);
         await db.SaveChangesAsync();
-        return new(branchA.Id, branchB.Id, saleA.Id, userSaleA.Id, cancelledSaleA.Id, saleB.Id,
+        return new(branchA.Id, branchB.Id, clientA.Id, saleA.Id, userSaleA.Id, cancelledSaleA.Id, saleB.Id,
             productA.Nombre);
     }
 
@@ -225,6 +247,6 @@ public sealed class RemitoEndpointIntegrationTests
     }
 
     private sealed record CreatedRemito(Guid Id, int Numero, string NumeroTexto);
-    private sealed record RemitoSeed(Guid BranchA, Guid BranchB, Guid SaleA, Guid UserSaleA,
+    private sealed record RemitoSeed(Guid BranchA, Guid BranchB, Guid ClientA, Guid SaleA, Guid UserSaleA,
         Guid CancelledSaleA, Guid SaleB, string ProductAName);
 }

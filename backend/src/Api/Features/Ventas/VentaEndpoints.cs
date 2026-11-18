@@ -649,7 +649,7 @@ public static class VentaEndpoints
                 TipoCesped = x.TipoCesped.Nombre, x.CantidadM2, x.FechaEntregaEstimada,
                 x.Observaciones })
             .ToListAsync(ct);
-        var today = DateOnly.FromDateTime(DateTime.Today);
+        var today = FechaArgentina.Hoy();
         return Results.Ok(rows.Select(x => new { x.Id, x.Cliente, x.TipoCesped, x.CantidadM2,
             x.FechaEntregaEstimada, x.Observaciones,
             DiasRestantes = x.FechaEntregaEstimada!.Value.DayNumber - today.DayNumber }));

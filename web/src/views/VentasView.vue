@@ -22,6 +22,7 @@ import { formatDateRangeLabel, monthRange, sixMonthsRange, weekRange } from "@/s
 import { useImmediateFilters } from "@/shared/composables/useFilterTriggers";
 import { TABLE_ROWS, TABLE_ROWS_OPTIONS, tableFirst, type DataTablePageEvent } from "@/shared/tablePagination";
 import { auth } from "@/auth";
+import { condicionIvaLabels } from "@/shared/fiscal";
 
 const items = ref<any[]>([]),
   clientes = ref<any[]>([]),
@@ -45,13 +46,7 @@ const items = ref<any[]>([]),
   remitoError = ref("");
 
 const canCreateRemito = computed(() => auth.can("ventas", "crear"));
-const condicionIvaOptions = [
-  "Consumidor final",
-  "Responsable inscripto",
-  "Monotributista",
-  "Exento",
-  "No categorizado",
-];
+const condicionIvaOptions = condicionIvaLabels;
 const blankRemito = () => ({
   receptorNombre: "",
   receptorDomicilio: "",

@@ -65,14 +65,16 @@ public static partial class RemitoEndpoints
         var lines = await BuildLines(sale, db, ct);
         return Results.Ok(new
         {
-            receptorNombre = $"{sale.Cliente.Nombre} {sale.Cliente.Apellido}".Trim(),
-            receptorDomicilio = "",
+            receptorNombre = sale.Cliente.RazonSocial ?? $"{sale.Cliente.Nombre} {sale.Cliente.Apellido}".Trim(),
+            receptorDomicilio = sale.Cliente.Domicilio ?? "",
             receptorLocalidad = sale.Cliente.Localidad,
             receptorProvincia = sale.Cliente.Provincia,
             receptorTelefono = sale.Cliente.Telefono,
-            receptorCuit = "",
-            receptorCondicionIva = "",
-            observaciones = sale.Observaciones ?? "",
+            receptorCuit = sale.Cliente.TipoDocumento.HasValue && sale.Cliente.NumeroDocumento is not null
+                ? DocumentoFiscal.Formatear(sale.Cliente.TipoDocumento.Value, sale.Cliente.NumeroDocumento) : "",
+            receptorCondicionIva = sale.Cliente.CondicionIva.HasValue
+                ? ArcaCodigos.Etiqueta(sale.Cliente.CondicionIva.Value) : "",
+            observaciones = "",
             lineas = lines.Select(x => new { x.Producto, x.Color, x.CantidadM2 })
         });
     }
@@ -106,7 +108,7 @@ public static partial class RemitoEndpoints
                 SucursalId = sale.SucursalId,
                 VentaId = sale.Id,
                 Numero = NextRemitoNumber(currentMaximum),
-                Fecha = DateOnly.FromDateTime(DateTime.Today),
+                Fecha = FechaArgentina.Hoy(),
                 ReceptorNombre = request.ReceptorNombre.Trim(),
                 ReceptorDomicilio = Clean(request.ReceptorDomicilio),
                 ReceptorLocalidad = Clean(request.ReceptorLocalidad),
@@ -165,7 +167,7 @@ public static partial class RemitoEndpoints
         ValidateLength(errors, "observaciones", request.Observaciones, 1000);
         var document = Clean(request.ReceptorCuit);
         if (document is not null && (document.Length is < 7 or > 13 || !DocumentRegex().IsMatch(document)))
-            errors["receptorCuit"] = ["El documento debe tener entre 7 y 13 caracteres y contener solo números y guiones."];
+            errors["receptorCuit"] = ["El documento debe tener entre 7 y 13 caracteres y contener solo números, guiones y puntos."];
         return errors;
     }
 
@@ -196,7 +198,7 @@ public static partial class RemitoEndpoints
         catch (JsonException) { return []; }
     }
 
-    [GeneratedRegex("^[0-9-]+$")]
+    [GeneratedRegex("^[0-9.-]+$")]
     private static partial Regex DocumentRegex();
 }
 
