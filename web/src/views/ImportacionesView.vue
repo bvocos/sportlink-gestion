@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import AppButton from '@/shared/components/AppButton.vue'
 import AppDatePicker from '@/shared/components/AppDatePicker.vue'
 import Column from 'primevue/column'
@@ -13,6 +14,7 @@ import { auth } from '@/auth'
 import { confirmAction, notify } from '@/shared/uiFeedback'
 
 const items = ref<any[]>([]), total = ref(0), page = ref(1), pageSize = ref(20), buscar = ref('')
+const route = useRoute(), router = useRouter()
 const loading = ref(false), error = ref(''), visible = ref(false), saving = ref(false)
 const editingId = ref<string | null>(null), detail = ref<any | null>(null)
 const blank = () => ({ codigo: '', numeroDespacho: '', fecha: new Date().toISOString().slice(0, 10), observaciones: '' })
@@ -29,14 +31,18 @@ function edit(row: any) { editingId.value = row.id; form.value = { codigo: row.c
 async function save() { saving.value = true; error.value = ''; try { editingId.value ? await http.put(`/importaciones/${editingId.value}`, form.value) : await http.post('/importaciones', form.value); visible.value = false; await load() } catch (e) { error.value = apiErrorMessage(e, 'No se pudo guardar la importación.') } finally { saving.value = false } }
 async function openDetail(row: any) { try { detail.value = (await http.get(`/importaciones/${row.id}`)).data } catch (e) { notify(apiErrorMessage(e, 'No se pudo cargar el detalle.')) } }
 async function remove(row: any) { if (!await confirmAction({ title: 'Eliminar importación', message: `¿Eliminar ${row.codigo}?`, confirmText: 'Eliminar', danger: true })) return; try { await http.delete(`/importaciones/${row.id}`); await load() } catch (e) { notify(apiErrorMessage(e, 'No se pudo eliminar la importación.')) } }
-onMounted(load)
+onMounted(async () => {
+  await load()
+  const detailId = route.query.detalle as string | undefined
+  if (detailId) await openDetail({ id: detailId })
+})
 </script>
 
 <template>
   <section class="page compact-page">
     <div class="page-toolbar flex justify-content-between gap-2 flex-wrap">
       <p class="page-desc text-color-secondary m-0">Códigos de importación y saldos de la sucursal activa.</p>
-      <AppButton v-if="auth.can('stock', 'crear')" label="Nueva importación" icon="pi pi-plus" size="small" @click="create" />
+      <div class="flex gap-2"><AppButton v-if="auth.can('stock', 'crear')" label="Nueva recepción" icon="pi pi-plus" size="small" @click="router.push('/importaciones/recepcion')" /><AppButton v-if="auth.can('stock', 'crear')" label="Solo código" severity="secondary" size="small" @click="create" /></div>
     </div>
     <div class="flex gap-2 mb-3">
       <InputText v-model="buscar" placeholder="Código o N° de despacho" @keyup.enter="page = 1; load()" />
@@ -56,7 +62,7 @@ onMounted(load)
       <form class="p-fluid" @submit.prevent="save"><div class="field"><label>Código</label><InputText v-model="form.codigo" maxlength="50" required /></div><div class="field"><label>N° de despacho</label><InputText v-model="form.numeroDespacho" maxlength="100" /></div><div class="field"><label>Fecha</label><AppDatePicker v-model="form.fecha" required /></div><div class="field"><label>Observaciones</label><Textarea v-model="form.observaciones" maxlength="1000" rows="3" /></div><div class="flex justify-content-end gap-2"><AppButton type="button" label="Cancelar" severity="secondary" @click="visible = false" /><AppButton type="submit" label="Guardar" :loading="saving" /></div></form>
     </Dialog>
     <Dialog :visible="!!detail" modal header="Detalle de importación" :style="{ width: '52rem', maxWidth: '95vw' }" @update:visible="value => { if (!value) detail = null }">
-      <template v-if="detail"><h3>{{ detail.codigo }}</h3><p>{{ detail.numeroDespacho || 'Sin despacho' }} · {{ detail.fecha }}</p><DataTable :value="detail.saldos"><Column field="depositoNombre" header="Depósito" /><Column field="productoNombre" header="Producto" /><Column field="saldoM2" header="Saldo m²" /></DataTable></template>
+      <template v-if="detail"><div class="flex justify-content-between align-items-center"><div><h3>{{ detail.codigo }}</h3><p>{{ detail.numeroDespacho || 'Sin despacho' }} · {{ detail.fecha }}</p></div><AppButton v-if="auth.can('stock','crear')" label="Agregar mercadería" icon="pi pi-plus" @click="router.push(`/importaciones/${detail.id}/recepcion`)" /></div><DataTable :value="detail.saldos"><Column field="depositoNombre" header="Depósito" /><Column field="productoNombre" header="Producto" /><Column field="ingresadoM2" header="Ingresado m²" /><Column field="vendidoM2" header="Vendido m²" /><Column field="saldoM2" header="Saldo m²" /></DataTable><h4 v-if="detail.lotes?.length">Lotes</h4><DataTable v-if="detail.lotes?.length" :value="detail.lotes"><Column field="productoNombre" header="Producto" /><Column field="depositoNombre" header="Depósito" /><Column field="color" header="Color" /><Column field="estado" header="Estado" /><Column field="cantidadM2" header="m²" /><Column header="Rollos"><template #body="{ data }">{{ data.rollos.map((r: any) => `${r.posicion}: ${r.codigoBarra} (${r.cantidadM2} m²)`).join(' · ') }}</template></Column></DataTable></template>
     </Dialog>
   </section>
 </template>

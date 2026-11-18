@@ -14,6 +14,56 @@ namespace Api.Tests;
 public sealed class ImportacionEndpointIntegrationTests
 {
     [Fact]
+    public async Task BatchReception_IsAtomicAndUpdatesImportationBalances()
+    {
+        var master = SqlIntegrationEnvironment.ConnectionOrSkip(); if (master is null) return;
+        var name = $"SportlinkReception_{Guid.NewGuid():N}";
+        var connection = new NpgsqlConnectionStringBuilder(master) { Database = name }.ConnectionString;
+        await CreateDatabase(master, name);
+        try
+        {
+            await using (var schema = new AppDbContext(new DbContextOptionsBuilder<AppDbContext>().UseNpgsql(connection).Options)) await schema.Database.EnsureCreatedAsync();
+            await using var factory = new BranchApiFactory(connection); _ = factory.CreateClient();
+            var seed = await Seed(factory.Services);
+            Guid secondProduct;
+            await using (var scope = factory.Services.CreateAsyncScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                var product = NewProduct(seed.DepositA, "Importado recepción");
+                product.EsImportado = true; product.ControlPorLotes = false;
+                db.Add(product); await db.SaveChangesAsync(); secondProduct = product.Id;
+            }
+            using var user = await LoginUser(factory, "imports-a", "Test123!");
+            var response = await user.PostAsJsonAsync("/api/importaciones/recepcion", new
+            {
+                importacionId = (Guid?)null,
+                nueva = ImportRequest("REC-001"), depositoId = seed.DepositA, observaciones = "Contenedor completo",
+                lineas = new[] { new { tipoCespedId = seed.ImportedA, cantidadM2 = 10m }, new { tipoCespedId = secondProduct, cantidadM2 = 15m } }
+            });
+            Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+            var created = await response.Content.ReadFromJsonAsync<JsonElement>();
+            Assert.Equal(25m, created.GetProperty("totalM2").GetDecimal());
+            Assert.Equal(2, created.GetProperty("lineasIngresadas").GetInt32());
+            var id = created.GetProperty("importacionId").GetGuid();
+            var detail = await user.GetFromJsonAsync<JsonElement>($"/api/importaciones/{id}");
+            Assert.Equal(25m, detail.GetProperty("saldos").EnumerateArray().Sum(x => x.GetProperty("ingresadoM2").GetDecimal()));
+            Assert.Equal(25m, detail.GetProperty("saldos").EnumerateArray().Sum(x => x.GetProperty("saldoM2").GetDecimal()));
+
+            var invalid = await user.PostAsJsonAsync("/api/importaciones/recepcion", new
+            {
+                importacionId = (Guid?)null,
+                nueva = ImportRequest("REC-ATOMIC"), depositoId = seed.DepositA,
+                lineas = new[] { new { tipoCespedId = seed.ImportedA, cantidadM2 = 5m }, new { tipoCespedId = seed.NormalA, cantidadM2 = 5m } }
+            });
+            Assert.Equal(HttpStatusCode.BadRequest, invalid.StatusCode);
+            await using var verifyScope = factory.Services.CreateAsyncScope();
+            var verify = verifyScope.ServiceProvider.GetRequiredService<AppDbContext>();
+            Assert.False(await verify.Importaciones.IgnoreQueryFilters().AnyAsync(x => x.Codigo == "REC-ATOMIC"));
+        }
+        finally { NpgsqlConnection.ClearAllPools(); await DropDatabase(master, name); }
+    }
+
+    [Fact]
     public async Task Importations_AreBranchScopedAndStockMovesBetweenBuckets()
     {
         var master = SqlIntegrationEnvironment.ConnectionOrSkip(); if (master is null) return;
