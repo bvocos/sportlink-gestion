@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using System.Text.Json;
+using System.Data;
 using Api.Shared.Common;
 using Api.Shared.Database;
 using Api.Features.Auth;
@@ -192,16 +193,27 @@ public static class StockEndpoints
         var importError = await ValidateImportacion(product, request.ImportacionId, db, ct, allowNullBucket: true);
         if (importError is not null) return importError;
 
-        var currentStock = await db.MovimientosStock
-            .Where(x => x.DepositoId == request.DepositoId && x.TipoCespedId == request.TipoCespedId &&
-                (!product.EsImportado || x.ImportacionId == request.ImportacionId))
-            .SumAsync(x => (decimal?)(x.Tipo == TipoMovimientoStock.SalidaPorVenta || x.Tipo == TipoMovimientoStock.AjusteSalida ? -x.CantidadM2 : x.CantidadM2), ct) ?? 0m;
-        var movement = CreateAdjustment(request.DepositoId, request.TipoCespedId, currentStock,
-            request.NuevoStockM2, UserName(currentUser), observations!, DateTime.UtcNow, product.EsImportado ? request.ImportacionId : null);
+        var strategy = db.Database.CreateExecutionStrategy();
+        var attempt = 0;
+        MovimientoStock? movement = null;
+        decimal currentStock = 0;
+        await strategy.ExecuteAsync(async () =>
+        {
+            if (attempt++ > 0) db.ChangeTracker.Clear();
+            await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
+            currentStock = await db.MovimientosStock
+                .Where(x => x.DepositoId == request.DepositoId && x.TipoCespedId == request.TipoCespedId &&
+                    (!product.EsImportado || x.ImportacionId == request.ImportacionId))
+                .SumAsync(x => (decimal?)(x.Tipo == TipoMovimientoStock.SalidaPorVenta || x.Tipo == TipoMovimientoStock.AjusteSalida ? -x.CantidadM2 : x.CantidadM2), ct) ?? 0m;
+            movement = CreateAdjustment(request.DepositoId, request.TipoCespedId, currentStock,
+                request.NuevoStockM2, UserName(currentUser), observations!, DateTime.UtcNow,
+                product.EsImportado ? request.ImportacionId : null);
+            if (movement is null) return;
+            db.MovimientosStock.Add(movement);
+            await db.SaveChangesAsync(ct);
+            await transaction.CommitAsync(ct);
+        });
         if (movement is null) return Results.ValidationProblem(new Dictionary<string, string[]> { ["nuevoStockM2"] = ["El nuevo stock debe ser diferente del stock actual."] });
-
-        db.MovimientosStock.Add(movement);
-        await db.SaveChangesAsync(ct);
         return Results.Created($"/api/stock/movimientos/{movement.Id}", new
         {
             movement.Id,
@@ -263,16 +275,28 @@ public static class StockEndpoints
         if (product is null) return Results.ValidationProblem(new Dictionary<string, string[]> { ["tipoCespedId"] = ["Seleccioná un producto importado del depósito."] });
         foreach (var id in new[] { request.DesdeImportacionId, request.HaciaImportacionId }.Where(x => x.HasValue))
             if (!await db.Importaciones.AnyAsync(x => x.Id == id!.Value, ct)) return Results.ValidationProblem(new Dictionary<string, string[]> { ["importacionId"] = ["La importación no pertenece a la sucursal activa."] });
-        var sourceBalance = await db.MovimientosStock.Where(x => x.DepositoId == request.DepositoId && x.TipoCespedId == request.TipoCespedId && x.ImportacionId == request.DesdeImportacionId)
-            .SumAsync(x => (decimal?)(x.Tipo == TipoMovimientoStock.SalidaPorVenta || x.Tipo == TipoMovimientoStock.AjusteSalida ? -x.CantidadM2 : x.CantidadM2), ct) ?? 0;
-        if (sourceBalance < request.CantidadM2) return Results.Conflict(new { message = "La reasignación supera el saldo disponible del código de origen." });
         var note = "Reasignación de importación" + (string.IsNullOrWhiteSpace(request.Observaciones) ? "" : $": {request.Observaciones.Trim()}");
-        var now = DateTime.UtcNow; var actor = UserName(user);
-        var output = new MovimientoStock { DepositoId = request.DepositoId, TipoCespedId = request.TipoCespedId, ImportacionId = request.DesdeImportacionId, Tipo = TipoMovimientoStock.AjusteSalida, CantidadM2 = request.CantidadM2, Fecha = now, Usuario = actor, Observaciones = note };
-        var input = new MovimientoStock { DepositoId = request.DepositoId, TipoCespedId = request.TipoCespedId, ImportacionId = request.HaciaImportacionId, Tipo = TipoMovimientoStock.Ajuste, CantidadM2 = request.CantidadM2, Fecha = now, Usuario = actor, Observaciones = note };
-        // SaveChanges envuelve ambos movimientos en una única transacción.
-        db.AddRange(output, input); await db.SaveChangesAsync(ct);
-        return Results.Created("/api/stock/movimientos", new { salidaId = output.Id, ingresoId = input.Id });
+        var strategy = db.Database.CreateExecutionStrategy();
+        var attempt = 0;
+        MovimientoStock? output = null, input = null;
+        var insufficient = false;
+        await strategy.ExecuteAsync(async () =>
+        {
+            if (attempt++ > 0) db.ChangeTracker.Clear();
+            await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
+            var sourceBalance = await db.MovimientosStock.Where(x => x.DepositoId == request.DepositoId && x.TipoCespedId == request.TipoCespedId && x.ImportacionId == request.DesdeImportacionId)
+                .SumAsync(x => (decimal?)(x.Tipo == TipoMovimientoStock.SalidaPorVenta || x.Tipo == TipoMovimientoStock.AjusteSalida ? -x.CantidadM2 : x.CantidadM2), ct) ?? 0;
+            if (sourceBalance < request.CantidadM2) { insufficient = true; return; }
+            insufficient = false;
+            var now = DateTime.UtcNow; var actor = UserName(user);
+            output = new MovimientoStock { DepositoId = request.DepositoId, TipoCespedId = request.TipoCespedId, ImportacionId = request.DesdeImportacionId, Tipo = TipoMovimientoStock.AjusteSalida, CantidadM2 = request.CantidadM2, Fecha = now, Usuario = actor, Observaciones = note };
+            input = new MovimientoStock { DepositoId = request.DepositoId, TipoCespedId = request.TipoCespedId, ImportacionId = request.HaciaImportacionId, Tipo = TipoMovimientoStock.Ajuste, CantidadM2 = request.CantidadM2, Fecha = now, Usuario = actor, Observaciones = note };
+            db.AddRange(output, input);
+            await db.SaveChangesAsync(ct);
+            await transaction.CommitAsync(ct);
+        });
+        if (insufficient) return Results.Conflict(new { message = "La reasignación supera el saldo disponible del código de origen." });
+        return Results.Created("/api/stock/movimientos", new { salidaId = output!.Id, ingresoId = input!.Id });
     }
 
     private static async Task<IResult> GetLotes(Guid? depositoId, Guid? tipoCespedId, EstadoLoteStock? estado, ClaimsPrincipal currentUser, AppDbContext db, CancellationToken ct)

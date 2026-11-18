@@ -62,10 +62,11 @@ public sealed class RegistrarVentaValidator : AbstractValidator<RegistrarVentaCo
     }
 }
 
-internal sealed class StockInsuficienteException(string producto, decimal faltante) : Exception
+internal sealed class StockInsuficienteException(string producto, decimal faltante, string? codigoImportacion = null) : Exception
 {
     public string Producto { get; } = producto;
     public decimal Faltante { get; } = faltante;
+    public string? CodigoImportacion { get; } = codigoImportacion;
 }
 
 internal sealed class VentaScopeException(string message) : Exception(message);
@@ -195,9 +196,15 @@ internal static class VentaService
                 .SumAsync(x => x.Tipo == TipoMovimientoStock.SalidaPorVenta || x.Tipo == TipoMovimientoStock.AjusteSalida ? -x.CantidadM2 : x.CantidadM2, ct);
             var shortage = StockShortage(available, requested);
             if (shortage <= 0) continue;
-            var product = await db.TiposCesped.Where(x => x.Id == group.Key.TipoCespedId).Select(x => x.Nombre)
-                .SingleOrDefaultAsync(ct) ?? group.Key.TipoCespedId.ToString();
-            throw new StockInsuficienteException(product, shortage);
+            var product = await db.TiposCesped.Where(x => x.Id == group.Key.TipoCespedId)
+                .Select(x => new { x.Nombre, x.EsImportado }).SingleOrDefaultAsync(ct);
+            var productName = product?.Nombre ?? group.Key.TipoCespedId.ToString();
+            if (product?.EsImportado == true && !group.Key.ImportacionId.HasValue)
+                throw new KeyNotFoundException($"Indicá el código de importación de {productName}.");
+            var importCode = group.Key.ImportacionId.HasValue
+                ? await db.Importaciones.Where(x => x.Id == group.Key.ImportacionId.Value).Select(x => x.Codigo).SingleOrDefaultAsync(ct)
+                : null;
+            throw new StockInsuficienteException(productName, shortage, importCode);
         }
     }
     public static async Task ValidateImportations(AppDbContext db, IReadOnlyCollection<VentaLineaCommand> lines, CancellationToken ct)
@@ -342,7 +349,12 @@ public static class VentaEndpoints
             }
             catch (StockInsuficienteException exception)
             {
-                return Results.Conflict(new { message = $"Stock insuficiente de {exception.Producto}. Faltan {exception.Faltante:0.##} m²." });
+                var bucket = exception.CodigoImportacion is null ? "" : $" en la importación {exception.CodigoImportacion}";
+                return Results.Conflict(new { message = $"Stock insuficiente de {exception.Producto}{bucket}. Faltan {exception.Faltante:0.##} m²." });
+            }
+            catch (KeyNotFoundException exception)
+            {
+                return Results.ValidationProblem(new Dictionary<string, string[]> { ["Lineas"] = [exception.Message] });
             }
             catch (LoteNoDisponibleException exception)
             {
@@ -457,6 +469,11 @@ public static class VentaEndpoints
         {
             return Results.ValidationProblem(new Dictionary<string, string[]> { ["Lineas"] = [exception.Message] });
         }
+        try { await VentaService.ValidateImportations(db, request.Lineas!, ct); }
+        catch (KeyNotFoundException exception)
+        {
+            return Results.ValidationProblem(new Dictionary<string, string[]> { ["Lineas"] = [exception.Message] });
+        }
 
         var hasPaidInstallments = await db.Cuotas.AnyAsync(x => x.VentaId == id && x.ImportePagado > 0, ct);
         if (hasPaidInstallments)
@@ -483,10 +500,15 @@ public static class VentaEndpoints
             try { await VentaService.ValidateStock(db, venta.DepositoId, stockLines, ct); }
             catch (StockInsuficienteException exception)
             {
+                var bucket = exception.CodigoImportacion is null ? "" : $" en la importación {exception.CodigoImportacion}";
                 return Results.Conflict(new
                 {
-                    message = $"Stock insuficiente de {exception.Producto}. Faltan {exception.Faltante:0.##} m²."
+                    message = $"Stock insuficiente de {exception.Producto}{bucket}. Faltan {exception.Faltante:0.##} m²."
                 });
+            }
+            catch (KeyNotFoundException exception)
+            {
+                return Results.ValidationProblem(new Dictionary<string, string[]> { ["Lineas"] = [exception.Message] });
             }
 
             // ExecuteDelete evita conflictos entre cuotas eliminadas y las nuevas con el mismo número.
@@ -642,7 +664,26 @@ public static class VentaEndpoints
         var venta = await VisibleQuery(db.Ventas, user).SingleOrDefaultAsync(x => x.Id == id, ct);
         if (venta is null) return Results.NotFound();
         if (venta.Estado == EstadoVenta.Entregada) return Results.Conflict(new { message = "Una venta entregada no puede modificarse." });
-        venta.Estado = status; await db.SaveChangesAsync(ct); return Results.NoContent();
+        var strategy = db.Database.CreateExecutionStrategy();
+        var attempt = 0;
+        await strategy.ExecuteAsync(async () =>
+        {
+            if (attempt++ > 0) db.ChangeTracker.Clear();
+            await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
+            var current = await VisibleQuery(db.Ventas, user).SingleAsync(x => x.Id == id, ct);
+            current.Estado = status;
+            if (status == EstadoVenta.Cancelada)
+            {
+                await db.LotesStock.Where(x => x.VentaId == id).ExecuteUpdateAsync(setters => setters
+                    .SetProperty(x => x.Estado, EstadoLoteStock.Disponible)
+                    .SetProperty(x => x.VentaId, (Guid?)null), ct);
+                await db.MovimientosStock.Where(x => x.VentaId == id && x.Tipo == TipoMovimientoStock.SalidaPorVenta)
+                    .ExecuteDeleteAsync(ct);
+            }
+            await db.SaveChangesAsync(ct);
+            await transaction.CommitAsync(ct);
+        });
+        return Results.NoContent();
     }
 
     private static async Task<IResult> ResetDelivery(Guid id, ClaimsPrincipal user, AppDbContext db, CancellationToken ct)
