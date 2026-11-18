@@ -601,6 +601,77 @@ namespace Api.Migrations
                     b.ToTable("RegistrosAuditoria");
                 });
 
+            modelBuilder.Entity("Api.Shared.Database.Remito", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateOnly>("Fecha")
+                        .HasColumnType("date");
+
+                    b.Property<string>("LineasJson")
+                        .IsRequired()
+                        .HasColumnType("citext");
+
+                    b.Property<int>("Numero")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Observaciones")
+                        .HasMaxLength(1000)
+                        .HasColumnType("citext");
+
+                    b.Property<string>("ReceptorCondicionIva")
+                        .HasMaxLength(80)
+                        .HasColumnType("citext");
+
+                    b.Property<string>("ReceptorCuit")
+                        .HasMaxLength(13)
+                        .HasColumnType("citext");
+
+                    b.Property<string>("ReceptorDomicilio")
+                        .HasMaxLength(250)
+                        .HasColumnType("citext");
+
+                    b.Property<string>("ReceptorLocalidad")
+                        .HasMaxLength(150)
+                        .HasColumnType("citext");
+
+                    b.Property<string>("ReceptorNombre")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("citext");
+
+                    b.Property<string>("ReceptorProvincia")
+                        .HasMaxLength(150)
+                        .HasColumnType("citext");
+
+                    b.Property<string>("ReceptorTelefono")
+                        .HasMaxLength(50)
+                        .HasColumnType("citext");
+
+                    b.Property<Guid>("SucursalId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("VentaId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("VentaId");
+
+                    b.HasIndex("SucursalId", "Numero")
+                        .IsUnique();
+
+                    b.ToTable("Remitos");
+                });
+
             modelBuilder.Entity("Api.Shared.Database.Rollo", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1179,6 +1250,25 @@ namespace Api.Migrations
                         .OnDelete(DeleteBehavior.Restrict);
                 });
 
+            modelBuilder.Entity("Api.Shared.Database.Remito", b =>
+                {
+                    b.HasOne("Api.Shared.Database.Sucursal", "Sucursal")
+                        .WithMany()
+                        .HasForeignKey("SucursalId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Api.Shared.Database.Venta", "Venta")
+                        .WithMany("Remitos")
+                        .HasForeignKey("VentaId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Sucursal");
+
+                    b.Navigation("Venta");
+                });
+
             modelBuilder.Entity("Api.Shared.Database.Rollo", b =>
                 {
                     b.HasOne("Api.Shared.Database.LoteStock", "LoteStock")
@@ -1331,6 +1421,8 @@ namespace Api.Migrations
             modelBuilder.Entity("Api.Shared.Database.Venta", b =>
                 {
                     b.Navigation("Cuotas");
+
+                    b.Navigation("Remitos");
                 });
 #pragma warning restore 612, 618
         }

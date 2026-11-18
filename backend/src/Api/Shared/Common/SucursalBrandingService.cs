@@ -5,7 +5,8 @@ namespace Api.Shared.Common;
 
 public sealed record SucursalBranding(Guid SucursalId, string RazonSocial, string Domicilio,
     string Localidad, string Telefono, string Email, string Cuit, byte[]? Logo,
-    string? LogoContentType);
+    string? LogoContentType, string? CondicionIva = null, DateOnly? InicioActividades = null,
+    string? IngresosBrutos = null, int? PuntoVentaAfip = null, string? NombreSucursal = null);
 
 public sealed class SucursalBrandingService(AppDbContext db)
 {
@@ -15,7 +16,8 @@ public sealed class SucursalBrandingService(AppDbContext db)
                 string.IsNullOrWhiteSpace(x.RazonSocial) ? x.Nombre : x.RazonSocial,
                 x.DomicilioFiscal ?? "", x.Localidad ?? "", x.Telefono ?? "", x.Email ?? "",
                 x.Cuit ?? "", x.Logo == null ? null : x.Logo.Contenido,
-                x.Logo == null ? null : x.Logo.ContentType))
+                x.Logo == null ? null : x.Logo.ContentType, x.CondicionIva, x.InicioActividades,
+                x.IngresosBrutos, x.PuntoVentaAfip, x.Nombre))
             .SingleOrDefaultAsync(ct);
 }
 

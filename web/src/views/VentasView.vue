@@ -21,6 +21,7 @@ import { confirmAction, notify } from "@/shared/uiFeedback";
 import { formatDateRangeLabel, monthRange, sixMonthsRange, weekRange } from "@/shared/dateFilters";
 import { useImmediateFilters } from "@/shared/composables/useFilterTriggers";
 import { TABLE_ROWS, TABLE_ROWS_OPTIONS, tableFirst, type DataTablePageEvent } from "@/shared/tablePagination";
+import { auth } from "@/auth";
 
 const items = ref<any[]>([]),
   clientes = ref<any[]>([]),
@@ -34,7 +35,34 @@ const items = ref<any[]>([]),
   pageSize = ref(TABLE_ROWS),
   first = computed(() => tableFirst(page.value, pageSize.value)),
   loading = ref(false),
-  loadError = ref("");
+  loadError = ref(""),
+  remitoVisible = ref(false),
+  remitoSale = ref<any | null>(null),
+  remitoDraft = ref<any | null>(null),
+  remitos = ref<any[]>([]),
+  remitoLoading = ref(false),
+  remitoSaving = ref(false),
+  remitoError = ref("");
+
+const canCreateRemito = computed(() => auth.can("ventas", "crear"));
+const condicionIvaOptions = [
+  "Consumidor final",
+  "Responsable inscripto",
+  "Monotributista",
+  "Exento",
+  "No categorizado",
+];
+const blankRemito = () => ({
+  receptorNombre: "",
+  receptorDomicilio: "",
+  receptorLocalidad: "",
+  receptorProvincia: "",
+  receptorTelefono: "",
+  receptorCuit: "",
+  receptorCondicionIva: null as string | null,
+  observaciones: "",
+});
+const remitoForm = ref(blankRemito());
 
 const periodoOptions = [
   { label: "Todo el historial", value: "all" },
@@ -235,6 +263,74 @@ async function deliver(id: string) {
   }
 }
 
+async function openRemito(v: any) {
+  remitoSale.value = v;
+  remitoVisible.value = true;
+  remitoLoading.value = true;
+  remitoError.value = "";
+  remitoDraft.value = null;
+  remitos.value = [];
+  try {
+    const [draft, existing] = await Promise.all([
+      http.get(`/ventas/${v.id}/remito-borrador`),
+      http.get(`/ventas/${v.id}/remitos`),
+    ]);
+    remitoDraft.value = draft.data;
+    remitos.value = existing.data;
+    remitoForm.value = {
+      receptorNombre: draft.data.receptorNombre ?? "",
+      receptorDomicilio: draft.data.receptorDomicilio ?? "",
+      receptorLocalidad: draft.data.receptorLocalidad ?? "",
+      receptorProvincia: draft.data.receptorProvincia ?? "",
+      receptorTelefono: draft.data.receptorTelefono ?? "",
+      receptorCuit: draft.data.receptorCuit ?? "",
+      receptorCondicionIva: draft.data.receptorCondicionIva || null,
+      observaciones: draft.data.observaciones ?? "",
+    };
+  } catch (e: any) {
+    remitoError.value = apiErrorMessage(e, "No se pudieron cargar los datos del remito.");
+  } finally {
+    remitoLoading.value = false;
+  }
+}
+
+async function refreshRemitos() {
+  if (!remitoSale.value) return;
+  remitos.value = (await http.get(`/ventas/${remitoSale.value.id}/remitos`)).data;
+}
+
+async function downloadRemito(remito: any) {
+  try {
+    const response = await http.get(`/remitos/${remito.id}/pdf`, { responseType: "blob" });
+    const url = URL.createObjectURL(new Blob([response.data], { type: "application/pdf" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `Remito-${remito.numeroTexto}.pdf`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  } catch (e: any) {
+    notify(apiErrorMessage(e, "No se pudo descargar el remito."));
+  }
+}
+
+async function createRemito() {
+  if (!remitoSale.value) return;
+  remitoSaving.value = true;
+  remitoError.value = "";
+  try {
+    const created = (await http.post(`/ventas/${remitoSale.value.id}/remitos`, remitoForm.value)).data;
+    await downloadRemito(created);
+    await refreshRemitos();
+    notify("Remito generado correctamente.", "success");
+  } catch (e: any) {
+    remitoError.value = apiErrorMessage(e, "No se pudo generar el remito.");
+  } finally {
+    remitoSaving.value = false;
+  }
+}
+
 watch(() => filters.periodo, () => applyPeriod());
 
 useImmediateFilters(() => filters, () => {
@@ -366,6 +462,16 @@ onMounted(load);
               >
                 <AppIcon :icon="faTruck" />
               </AppButton>
+              <AppButton
+                v-if="v.estado !== 'Cancelada'"
+                text
+                rounded
+                severity="secondary"
+                icon="pi pi-truck"
+                tooltip="Remito"
+                aria-label="Remito"
+                @click="openRemito(v)"
+              />
               <RouterLink :to="`/ventas/${v.id}/editar`">
                 <AppButton text rounded severity="secondary" aria-label="Editar venta">
                   <AppIcon :icon="faPen" />
@@ -516,6 +622,87 @@ onMounted(load);
           <AppButton type="submit" :label="editingId ? 'Guardar cambios' : 'Confirmar venta'" />
         </div>
       </form>
+    </Dialog>
+
+    <Dialog
+      v-model:visible="remitoVisible"
+      modal
+      header="Remito de venta"
+      :style="{ width: 'min(820px, 96vw)' }"
+    >
+      <Message v-if="remitoError" severity="error" class="mb-3" :closable="false">{{ remitoError }}</Message>
+      <Message v-if="remitoLoading" severity="info" :closable="false">Cargando datos del remito…</Message>
+      <div v-else class="flex flex-column gap-4">
+        <section v-if="remitos.length">
+          <h4 class="mt-0 mb-2">Remitos generados</h4>
+          <div v-for="remito in remitos" :key="remito.id"
+            class="flex justify-content-between align-items-center flex-wrap gap-2 border-1 surface-border border-round p-2 mb-2">
+            <div>
+              <b>{{ remito.numeroTexto }}</b>
+              <small class="block text-color-secondary">{{ remito.fecha }} · {{ remito.receptorNombre }}</small>
+            </div>
+            <AppButton type="button" label="Descargar PDF" icon="pi pi-download" severity="secondary"
+              size="small" @click="downloadRemito(remito)" />
+          </div>
+        </section>
+
+        <form v-if="canCreateRemito && remitoDraft" @submit.prevent="createRemito">
+          <h4 class="mt-0 mb-2">Nuevo remito</h4>
+          <div class="grid formgrid p-fluid">
+            <div class="field col-12 md:col-6">
+              <label>Nombre de quien recibe</label>
+              <InputText v-model="remitoForm.receptorNombre" maxlength="200" required />
+            </div>
+            <div class="field col-12 md:col-6">
+              <label>Documento (CUIT/CUIL/DNI)</label>
+              <InputText v-model="remitoForm.receptorCuit" maxlength="13" />
+            </div>
+            <div class="field col-12">
+              <label>Domicilio</label>
+              <InputText v-model="remitoForm.receptorDomicilio" maxlength="250" />
+            </div>
+            <div class="field col-12 md:col-6">
+              <label>Localidad</label>
+              <InputText v-model="remitoForm.receptorLocalidad" maxlength="150" />
+            </div>
+            <div class="field col-12 md:col-6">
+              <label>Provincia</label>
+              <InputText v-model="remitoForm.receptorProvincia" maxlength="150" />
+            </div>
+            <div class="field col-12 md:col-6">
+              <label>Teléfono</label>
+              <InputText v-model="remitoForm.receptorTelefono" maxlength="50" />
+            </div>
+            <div class="field col-12 md:col-6">
+              <label>Condición de IVA</label>
+              <Select v-model="remitoForm.receptorCondicionIva" :options="condicionIvaOptions"
+                placeholder="Sin especificar" show-clear />
+            </div>
+            <div class="field col-12">
+              <label>Observaciones</label>
+              <Textarea v-model="remitoForm.observaciones" maxlength="1000" rows="3" auto-resize />
+            </div>
+          </div>
+
+          <div class="border-1 surface-border border-round p-3 mb-3">
+            <h5 class="mt-0 mb-2">Productos incluidos</h5>
+            <div v-for="(linea, index) in remitoDraft.lineas" :key="index"
+              class="flex justify-content-between gap-3 py-2 border-bottom-1 surface-border">
+              <span>{{ linea.producto }}<template v-if="linea.color"> · {{ linea.color }}</template></span>
+              <b class="white-space-nowrap">{{ linea.cantidadM2 }} m²</b>
+            </div>
+          </div>
+
+          <div class="flex justify-content-end gap-2 flex-wrap">
+            <AppButton type="button" label="Cancelar" severity="secondary" @click="remitoVisible = false" />
+            <AppButton type="submit" label="Generar y descargar PDF" icon="pi pi-download"
+              :loading="remitoSaving" />
+          </div>
+        </form>
+        <Message v-else-if="!canCreateRemito && !remitos.length" severity="info" :closable="false">
+          No hay remitos generados para esta venta.
+        </Message>
+      </div>
     </Dialog>
   </section>
 </template>

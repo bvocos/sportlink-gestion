@@ -26,11 +26,13 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, IHttpCo
     public DbSet<Gasto> Gastos => Set<Gasto>();
     public DbSet<DataProtectionKey> DataProtectionKeys => Set<DataProtectionKey>();
     public DbSet<Presupuesto> Presupuestos => Set<Presupuesto>(); public DbSet<PresupuestoLinea> PresupuestoLineas => Set<PresupuestoLinea>();
+    public DbSet<Remito> Remitos => Set<Remito>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
         b.Entity<Cliente>().HasQueryFilter(x => CurrentSucursalId != null && x.SucursalId == CurrentSucursalId);
         b.Entity<Venta>().HasQueryFilter(x => CurrentSucursalId != null && x.SucursalId == CurrentSucursalId);
+        b.Entity<Remito>().HasQueryFilter(x => CurrentSucursalId != null && x.SucursalId == CurrentSucursalId);
         b.Entity<Cuota>().HasQueryFilter(x => CurrentSucursalId != null && x.SucursalId == CurrentSucursalId);
         b.Entity<MovimientoCaja>().HasQueryFilter(x => CurrentSucursalId != null && x.SucursalId == CurrentSucursalId);
         b.Entity<Presupuesto>().HasQueryFilter(x => CurrentSucursalId != null && x.SucursalId == CurrentSucursalId);
@@ -88,6 +90,19 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, IHttpCo
         b.Entity<Venta>().HasOne(x => x.Deposito).WithMany().HasForeignKey(x => x.DepositoId).OnDelete(DeleteBehavior.Restrict);
         b.Entity<Venta>().HasIndex(x => new { x.SucursalId, x.FechaVenta });
         b.Entity<Venta>().HasMany(x => x.Cuotas).WithOne(x => x.Venta).HasForeignKey(x => x.VentaId).OnDelete(DeleteBehavior.Cascade);
+        b.Entity<Remito>().Property(x => x.ReceptorNombre).HasMaxLength(200);
+        b.Entity<Remito>().Property(x => x.ReceptorDomicilio).HasMaxLength(250);
+        b.Entity<Remito>().Property(x => x.ReceptorLocalidad).HasMaxLength(150);
+        b.Entity<Remito>().Property(x => x.ReceptorProvincia).HasMaxLength(150);
+        b.Entity<Remito>().Property(x => x.ReceptorTelefono).HasMaxLength(50);
+        b.Entity<Remito>().Property(x => x.ReceptorCuit).HasMaxLength(13);
+        b.Entity<Remito>().Property(x => x.ReceptorCondicionIva).HasMaxLength(80);
+        b.Entity<Remito>().Property(x => x.Observaciones).HasMaxLength(1000);
+        b.Entity<Remito>().HasIndex(x => new { x.SucursalId, x.Numero }).IsUnique();
+        b.Entity<Remito>().HasIndex(x => x.VentaId);
+        b.Entity<Remito>().HasOne(x => x.Sucursal).WithMany().HasForeignKey(x => x.SucursalId).OnDelete(DeleteBehavior.Restrict);
+        // El remito es una instantánea subordinada a la venta: al borrar la venta se eliminan sus remitos.
+        b.Entity<Remito>().HasOne(x => x.Venta).WithMany(x => x.Remitos).HasForeignKey(x => x.VentaId).OnDelete(DeleteBehavior.Cascade);
         b.Entity<Cuota>().HasOne<Cliente>().WithMany().HasForeignKey(x => x.ClienteId).OnDelete(DeleteBehavior.Restrict);
         b.Entity<Cuota>().HasOne(x => x.Sucursal).WithMany().HasForeignKey(x => x.SucursalId).OnDelete(DeleteBehavior.Restrict);
         b.Entity<Cuota>().HasOne(x => x.Deposito).WithMany().HasForeignKey(x => x.DepositoId).OnDelete(DeleteBehavior.Restrict);
@@ -191,7 +206,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, IHttpCo
     private static bool IsSensitive(string name) => name.Contains("Password", StringComparison.OrdinalIgnoreCase) || name.Contains("Hash", StringComparison.OrdinalIgnoreCase);
 
     private static object? Printable(object? value) => value is DateOnly date ? date.ToString("yyyy-MM-dd") : value;
-    private static string ModuleFor(string entity) => entity switch { "Venta" => "Ventas", "Cuota" => "Cuotas", "MovimientoCaja" => "Caja", "MovimientoStock" or "LoteStock" or "Rollo" => "Stock", "Gasto" => "Gastos", "Presupuesto" or "PresupuestoLinea" => "Presupuestos", "Cliente" => "Clientes", "Usuario" => "Usuarios", "Deposito" or "Sucursal" or "SucursalLogo" or "TipoCesped" or "AlicuotaIva" or "Configuracion" => "Administración", _ => entity };
+    private static string ModuleFor(string entity) => entity switch { "Venta" or "Remito" => "Ventas", "Cuota" => "Cuotas", "MovimientoCaja" => "Caja", "MovimientoStock" or "LoteStock" or "Rollo" => "Stock", "Gasto" => "Gastos", "Presupuesto" or "PresupuestoLinea" => "Presupuestos", "Cliente" => "Clientes", "Usuario" => "Usuarios", "Deposito" or "Sucursal" or "SucursalLogo" or "TipoCesped" or "AlicuotaIva" or "Configuracion" => "Administración", _ => entity };
 }
 
 public static class SeedData

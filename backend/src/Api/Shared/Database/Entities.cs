@@ -115,6 +115,23 @@ public sealed class Venta : AuditableEntity, ISucursalScoped
     public decimal GananciaBruta { get; set; } public decimal GananciaNeta { get; set; } public decimal Margen { get; set; }
     public FormaPago FormaPago { get; set; } public int? CantidadCuotas { get; set; } public EstadoVenta Estado { get; set; }
     public string? Observaciones { get; set; } public List<Cuota> Cuotas { get; set; } = [];
+    public List<Remito> Remitos { get; set; } = [];
+}
+public sealed class Remito : AuditableEntity, ISucursalScoped
+{
+    public Guid SucursalId { get; set; } public Sucursal Sucursal { get; set; } = null!;
+    public Guid VentaId { get; set; } public Venta Venta { get; set; } = null!;
+    public int Numero { get; set; }
+    public DateOnly Fecha { get; set; } = DateOnly.FromDateTime(DateTime.Today);
+    public string ReceptorNombre { get; set; } = "";
+    public string? ReceptorDomicilio { get; set; }
+    public string? ReceptorLocalidad { get; set; }
+    public string? ReceptorProvincia { get; set; }
+    public string? ReceptorTelefono { get; set; }
+    public string? ReceptorCuit { get; set; }
+    public string? ReceptorCondicionIva { get; set; }
+    public string? Observaciones { get; set; }
+    public string LineasJson { get; set; } = "[]";
 }
 public sealed class Cuota : AuditableEntity, ISucursalScoped
 {
