@@ -62,11 +62,12 @@ public sealed class RegistrarVentaValidator : AbstractValidator<RegistrarVentaCo
     }
 }
 
-internal sealed class StockInsuficienteException(string producto, decimal faltante, string? codigoImportacion = null) : Exception
+internal sealed class StockInsuficienteException(string producto, decimal faltante, string? codigoImportacion = null, string? color = null) : Exception
 {
     public string Producto { get; } = producto;
     public decimal Faltante { get; } = faltante;
     public string? CodigoImportacion { get; } = codigoImportacion;
+    public string? Color { get; } = color;
 }
 
 internal sealed class VentaScopeException(string message) : Exception(message);
@@ -98,11 +99,13 @@ public sealed class RegistrarVentaHandler(AppDbContext db, IHttpContextAccessor 
             request = await VentaService.ResolveControlledLots(db, request, null, venta.Id, ct);
             VentaService.Apply(venta, request, alicuota.Porcentaje);
             var stockLines = VentaService.StockLines(request);
-            await VentaService.ValidateStock(db, request.DepositoId, stockLines, ct);
+            if (VentaService.ShouldConsumeStock(request.Estado))
+                await VentaService.ValidateStock(db, request.DepositoId, stockLines, ct);
             db.Ventas.Add(venta);
             VentaService.CreateInstallments(venta, request);
-            db.MovimientosStock.AddRange(VentaService.CreateStockMovements(venta, stockLines,
-                currentUser.Identity?.Name ?? currentUser.FindFirstValue("usuario") ?? "sistema"));
+            if (VentaService.ShouldConsumeStock(request.Estado))
+                db.MovimientosStock.AddRange(VentaService.CreateStockMovements(venta, stockLines,
+                    currentUser.Identity?.Name ?? currentUser.FindFirstValue("usuario") ?? "sistema"));
             await db.SaveChangesAsync(ct); // La venta debe existir antes de referenciarla desde Caja.
 
             if (request.MontoEntrega > 0)
@@ -119,6 +122,7 @@ public sealed class RegistrarVentaHandler(AppDbContext db, IHttpContextAccessor 
 
 internal static class VentaService
 {
+    internal static bool ShouldConsumeStock(EstadoVenta estado) => estado != EstadoVenta.Cancelada;
     public static async Task ValidateProductsScope(AppDbContext db, Guid depositoId,
         IReadOnlyCollection<VentaLineaCommand> lines, CancellationToken ct)
     {
@@ -173,7 +177,7 @@ internal static class VentaService
             ValidateLotSelection(lot, line, request.DepositoId, currentSaleId);
             var quantity = lot!.Rollos.Sum(x => x.CantidadM2);
             if (lot.Rollos.Count != 3 || quantity <= 0) throw new LoteNoDisponibleException("El lote no tiene sus tres rollos correctamente registrados.");
-            MarkLotSold(lot, targetSaleId);
+            if (ShouldConsumeStock(request.Estado)) MarkLotSold(lot, targetSaleId); else ReleaseLot(lot);
             lines[index] = line with { CantidadM2 = quantity, Color = lot.Color, ImportacionId = lot.ImportacionId, Total = Math.Round(quantity * line.PrecioVentaM2, 2) };
         }
         var first = lines[0];
@@ -189,22 +193,31 @@ internal static class VentaService
     public static async Task ValidateStock(AppDbContext db, Guid depositoId,
         IReadOnlyList<VentaLineaCommand> lines, CancellationToken ct)
     {
-        foreach (var group in lines.GroupBy(x => new { x.TipoCespedId, x.ImportacionId }))
+        var productIds = lines.Select(x => x.TipoCespedId).Distinct().ToArray();
+        var products = await db.TiposCesped.Where(x => productIds.Contains(x.Id))
+            .Select(x => new { x.Id, x.Nombre, x.EsImportado, x.ColoresJson }).ToDictionaryAsync(x => x.Id, ct);
+        var normalized = lines.Select(x => new
         {
-            var requested = group.Sum(x => x.CantidadM2);
-            var available = await db.MovimientosStock.Where(x => x.DepositoId == depositoId && x.TipoCespedId == group.Key.TipoCespedId && x.ImportacionId == group.Key.ImportacionId)
+            Line = x,
+            Color = x.ImportacionId.HasValue && (JsonSerializer.Deserialize<string[]>(products[x.TipoCespedId].ColoresJson) ?? []).Length > 0
+                ? x.Color : null
+        });
+        foreach (var group in normalized.GroupBy(x => new { x.Line.TipoCespedId, x.Line.ImportacionId, x.Color }))
+        {
+            var requested = group.Sum(x => x.Line.CantidadM2);
+            var available = await db.MovimientosStock.Where(x => x.DepositoId == depositoId && x.TipoCespedId == group.Key.TipoCespedId && x.ImportacionId == group.Key.ImportacionId &&
+                (!group.Key.ImportacionId.HasValue || x.Color == group.Key.Color))
                 .SumAsync(x => x.Tipo == TipoMovimientoStock.SalidaPorVenta || x.Tipo == TipoMovimientoStock.AjusteSalida ? -x.CantidadM2 : x.CantidadM2, ct);
             var shortage = StockShortage(available, requested);
             if (shortage <= 0) continue;
-            var product = await db.TiposCesped.Where(x => x.Id == group.Key.TipoCespedId)
-                .Select(x => new { x.Nombre, x.EsImportado }).SingleOrDefaultAsync(ct);
+            var product = products.GetValueOrDefault(group.Key.TipoCespedId);
             var productName = product?.Nombre ?? group.Key.TipoCespedId.ToString();
             if (product?.EsImportado == true && !group.Key.ImportacionId.HasValue)
                 throw new KeyNotFoundException($"Indicá el código de importación de {productName}.");
             var importCode = group.Key.ImportacionId.HasValue
                 ? await db.Importaciones.Where(x => x.Id == group.Key.ImportacionId.Value).Select(x => x.Codigo).SingleOrDefaultAsync(ct)
                 : null;
-            throw new StockInsuficienteException(productName, shortage, importCode);
+            throw new StockInsuficienteException(productName, shortage, importCode, group.Key.Color);
         }
     }
     public static async Task ValidateImportations(AppDbContext db, IReadOnlyCollection<VentaLineaCommand> lines, CancellationToken ct)
@@ -312,6 +325,7 @@ internal static class VentaService
         {
             DepositoId = venta.DepositoId, TipoCespedId = line.TipoCespedId,
             ImportacionId = line.ImportacionId,
+            Color = line.ImportacionId.HasValue ? line.Color : null,
             Tipo = TipoMovimientoStock.SalidaPorVenta, CantidadM2 = line.CantidadM2,
             Fecha = DateTime.UtcNow, Usuario = usuario, VentaId = venta.Id,
             Observaciones = $"Salida por venta {venta.Id}"
@@ -350,7 +364,8 @@ public static class VentaEndpoints
             catch (StockInsuficienteException exception)
             {
                 var bucket = exception.CodigoImportacion is null ? "" : $" en la importación {exception.CodigoImportacion}";
-                return Results.Conflict(new { message = $"Stock insuficiente de {exception.Producto}{bucket}. Faltan {exception.Faltante:0.##} m²." });
+                var color = exception.Color is null ? "" : $" ({exception.Color})";
+                return Results.Conflict(new { message = $"Stock insuficiente de {exception.Producto}{bucket}{color}. Faltan {exception.Faltante:0.##} m²." });
             }
             catch (KeyNotFoundException exception)
             {
@@ -497,13 +512,14 @@ public static class VentaEndpoints
             db.ChangeTracker.Clear();
             request = await VentaService.ResolveControlledLots(db, request, id, id, ct);
             var stockLines = VentaService.StockLines(request);
-            try { await VentaService.ValidateStock(db, venta.DepositoId, stockLines, ct); }
+            try { if (VentaService.ShouldConsumeStock(request.Estado)) await VentaService.ValidateStock(db, venta.DepositoId, stockLines, ct); }
             catch (StockInsuficienteException exception)
             {
                 var bucket = exception.CodigoImportacion is null ? "" : $" en la importación {exception.CodigoImportacion}";
+                var color = exception.Color is null ? "" : $" ({exception.Color})";
                 return Results.Conflict(new
                 {
-                    message = $"Stock insuficiente de {exception.Producto}{bucket}. Faltan {exception.Faltante:0.##} m²."
+                    message = $"Stock insuficiente de {exception.Producto}{bucket}{color}. Faltan {exception.Faltante:0.##} m²."
                 });
             }
             catch (KeyNotFoundException exception)
@@ -557,8 +573,9 @@ public static class VentaEndpoints
             if (request.MontoEntrega > 0)
                 db.MovimientosCaja.Add(VentaService.CreateCashMovement(updated));
 
-            db.MovimientosStock.AddRange(VentaService.CreateStockMovements(updated, stockLines,
-                user.Identity?.Name ?? user.FindFirstValue("usuario") ?? "sistema"));
+            if (VentaService.ShouldConsumeStock(request.Estado))
+                db.MovimientosStock.AddRange(VentaService.CreateStockMovements(updated, stockLines,
+                    user.Identity?.Name ?? user.FindFirstValue("usuario") ?? "sistema"));
 
             await db.SaveChangesAsync(ct);
 

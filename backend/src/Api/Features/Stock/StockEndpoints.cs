@@ -8,12 +8,12 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Api.Features.Stock;
 
-public record IngresoStockRequest(Guid DepositoId, Guid TipoCespedId, decimal CantidadM2, string? Observaciones, Guid? ImportacionId = null);
-public record AjusteStockRequest(Guid DepositoId, Guid TipoCespedId, decimal NuevoStockM2, string? Observaciones, Guid? ImportacionId = null);
+public record IngresoStockRequest(Guid DepositoId, Guid TipoCespedId, decimal CantidadM2, string? Observaciones, Guid? ImportacionId = null, string? Color = null);
+public record AjusteStockRequest(Guid DepositoId, Guid TipoCespedId, decimal NuevoStockM2, string? Observaciones, Guid? ImportacionId = null, string? Color = null);
 public record RolloLoteRequest(char Posicion, string CodigoBarra, decimal CantidadM2);
 public record IngresoLoteRequest(Guid DepositoId, Guid TipoCespedId, string? Color, IReadOnlyList<RolloLoteRequest>? Rollos, string? Observaciones, Guid? ImportacionId = null);
 public record ReasignarImportacionRequest(Guid DepositoId, Guid TipoCespedId, Guid? DesdeImportacionId,
-    Guid? HaciaImportacionId, decimal CantidadM2, string? Observaciones);
+    Guid? HaciaImportacionId, decimal CantidadM2, string? Observaciones, string? DesdeColor = null, string? HaciaColor = null);
 internal record StockAuthorizationFailure(int StatusCode, string Message);
 
 public static class StockEndpoints
@@ -50,7 +50,7 @@ public static class StockEndpoints
         buckets.Where(x => x.Saldo > 0).OrderBy(x => x.Fecha).ThenBy(x => x.Codigo, StringComparer.OrdinalIgnoreCase);
 
     internal static MovimientoStock? CreateAdjustment(Guid depositoId, Guid tipoCespedId, decimal stockActual,
-        decimal nuevoStock, string usuario, string observaciones, DateTime fecha, Guid? importacionId = null)
+        decimal nuevoStock, string usuario, string observaciones, DateTime fecha, Guid? importacionId = null, string? color = null)
     {
         var diferencia = nuevoStock - stockActual;
         if (diferencia == 0) return null;
@@ -63,7 +63,7 @@ public static class StockEndpoints
             Fecha = fecha,
             Usuario = usuario,
             Observaciones = observaciones
-            , ImportacionId = importacionId
+            , ImportacionId = importacionId, Color = color
         };
     }
 
@@ -88,7 +88,7 @@ public static class StockEndpoints
     {
         var rolls = request.Rollos!.Select(x => new Rollo { Posicion = char.ToUpperInvariant(x.Posicion), CodigoBarra = x.CodigoBarra.Trim(), CantidadM2 = x.CantidadM2 }).OrderBy(x => x.Posicion).ToList();
         var lot = new LoteStock { DepositoId = request.DepositoId, TipoCespedId = request.TipoCespedId, ImportacionId = request.ImportacionId, Color = string.IsNullOrWhiteSpace(request.Color) ? null : request.Color.Trim(), FechaIngreso = now, Usuario = user, Observaciones = string.IsNullOrWhiteSpace(request.Observaciones) ? null : request.Observaciones.Trim(), Estado = EstadoLoteStock.Disponible, Rollos = rolls };
-        var movement = new MovimientoStock { DepositoId = request.DepositoId, TipoCespedId = request.TipoCespedId, ImportacionId = request.ImportacionId, Tipo = TipoMovimientoStock.Ingreso, CantidadM2 = rolls.Sum(x => x.CantidadM2), Fecha = now, Usuario = user, Observaciones = lot.Observaciones };
+        var movement = new MovimientoStock { DepositoId = request.DepositoId, TipoCespedId = request.TipoCespedId, ImportacionId = request.ImportacionId, Color = request.ImportacionId.HasValue ? lot.Color : null, Tipo = TipoMovimientoStock.Ingreso, CantidadM2 = rolls.Sum(x => x.CantidadM2), Fecha = now, Usuario = user, Observaciones = lot.Observaciones };
         return (lot, movement);
     }
 
@@ -131,8 +131,8 @@ public static class StockEndpoints
                 tipoCespedId = p.Id, nombre = p.Nombre, p.ControlPorLotes, p.EsImportado, p.ColoresJson,
                 stockActualM2 = db.MovimientosStock.Where(m => m.DepositoId == x.Id && m.TipoCespedId == p.Id).Sum(m => (decimal?)(m.Tipo == TipoMovimientoStock.SalidaPorVenta || m.Tipo == TipoMovimientoStock.AjusteSalida ? -m.CantidadM2 : m.CantidadM2)) ?? 0m,
                 baldes = db.MovimientosStock.Where(m => m.DepositoId == x.Id && m.TipoCespedId == p.Id)
-                    .GroupBy(m => new { m.ImportacionId, Codigo = m.Importacion != null ? m.Importacion.Codigo : null })
-                    .Select(g => new { g.Key.ImportacionId, g.Key.Codigo, saldoM2 = g.Sum(m => m.Tipo == TipoMovimientoStock.SalidaPorVenta || m.Tipo == TipoMovimientoStock.AjusteSalida ? -m.CantidadM2 : m.CantidadM2) }).Where(g => g.saldoM2 != 0).ToList()
+                    .GroupBy(m => new { m.ImportacionId, m.Color, Codigo = m.Importacion != null ? m.Importacion.Codigo : null })
+                    .Select(g => new { g.Key.ImportacionId, g.Key.Color, g.Key.Codigo, saldoM2 = g.Sum(m => m.Tipo == TipoMovimientoStock.SalidaPorVenta || m.Tipo == TipoMovimientoStock.AjusteSalida ? -m.CantidadM2 : m.CantidadM2) }).Where(g => g.saldoM2 != 0).ToList()
             }).ToList()
         }).ToListAsync(ct);
         return Results.Ok(deposits.Select(x => new { x.Id, x.Nombre, productos = x.productos.Select(p => new { p.tipoCespedId, p.nombre, p.ControlPorLotes, p.EsImportado, colores = DeserializeColors(p.ColoresJson), p.stockActualM2, baldes = p.EsImportado ? p.baldes : [] }), permiteRegistrarIngreso = true }));
@@ -148,7 +148,7 @@ public static class StockEndpoints
         if (desde.HasValue) query = query.Where(x => x.Fecha >= desde.Value.Date);
         if (hasta.HasValue) { var end = hasta.Value.Date.AddDays(1); query = query.Where(x => x.Fecha < end); }
         var total = await query.CountAsync(ct);
-        var items = await query.OrderByDescending(x => x.Fecha).Skip((page - 1) * pageSize).Take(pageSize).Select(x => new { x.Id, x.DepositoId, depositoNombre = x.Deposito.Nombre, x.TipoCespedId, tipoCespedNombre = x.TipoCesped.Nombre, tipo = x.Tipo == TipoMovimientoStock.AjusteSalida ? TipoMovimientoStock.Ajuste : x.Tipo, x.CantidadM2, cantidadConSigno = x.Tipo == TipoMovimientoStock.SalidaPorVenta || x.Tipo == TipoMovimientoStock.AjusteSalida ? -x.CantidadM2 : x.CantidadM2, x.Fecha, x.Usuario, x.Observaciones, x.VentaId }).ToListAsync(ct);
+        var items = await query.OrderByDescending(x => x.Fecha).Skip((page - 1) * pageSize).Take(pageSize).Select(x => new { x.Id, x.DepositoId, depositoNombre = x.Deposito.Nombre, x.TipoCespedId, tipoCespedNombre = x.TipoCesped.Nombre, x.Color, tipo = x.Tipo == TipoMovimientoStock.AjusteSalida ? TipoMovimientoStock.Ajuste : x.Tipo, x.CantidadM2, cantidadConSigno = x.Tipo == TipoMovimientoStock.SalidaPorVenta || x.Tipo == TipoMovimientoStock.AjusteSalida ? -x.CantidadM2 : x.CantidadM2, x.Fecha, x.Usuario, x.Observaciones, x.VentaId }).ToListAsync(ct);
         return Results.Ok(new { items, total, page, pageSize, totalPages = (int)Math.Ceiling(total / (double)pageSize) });
     }
 
@@ -167,7 +167,9 @@ public static class StockEndpoints
             return Results.Problem(statusCode: 403, title: "Acceso denegado", detail: RestrictedDepositMessage);
         var importError = await ValidateImportacion(product, request.ImportacionId, db, ct);
         if (importError is not null) return importError;
-        var movement = new MovimientoStock { DepositoId = deposit.Id, TipoCespedId = product.Id, ImportacionId = request.ImportacionId, Tipo = TipoMovimientoStock.Ingreso, CantidadM2 = request.CantidadM2, Fecha = DateTime.UtcNow, Usuario = UserName(currentUser), Observaciones = string.IsNullOrWhiteSpace(observations) ? null : observations };
+        var (color, colorError) = NormalizeBucketColor(product, request.ImportacionId, request.Color);
+        if (colorError is not null) return Results.ValidationProblem(new Dictionary<string, string[]> { ["color"] = [colorError] });
+        var movement = new MovimientoStock { DepositoId = deposit.Id, TipoCespedId = product.Id, ImportacionId = request.ImportacionId, Color = color, Tipo = TipoMovimientoStock.Ingreso, CantidadM2 = request.CantidadM2, Fecha = DateTime.UtcNow, Usuario = UserName(currentUser), Observaciones = string.IsNullOrWhiteSpace(observations) ? null : observations };
         db.MovimientosStock.Add(movement); await db.SaveChangesAsync(ct);
         return Results.Created($"/api/stock/movimientos/{movement.Id}", new { movement.Id, movement.DepositoId, movement.TipoCespedId, movement.CantidadM2, movement.Fecha });
     }
@@ -192,6 +194,8 @@ public static class StockEndpoints
 
         var importError = await ValidateImportacion(product, request.ImportacionId, db, ct, allowNullBucket: true);
         if (importError is not null) return importError;
+        var (color, colorError) = NormalizeBucketColor(product, request.ImportacionId, request.Color);
+        if (colorError is not null) return Results.ValidationProblem(new Dictionary<string, string[]> { ["color"] = [colorError] });
 
         var strategy = db.Database.CreateExecutionStrategy();
         var attempt = 0;
@@ -203,11 +207,11 @@ public static class StockEndpoints
             await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
             currentStock = await db.MovimientosStock
                 .Where(x => x.DepositoId == request.DepositoId && x.TipoCespedId == request.TipoCespedId &&
-                    (!product.EsImportado || x.ImportacionId == request.ImportacionId))
+                    (!product.EsImportado || (x.ImportacionId == request.ImportacionId && (!request.ImportacionId.HasValue || x.Color == color))))
                 .SumAsync(x => (decimal?)(x.Tipo == TipoMovimientoStock.SalidaPorVenta || x.Tipo == TipoMovimientoStock.AjusteSalida ? -x.CantidadM2 : x.CantidadM2), ct) ?? 0m;
             movement = CreateAdjustment(request.DepositoId, request.TipoCespedId, currentStock,
                 request.NuevoStockM2, UserName(currentUser), observations!, DateTime.UtcNow,
-                product.EsImportado ? request.ImportacionId : null);
+                product.EsImportado ? request.ImportacionId : null, product.EsImportado ? color : null);
             if (movement is null) return;
             db.MovimientosStock.Add(movement);
             await db.SaveChangesAsync(ct);
@@ -269,12 +273,17 @@ public static class StockEndpoints
         ClaimsPrincipal user, AppDbContext db, CancellationToken ct)
     {
         if (request.CantidadM2 <= 0) return Results.ValidationProblem(new Dictionary<string, string[]> { ["cantidadM2"] = ["La cantidad debe ser mayor que cero."] });
-        if (request.DesdeImportacionId == request.HaciaImportacionId) return Results.ValidationProblem(new Dictionary<string, string[]> { ["haciaImportacionId"] = ["El origen y el destino deben ser diferentes."] });
         if (!await SucursalDepositoService.CanUseDeposit(user, db, request.DepositoId, ct)) return Results.NotFound();
         var product = await db.TiposCesped.AsNoTracking().SingleOrDefaultAsync(x => x.Id == request.TipoCespedId && x.EsImportado && (x.DepositoId == request.DepositoId || x.Depositos.Any(d => d.DepositoId == request.DepositoId)), ct);
         if (product is null) return Results.ValidationProblem(new Dictionary<string, string[]> { ["tipoCespedId"] = ["Seleccioná un producto importado del depósito."] });
         foreach (var id in new[] { request.DesdeImportacionId, request.HaciaImportacionId }.Where(x => x.HasValue))
             if (!await db.Importaciones.AnyAsync(x => x.Id == id!.Value, ct)) return Results.ValidationProblem(new Dictionary<string, string[]> { ["importacionId"] = ["La importación no pertenece a la sucursal activa."] });
+        var (sourceColor, sourceColorError) = NormalizeBucketColor(product, request.DesdeImportacionId, request.DesdeColor);
+        var (targetColor, targetColorError) = NormalizeBucketColor(product, request.HaciaImportacionId, request.HaciaColor);
+        if (sourceColorError is not null) return Results.ValidationProblem(new Dictionary<string, string[]> { ["desdeColor"] = [sourceColorError] });
+        if (targetColorError is not null) return Results.ValidationProblem(new Dictionary<string, string[]> { ["haciaColor"] = [targetColorError] });
+        if (request.DesdeImportacionId == request.HaciaImportacionId && string.Equals(sourceColor, targetColor, StringComparison.OrdinalIgnoreCase))
+            return Results.ValidationProblem(new Dictionary<string, string[]> { ["haciaImportacionId"] = ["El origen y el destino deben ser diferentes."] });
         var note = "Reasignación de importación" + (string.IsNullOrWhiteSpace(request.Observaciones) ? "" : $": {request.Observaciones.Trim()}");
         var strategy = db.Database.CreateExecutionStrategy();
         var attempt = 0;
@@ -284,13 +293,13 @@ public static class StockEndpoints
         {
             if (attempt++ > 0) db.ChangeTracker.Clear();
             await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
-            var sourceBalance = await db.MovimientosStock.Where(x => x.DepositoId == request.DepositoId && x.TipoCespedId == request.TipoCespedId && x.ImportacionId == request.DesdeImportacionId)
+            var sourceBalance = await db.MovimientosStock.Where(x => x.DepositoId == request.DepositoId && x.TipoCespedId == request.TipoCespedId && x.ImportacionId == request.DesdeImportacionId && (!request.DesdeImportacionId.HasValue || x.Color == sourceColor))
                 .SumAsync(x => (decimal?)(x.Tipo == TipoMovimientoStock.SalidaPorVenta || x.Tipo == TipoMovimientoStock.AjusteSalida ? -x.CantidadM2 : x.CantidadM2), ct) ?? 0;
             if (sourceBalance < request.CantidadM2) { insufficient = true; return; }
             insufficient = false;
             var now = DateTime.UtcNow; var actor = UserName(user);
-            output = new MovimientoStock { DepositoId = request.DepositoId, TipoCespedId = request.TipoCespedId, ImportacionId = request.DesdeImportacionId, Tipo = TipoMovimientoStock.AjusteSalida, CantidadM2 = request.CantidadM2, Fecha = now, Usuario = actor, Observaciones = note };
-            input = new MovimientoStock { DepositoId = request.DepositoId, TipoCespedId = request.TipoCespedId, ImportacionId = request.HaciaImportacionId, Tipo = TipoMovimientoStock.Ajuste, CantidadM2 = request.CantidadM2, Fecha = now, Usuario = actor, Observaciones = note };
+            output = new MovimientoStock { DepositoId = request.DepositoId, TipoCespedId = request.TipoCespedId, ImportacionId = request.DesdeImportacionId, Color = sourceColor, Tipo = TipoMovimientoStock.AjusteSalida, CantidadM2 = request.CantidadM2, Fecha = now, Usuario = actor, Observaciones = note };
+            input = new MovimientoStock { DepositoId = request.DepositoId, TipoCespedId = request.TipoCespedId, ImportacionId = request.HaciaImportacionId, Color = targetColor, Tipo = TipoMovimientoStock.Ajuste, CantidadM2 = request.CantidadM2, Fecha = now, Usuario = actor, Observaciones = note };
             db.AddRange(output, input);
             await db.SaveChangesAsync(ct);
             await transaction.CommitAsync(ct);
@@ -325,5 +334,13 @@ public static class StockEndpoints
 
     private static object LotDto(LoteStock lot, string depositName, string productName) => new { lot.Id, lot.DepositoId, depositoNombre = depositName, lot.TipoCespedId, tipoCespedNombre = productName, lot.Color, lot.FechaIngreso, lot.Usuario, lot.Observaciones, lot.VentaId, lot.Estado, cantidadM2 = lot.Rollos.Sum(x => x.CantidadM2), rollos = lot.Rollos.OrderBy(x => x.Posicion).Select(x => new { x.Id, x.Posicion, x.CodigoBarra, x.CantidadM2 }) };
     private static string[] DeserializeColors(string json) => JsonSerializer.Deserialize<string[]>(json) ?? [];
+    private static (string? Color, string? Error) NormalizeBucketColor(TipoCesped product, Guid? importacionId, string? requested)
+    {
+        if (!product.EsImportado || !importacionId.HasValue) return (null, null);
+        var colors = DeserializeColors(product.ColoresJson);
+        if (colors.Length == 0) return (null, null);
+        var color = colors.FirstOrDefault(x => string.Equals(x, requested?.Trim(), StringComparison.OrdinalIgnoreCase));
+        return color is null ? (null, $"Seleccioná un color configurado para {product.Nombre}.") : (color, null);
+    }
     private static string UserName(ClaimsPrincipal user) => user.Identity?.Name ?? user.FindFirstValue("usuario") ?? "sistema";
 }

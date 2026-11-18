@@ -12,7 +12,8 @@ public sealed record ImportacionRequest(string Codigo, string? NumeroDespacho, D
 public sealed record RecepcionImportacionRequest(Guid? ImportacionId, ImportacionRequest? Nueva, Guid DepositoId,
     string? Observaciones, IReadOnlyList<RecepcionImportacionLinea>? Lineas);
 public sealed record RecepcionImportacionLinea(Guid TipoCespedId, decimal? CantidadM2, string? Color,
-    IReadOnlyList<RolloLoteRequest>? Rollos);
+    IReadOnlyList<RolloLoteRequest>? Rollos, IReadOnlyList<RecepcionImportacionVariante>? Variantes = null);
+public sealed record RecepcionImportacionVariante(string? Color, decimal CantidadM2);
 
 public static class ImportacionEndpoints
 {
@@ -61,10 +62,10 @@ public static class ImportacionEndpoints
         var visibleDeposits = SucursalDepositoService.VisibleDeposits(db.Depositos.AsNoTracking(), user).Select(x => x.Id);
         var balances = await db.MovimientosStock.AsNoTracking()
             .Where(x => x.ImportacionId == id && visibleDeposits.Contains(x.DepositoId))
-            .GroupBy(x => new { x.DepositoId, Deposito = x.Deposito.Nombre, x.TipoCespedId, Producto = x.TipoCesped.Nombre })
+            .GroupBy(x => new { x.DepositoId, Deposito = x.Deposito.Nombre, x.TipoCespedId, Producto = x.TipoCesped.Nombre, x.Color })
             .Select(x => new
             {
-                x.Key.DepositoId, depositoNombre = x.Key.Deposito, x.Key.TipoCespedId, productoNombre = x.Key.Producto,
+                x.Key.DepositoId, depositoNombre = x.Key.Deposito, x.Key.TipoCespedId, productoNombre = x.Key.Producto, x.Key.Color,
                 ingresadoM2 = x.Sum(m => m.Tipo == TipoMovimientoStock.Ingreso || m.Tipo == TipoMovimientoStock.Ajuste ? m.CantidadM2 : 0),
                 vendidoM2 = x.Sum(m => m.Tipo == TipoMovimientoStock.SalidaPorVenta ? m.CantidadM2 : 0),
                 saldoM2 = x.Sum(m => m.Tipo == TipoMovimientoStock.SalidaPorVenta || m.Tipo == TipoMovimientoStock.AjusteSalida ? -m.CantidadM2 : m.CantidadM2)
@@ -81,7 +82,7 @@ public static class ImportacionEndpoints
         var movements = await db.MovimientosStock.AsNoTracking()
             .Where(x => x.ImportacionId == id && visibleDeposits.Contains(x.DepositoId))
             .OrderByDescending(x => x.Fecha).Take(50)
-            .Select(x => new { x.Id, x.DepositoId, depositoNombre = x.Deposito.Nombre, x.TipoCespedId, productoNombre = x.TipoCesped.Nombre, x.Tipo, x.CantidadM2, x.Fecha, x.Usuario, x.Observaciones })
+            .Select(x => new { x.Id, x.DepositoId, depositoNombre = x.Deposito.Nombre, x.TipoCespedId, productoNombre = x.TipoCesped.Nombre, x.Color, x.Tipo, x.CantidadM2, x.Fecha, x.Usuario, x.Observaciones })
             .ToListAsync(ct);
         return Results.Ok(new { importacion.Id, importacion.Codigo, importacion.NumeroDespacho, importacion.Fecha, importacion.Observaciones, saldos = balances, lotes = lots, movimientos = movements });
     }
@@ -125,8 +126,29 @@ public static class ImportacionEndpoints
             { errors[$"{key}.tipoCespedId"] = [$"{product.Nombre} no está marcado como importado. Marcalo en Productos antes de recibirlo."]; continue; }
             if (!product.ControlPorLotes)
             {
-                if (line.CantidadM2 is null or <= 0) errors[$"{key}.cantidadM2"] = ["La cantidad debe ser mayor que cero."];
                 if (line.Rollos is { Count: > 0 }) errors[$"{key}.rollos"] = ["Este producto no se controla por lotes."];
+                var configuredColors = System.Text.Json.JsonSerializer.Deserialize<string[]>(product.ColoresJson) ?? [];
+                if (configuredColors.Length == 0)
+                {
+                    if (line.CantidadM2 is null or <= 0) errors[$"{key}.cantidadM2"] = ["La cantidad debe ser mayor que cero."];
+                }
+                else
+                {
+                    if (line.CantidadM2.HasValue) errors[$"{key}.cantidadM2"] = ["Ingresá las cantidades separadas por color."];
+                    if (line.Variantes is null || line.Variantes.Count == 0) errors[$"{key}.variantes"] = ["Agregá al menos un color."];
+                    else
+                    {
+                        var normalized = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                        for (var variantIndex = 0; variantIndex < line.Variantes.Count; variantIndex++)
+                        {
+                            var variant = line.Variantes[variantIndex];
+                            var configured = configuredColors.FirstOrDefault(x => string.Equals(x, variant.Color?.Trim(), StringComparison.OrdinalIgnoreCase));
+                            if (configured is null) errors[$"{key}.variantes[{variantIndex}].color"] = ["Seleccioná un color configurado para el producto."];
+                            else if (!normalized.Add(configured)) errors[$"{key}.variantes[{variantIndex}].color"] = ["El color no puede repetirse en la misma línea."];
+                            if (variant.CantidadM2 <= 0) errors[$"{key}.variantes[{variantIndex}].cantidadM2"] = ["La cantidad debe ser mayor que cero."];
+                        }
+                    }
+                }
                 continue;
             }
             var rollErrors = StockEndpoints.ValidateRolls(line.Rollos);
@@ -169,11 +191,20 @@ public static class ImportacionEndpoints
                     var product = products[line.TipoCespedId];
                     if (!product.ControlPorLotes)
                     {
-                        // Las líneas repetidas se conservan como ingresos separados para mantener el detalle de la recepción.
-                        var quantity = line.CantidadM2!.Value; total += quantity;
-                        db.MovimientosStock.Add(new MovimientoStock { DepositoId = request.DepositoId,
-                            TipoCespedId = product.Id, ImportacionId = importation.Id, Tipo = TipoMovimientoStock.Ingreso,
-                            CantidadM2 = quantity, Fecha = DateTime.UtcNow, Usuario = UserName(user), Observaciones = observations });
+                        var configuredColors = System.Text.Json.JsonSerializer.Deserialize<string[]>(product.ColoresJson) ?? [];
+                        var variants = configuredColors.Length == 0
+                            ? [new RecepcionImportacionVariante(null, line.CantidadM2!.Value)]
+                            : line.Variantes!.Select(x => new RecepcionImportacionVariante(
+                                configuredColors.First(c => string.Equals(c, x.Color?.Trim(), StringComparison.OrdinalIgnoreCase)), x.CantidadM2)).ToArray();
+                        // Las variantes y líneas repetidas se conservan como ingresos separados para mantener el detalle.
+                        foreach (var variant in variants)
+                        {
+                            total += variant.CantidadM2;
+                            db.MovimientosStock.Add(new MovimientoStock { DepositoId = request.DepositoId,
+                                TipoCespedId = product.Id, ImportacionId = importation.Id, Color = variant.Color,
+                                Tipo = TipoMovimientoStock.Ingreso, CantidadM2 = variant.CantidadM2, Fecha = DateTime.UtcNow,
+                                Usuario = UserName(user), Observaciones = observations });
+                        }
                     }
                     else
                     {
@@ -190,7 +221,8 @@ public static class ImportacionEndpoints
         catch (DuplicateImportationCodeException) { return Results.Conflict(new { message = "Ya existe una importación con ese código." }); }
         catch (DbUpdateException) { return Results.Conflict(new { message = "No se pudo guardar la recepción. Verificá que el código de importación y los códigos de barra no estén repetidos." }); }
         return Results.Created($"/api/importaciones/{importation!.Id}", new
-        { importacionId = importation.Id, importation.Codigo, lineasIngresadas = lines.Count, totalM2 = total });
+        { importacionId = importation.Id, importation.Codigo,
+            lineasIngresadas = lines.Sum(x => products[x.TipoCespedId].ControlPorLotes ? 1 : (x.Variantes?.Count ?? 1)), totalM2 = total });
     }
 
     private static async Task<IResult> Create(ImportacionRequest request, ClaimsPrincipal user, AppDbContext db, CancellationToken ct)
@@ -232,15 +264,16 @@ public static class ImportacionEndpoints
         db.Remove(entity); await db.SaveChangesAsync(ct); return Results.NoContent();
     }
 
-    private static async Task<IResult> Saldos(Guid depositoId, Guid tipoCespedId, ClaimsPrincipal user, AppDbContext db, CancellationToken ct)
+    private static async Task<IResult> Saldos(Guid depositoId, Guid tipoCespedId, string? color, ClaimsPrincipal user, AppDbContext db, CancellationToken ct)
     {
         if (!await SucursalDepositoService.CanUseDeposit(user, db, depositoId, ct)) return Results.NotFound();
         var grouped = await db.MovimientosStock.AsNoTracking().Where(x => x.DepositoId == depositoId && x.TipoCespedId == tipoCespedId)
-            .GroupBy(x => x.ImportacionId).Select(x => new { importacionId = x.Key, saldoM2 = x.Sum(m => m.Tipo == TipoMovimientoStock.SalidaPorVenta || m.Tipo == TipoMovimientoStock.AjusteSalida ? -m.CantidadM2 : m.CantidadM2) })
+            .Where(x => !x.ImportacionId.HasValue || color == null || x.Color == color)
+            .GroupBy(x => new { x.ImportacionId, x.Color }).Select(x => new { importacionId = x.Key.ImportacionId, color = x.Key.ImportacionId.HasValue ? x.Key.Color : null, saldoM2 = x.Sum(m => m.Tipo == TipoMovimientoStock.SalidaPorVenta || m.Tipo == TipoMovimientoStock.AjusteSalida ? -m.CantidadM2 : m.CantidadM2) })
             .Where(x => x.saldoM2 > 0).ToListAsync(ct);
         var ids = grouped.Where(x => x.importacionId.HasValue).Select(x => x.importacionId!.Value).ToArray();
         var imports = await db.Importaciones.AsNoTracking().Where(x => ids.Contains(x.Id)).ToDictionaryAsync(x => x.Id, ct);
-        var rows = grouped.Select(x => new { x.importacionId, codigo = x.importacionId.HasValue ? imports.GetValueOrDefault(x.importacionId.Value)?.Codigo : null, etiqueta = x.importacionId.HasValue ? imports.GetValueOrDefault(x.importacionId.Value)?.Codigo : "Stock anterior (sin código)", x.saldoM2, fecha = x.importacionId.HasValue ? imports.GetValueOrDefault(x.importacionId.Value)?.Fecha : DateOnly.MinValue })
+        var rows = grouped.Select(x => new { x.importacionId, codigo = x.importacionId.HasValue ? imports.GetValueOrDefault(x.importacionId.Value)?.Codigo : null, x.color, etiqueta = x.importacionId.HasValue ? imports.GetValueOrDefault(x.importacionId.Value)?.Codigo + (x.color == null ? "" : $" · {x.color}") : "Stock anterior (sin código)", x.saldoM2, fecha = x.importacionId.HasValue ? imports.GetValueOrDefault(x.importacionId.Value)?.Fecha : DateOnly.MinValue })
             .OrderBy(x => x.fecha).ThenBy(x => x.codigo).ToList();
         return Results.Ok(rows);
     }

@@ -31,6 +31,7 @@ public sealed class ImportacionEndpointIntegrationTests
                 var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
                 var product = NewProduct(seed.DepositA, "Importado recepción");
                 product.EsImportado = true; product.ControlPorLotes = false;
+                product.ColoresJson = JsonSerializer.Serialize(new[] { "Verde", "Arena" });
                 db.Add(product); await db.SaveChangesAsync(); secondProduct = product.Id;
             }
             using var user = await LoginUser(factory, "imports-a", "Test123!");
@@ -38,16 +39,25 @@ public sealed class ImportacionEndpointIntegrationTests
             {
                 importacionId = (Guid?)null,
                 nueva = ImportRequest("REC-001"), depositoId = seed.DepositA, observaciones = "Contenedor completo",
-                lineas = new[] { new { tipoCespedId = seed.ImportedA, cantidadM2 = 10m }, new { tipoCespedId = secondProduct, cantidadM2 = 15m } }
+                lineas = new object[] { new { tipoCespedId = seed.ImportedA, cantidadM2 = 10m },
+                    new { tipoCespedId = secondProduct, variantes = new[] { new { color = "verde", cantidadM2 = 15m }, new { color = "Arena", cantidadM2 = 5m } } } }
             });
             Assert.Equal(HttpStatusCode.Created, response.StatusCode);
             var created = await response.Content.ReadFromJsonAsync<JsonElement>();
-            Assert.Equal(25m, created.GetProperty("totalM2").GetDecimal());
-            Assert.Equal(2, created.GetProperty("lineasIngresadas").GetInt32());
+            Assert.Equal(30m, created.GetProperty("totalM2").GetDecimal());
+            Assert.Equal(3, created.GetProperty("lineasIngresadas").GetInt32());
             var id = created.GetProperty("importacionId").GetGuid();
             var detail = await user.GetFromJsonAsync<JsonElement>($"/api/importaciones/{id}");
-            Assert.Equal(25m, detail.GetProperty("saldos").EnumerateArray().Sum(x => x.GetProperty("ingresadoM2").GetDecimal()));
-            Assert.Equal(25m, detail.GetProperty("saldos").EnumerateArray().Sum(x => x.GetProperty("saldoM2").GetDecimal()));
+            Assert.Equal(30m, detail.GetProperty("saldos").EnumerateArray().Sum(x => x.GetProperty("ingresadoM2").GetDecimal()));
+            Assert.Equal(30m, detail.GetProperty("saldos").EnumerateArray().Sum(x => x.GetProperty("saldoM2").GetDecimal()));
+            Assert.Contains(detail.GetProperty("saldos").EnumerateArray(), x => x.GetProperty("color").GetString() == "Verde" && x.GetProperty("saldoM2").GetDecimal() == 15m);
+
+            var invalidColors = await user.PostAsJsonAsync("/api/importaciones/recepcion", new
+            {
+                importacionId = id, depositoId = seed.DepositA,
+                lineas = new[] { new { tipoCespedId = secondProduct, variantes = new[] { new { color = "Verde", cantidadM2 = 1m }, new { color = "verde", cantidadM2 = 2m } } } }
+            });
+            Assert.Equal(HttpStatusCode.BadRequest, invalidColors.StatusCode);
 
             var invalid = await user.PostAsJsonAsync("/api/importaciones/recepcion", new
             {

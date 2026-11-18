@@ -450,6 +450,10 @@ namespace Api.Migrations
                     b.Property<decimal>("CantidadM2")
                         .HasColumnType("decimal(18,2)");
 
+                    b.Property<string>("Color")
+                        .HasMaxLength(100)
+                        .HasColumnType("citext");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -497,6 +501,8 @@ namespace Api.Migrations
                     b.HasIndex("DepositoId", "TipoCespedId");
 
                     b.HasIndex("DepositoId", "TipoCespedId", "ImportacionId");
+
+                    b.HasIndex("DepositoId", "TipoCespedId", "ImportacionId", "Color");
 
                     b.ToTable("MovimientosStock");
                 });

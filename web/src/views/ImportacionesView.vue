@@ -19,6 +19,10 @@ const loading = ref(false), error = ref(''), visible = ref(false), saving = ref(
 const editingId = ref<string | null>(null), detail = ref<any | null>(null)
 const blank = () => ({ codigo: '', numeroDespacho: '', fecha: new Date().toISOString().slice(0, 10), observaciones: '' })
 const form = ref(blank())
+const dateFormat = new Intl.DateTimeFormat('es-AR', { timeZone: 'UTC' })
+const number = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 2 })
+function formatDate(value: string) { return value ? dateFormat.format(new Date(`${value}T00:00:00Z`)) : '—' }
+function meters(value: number) { return number.format(Number(value ?? 0)) }
 
 async function load() {
   loading.value = true
@@ -44,7 +48,7 @@ onMounted(async () => {
       <p class="page-desc text-color-secondary m-0">Códigos de importación y saldos de la sucursal activa.</p>
       <div class="flex gap-2"><AppButton v-if="auth.can('stock', 'crear')" label="Nueva recepción" icon="pi pi-plus" size="small" @click="router.push('/importaciones/recepcion')" /><AppButton v-if="auth.can('stock', 'crear')" label="Solo código" severity="secondary" size="small" @click="create" /></div>
     </div>
-    <div class="flex gap-2 mb-3">
+    <div class="imp-search mb-3">
       <InputText v-model="buscar" placeholder="Código o N° de despacho" @keyup.enter="page = 1; load()" />
       <AppButton label="Buscar" severity="secondary" @click="page = 1; load()" />
     </div>
@@ -52,17 +56,17 @@ onMounted(async () => {
     <DataTable :value="items" :loading="loading" paginator :rows="pageSize" :total-records="total" lazy @page="e => { page = e.page + 1; pageSize = e.rows; load() }">
       <Column field="codigo" header="Código" />
       <Column field="numeroDespacho" header="N° despacho" />
-      <Column field="fecha" header="Fecha" />
-      <Column field="totalIngresadoM2" header="Ingresado m²" />
-      <Column field="saldoM2" header="Saldo m²" />
-      <Column header=""><template #body="{ data }"><div class="flex gap-1"><AppButton text label="Detalle" @click="openDetail(data)" /><AppButton v-if="auth.can('stock','editar')" text label="Editar" @click="edit(data)" /><AppButton v-if="auth.can('stock','eliminar')" text severity="danger" label="Eliminar" @click="remove(data)" /></div></template></Column>
+      <Column field="fecha" header="Fecha"><template #body="{ data }">{{ formatDate(data.fecha) }}</template></Column>
+      <Column field="totalIngresadoM2" header="Ingresado m²" body-class="imp-number"><template #body="{ data }">{{ meters(data.totalIngresadoM2) }}</template></Column>
+      <Column field="saldoM2" header="Saldo m²" body-class="imp-number"><template #body="{ data }"><span :class="['imp-balance', { 'imp-balance-negative': data.saldoM2 < 0 }]">{{ meters(data.saldoM2) }}</span></template></Column>
+      <Column header="" body-class="imp-actions"><template #body="{ data }"><div class="imp-actions"><AppButton text label="Detalle" @click="openDetail(data)" /><AppButton v-if="auth.can('stock','editar')" text label="Editar" @click="edit(data)" /><AppButton v-if="auth.can('stock','eliminar')" text severity="danger" label="Eliminar" @click="remove(data)" /></div></template></Column>
     </DataTable>
-    <Dialog v-model:visible="visible" modal :header="editingId ? 'Editar importación' : 'Nueva importación'" :style="{ width: '36rem', maxWidth: '95vw' }">
+    <Dialog v-model:visible="visible" modal :header="editingId ? 'Editar importación' : 'Nueva importación'" :style="{ width: '40rem', maxWidth: '96vw' }">
       <Message v-if="error" severity="error" :closable="false">{{ error }}</Message>
       <form class="p-fluid" @submit.prevent="save"><div class="field"><label>Código</label><InputText v-model="form.codigo" maxlength="50" required /></div><div class="field"><label>N° de despacho</label><InputText v-model="form.numeroDespacho" maxlength="100" /></div><div class="field"><label>Fecha</label><AppDatePicker v-model="form.fecha" required /></div><div class="field"><label>Observaciones</label><Textarea v-model="form.observaciones" maxlength="1000" rows="3" /></div><div class="flex justify-content-end gap-2"><AppButton type="button" label="Cancelar" severity="secondary" @click="visible = false" /><AppButton type="submit" label="Guardar" :loading="saving" /></div></form>
     </Dialog>
-    <Dialog :visible="!!detail" modal header="Detalle de importación" :style="{ width: '52rem', maxWidth: '95vw' }" @update:visible="value => { if (!value) detail = null }">
-      <template v-if="detail"><div class="flex justify-content-between align-items-center"><div><h3>{{ detail.codigo }}</h3><p>{{ detail.numeroDespacho || 'Sin despacho' }} · {{ detail.fecha }}</p></div><AppButton v-if="auth.can('stock','crear')" label="Agregar mercadería" icon="pi pi-plus" @click="router.push(`/importaciones/${detail.id}/recepcion`)" /></div><DataTable :value="detail.saldos"><Column field="depositoNombre" header="Depósito" /><Column field="productoNombre" header="Producto" /><Column field="ingresadoM2" header="Ingresado m²" /><Column field="vendidoM2" header="Vendido m²" /><Column field="saldoM2" header="Saldo m²" /></DataTable><h4 v-if="detail.lotes?.length">Lotes</h4><DataTable v-if="detail.lotes?.length" :value="detail.lotes"><Column field="productoNombre" header="Producto" /><Column field="depositoNombre" header="Depósito" /><Column field="color" header="Color" /><Column field="estado" header="Estado" /><Column field="cantidadM2" header="m²" /><Column header="Rollos"><template #body="{ data }">{{ data.rollos.map((r: any) => `${r.posicion}: ${r.codigoBarra} (${r.cantidadM2} m²)`).join(' · ') }}</template></Column></DataTable></template>
+    <Dialog :visible="!!detail" modal header="Detalle de importación" :style="{ width: '64rem', maxWidth: '96vw' }" @update:visible="value => { if (!value) detail = null }">
+      <template v-if="detail"><div class="flex justify-content-between align-items-center gap-2 flex-wrap"><div class="imp-detail-summary flex-grow-1"><div><small>Código</small><strong class="block">{{ detail.codigo }}</strong></div><div><small>N° despacho</small><strong class="block">{{ detail.numeroDespacho || '—' }}</strong></div><div><small>Fecha</small><strong class="block">{{ formatDate(detail.fecha) }}</strong></div><div><small>Observaciones</small><span class="block">{{ detail.observaciones || '—' }}</span></div></div><div class="imp-actions"><AppButton v-if="auth.can('stock','crear')" label="Agregar mercadería" icon="pi pi-plus" @click="router.push(`/importaciones/${detail.id}/recepcion`)" /><AppButton v-if="auth.can('stock','editar')" label="Editar" severity="secondary" @click="edit(detail)" /></div></div><DataTable :value="detail.saldos"><Column field="depositoNombre" header="Depósito" /><Column field="productoNombre" header="Producto" /><Column field="color" header="Color" /><Column field="ingresadoM2" header="Ingresado" body-class="imp-number" /><Column field="vendidoM2" header="Vendido" body-class="imp-number" /><Column field="saldoM2" header="Saldo" body-class="imp-number"><template #body="{ data }"><span :class="['imp-balance', { 'imp-balance-negative': data.saldoM2 < 0 }]">{{ meters(data.saldoM2) }}</span></template></Column></DataTable><h4 v-if="detail.lotes?.length">Lotes</h4><DataTable v-if="detail.lotes?.length" :value="detail.lotes"><Column field="productoNombre" header="Producto" /><Column field="color" header="Color" /><Column field="estado" header="Estado" /><Column field="cantidadM2" header="m²" body-class="imp-number" /><Column header="Rollos"><template #body="{ data }">{{ data.rollos.map((r: any) => `${r.posicion}: ${r.codigoBarra} (${meters(r.cantidadM2)} m²)`).join(' · ') }}</template></Column></DataTable><details class="mt-3"><summary>Movimientos (últimos 50)</summary><DataTable :value="detail.movimientos"><Column field="fecha" header="Fecha" /><Column field="productoNombre" header="Producto" /><Column field="color" header="Color" /><Column field="tipo" header="Tipo" /><Column field="cantidadM2" header="m²" body-class="imp-number" /></DataTable></details></template>
     </Dialog>
   </section>
 </template>

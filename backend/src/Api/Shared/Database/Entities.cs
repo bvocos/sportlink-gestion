@@ -182,6 +182,7 @@ public sealed class MovimientoStock : AuditableEntity
     public Venta? Venta { get; set; }
     public Guid? ImportacionId { get; set; }
     public Importacion? Importacion { get; set; }
+    public string? Color { get; set; }
 }
 public sealed class LoteStock : AuditableEntity
 {

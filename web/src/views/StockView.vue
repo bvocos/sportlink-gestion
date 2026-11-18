@@ -39,7 +39,7 @@ const importaciones = ref<any[]>([])
 const quickImportVisible = ref(false)
 const quickImport = ref({ codigo: '', numeroDespacho: '', fecha: new Date().toISOString().slice(0, 10), observaciones: '' })
 const reassignVisible = ref(false)
-const reassign = ref({ depositoId: '', tipoCespedId: '', haciaImportacionId: null as string | null, cantidadM2: 0, observaciones: '' })
+const reassign = ref({ depositoId: '', tipoCespedId: '', haciaImportacionId: null as string | null, haciaColor: '', cantidadM2: 0, observaciones: '' })
 let lastImportacionId: string | null = null
 const expandedLots = ref<Record<string, boolean>>({})
 const lotsByProduct = ref<Record<string, any[]>>({})
@@ -57,7 +57,7 @@ const productosIngreso = computed(() => {
   return formMode.value === 'ajuste' ? products.filter(x => !x.controlPorLotes) : products
 })
 const selectedProduct = computed(() => productosIngreso.value.find(x => x.tipoCespedId === form.value.tipoCespedId))
-const selectedBucket = computed(() => selectedProduct.value?.baldes?.find(x => (x.importacionId ?? null) === (form.value.importacionId ?? null)))
+const selectedBucket = computed(() => selectedProduct.value?.baldes?.find(x => (x.importacionId ?? null) === (form.value.importacionId ?? null) && (!form.value.importacionId || (x.color ?? null) === (form.value.color || null))))
 const importOptions = computed(() => formMode.value === 'ajuste' && selectedProduct.value?.baldes?.some(x => !x.importacionId)
   ? [{ id: null, codigo: 'Stock anterior (sin código)' }, ...importaciones.value]
   : importaciones.value)
@@ -106,7 +106,7 @@ async function createQuickImport() {
   } catch (e) { saveError.value = apiErrorMessage(e, 'No se pudo crear la importación.') }
 }
 function openReassign(depositoId: string, product: StockProduct) {
-  reassign.value = { depositoId, tipoCespedId: product.tipoCespedId, haciaImportacionId: null, cantidadM2: 0, observaciones: '' }
+  reassign.value = { depositoId, tipoCespedId: product.tipoCespedId, haciaImportacionId: null, haciaColor: product.colores[0] ?? '', cantidadM2: 0, observaciones: '' }
   reassignVisible.value = true
 }
 async function saveReassign() {
@@ -215,6 +215,7 @@ async function saveIngreso() {
         nuevoStockM2: form.value.nuevoStockM2,
         observaciones: form.value.observaciones,
         importacionId: form.value.importacionId,
+        color: form.value.color || null,
       })
       cancelForm()
       await Promise.all([loadStock(), loadMovimientos(true)])
@@ -236,6 +237,7 @@ async function saveIngreso() {
         cantidadM2: form.value.cantidadM2,
         observaciones: form.value.observaciones,
         importacionId: form.value.importacionId,
+        color: form.value.color || null,
       })
     if (form.value.importacionId) lastImportacionId = form.value.importacionId
     cancelForm()
@@ -403,6 +405,10 @@ onMounted(load)
               filter placeholder="Seleccionar importación" required @change="importChanged" />
             <AppButton type="button" label="+ Nueva importación" text size="small" @click="quickImport = { codigo: '', numeroDespacho: '', fecha: new Date().toISOString().slice(0, 10), observaciones: '' }; quickImportVisible = true" />
           </div>
+          <div v-if="selectedProduct?.esImportado && selectedProduct.colores.length && form.importacionId && !selectedProduct.controlPorLotes" class="field col-12 md:col-6">
+            <label>Color</label>
+            <Select v-model="form.color" :options="selectedProduct.colores" required @change="importChanged" />
+          </div>
           <template v-if="formMode === 'ajuste'">
             <Message severity="info" class="mb-3" :closable="false">
               Indicá la existencia física real. El sistema registrará automáticamente la diferencia como un movimiento de ajuste.
@@ -526,8 +532,8 @@ onMounted(load)
                 <Column header="Importaciones">
                   <template #body="{ data }">
                     <div v-if="data.esImportado" class="flex flex-column gap-1">
-                      <small v-for="bucket in data.baldes" :key="bucket.importacionId ?? 'anterior'">
-                        {{ bucket.codigo || 'Stock anterior (sin código)' }}: <b>{{ meters(bucket.saldoM2) }}</b>
+                      <small v-for="bucket in data.baldes" :key="`${bucket.importacionId ?? 'anterior'}:${bucket.color ?? ''}`">
+                        {{ bucket.codigo || 'Stock anterior (sin código)' }}{{ bucket.color ? ` · ${bucket.color}` : '' }}: <b>{{ meters(bucket.saldoM2) }}</b>
                         <AppButton v-if="!bucket.importacionId && bucket.saldoM2 > 0 && auth.can('stock','editar')" text size="small" label="Reasignar a importación" @click="openReassign(deposito.id, data)" />
                       </small>
                       <small v-if="!data.baldes?.length" class="text-color-secondary">Sin saldo</small>
@@ -708,7 +714,7 @@ onMounted(load)
       <form class="p-fluid" @submit.prevent="createQuickImport"><div class="field"><label>Código</label><InputText v-model="quickImport.codigo" maxlength="50" required /></div><div class="field"><label>N° despacho</label><InputText v-model="quickImport.numeroDespacho" /></div><div class="field"><label>Fecha</label><AppDatePicker v-model="quickImport.fecha" required /></div><div class="field"><label>Observaciones</label><Textarea v-model="quickImport.observaciones" /></div><AppButton type="submit" label="Crear y seleccionar" /></form>
     </Dialog>
     <Dialog v-model:visible="reassignVisible" modal header="Reasignar stock anterior" :style="{ width: '34rem', maxWidth: '95vw' }">
-      <form class="p-fluid" @submit.prevent="saveReassign"><div class="field"><label>Importación destino</label><Select v-model="reassign.haciaImportacionId" :options="importaciones" option-label="codigo" option-value="id" filter required /></div><div class="field"><label>Cantidad m²</label><InputNumber v-model="reassign.cantidadM2" :min="0.01" required /></div><div class="field"><label>Observaciones</label><Textarea v-model="reassign.observaciones" /></div><AppButton type="submit" label="Reasignar" /></form>
+      <form class="p-fluid" @submit.prevent="saveReassign"><div class="field"><label>Importación destino</label><Select v-model="reassign.haciaImportacionId" :options="importaciones" option-label="codigo" option-value="id" filter required /></div><div v-if="depositos.flatMap(x => x.productos).find(x => x.tipoCespedId === reassign.tipoCespedId)?.colores.length" class="field"><label>Color destino</label><Select v-model="reassign.haciaColor" :options="depositos.flatMap(x => x.productos).find(x => x.tipoCespedId === reassign.tipoCespedId)?.colores" required /></div><div class="field"><label>Cantidad m²</label><InputNumber v-model="reassign.cantidadM2" :min="0.01" required /></div><div class="field"><label>Observaciones</label><Textarea v-model="reassign.observaciones" /></div><AppButton type="submit" label="Reasignar" /></form>
     </Dialog>
   </section>
 </template>

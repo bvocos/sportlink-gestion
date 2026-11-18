@@ -126,9 +126,11 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, IHttpCo
         b.Entity<MovimientoStock>().Property(x => x.Tipo).HasConversion<string>();
         b.Entity<MovimientoStock>().Property(x => x.Usuario).HasMaxLength(150);
         b.Entity<MovimientoStock>().Property(x => x.Observaciones).HasMaxLength(500);
+        b.Entity<MovimientoStock>().Property(x => x.Color).HasMaxLength(100).HasColumnType("citext");
         b.Entity<MovimientoStock>().HasIndex(x => new { x.DepositoId, x.Fecha });
         b.Entity<MovimientoStock>().HasIndex(x => new { x.DepositoId, x.TipoCespedId });
         b.Entity<MovimientoStock>().HasIndex(x => new { x.DepositoId, x.TipoCespedId, x.ImportacionId });
+        b.Entity<MovimientoStock>().HasIndex(x => new { x.DepositoId, x.TipoCespedId, x.ImportacionId, x.Color });
         b.Entity<MovimientoStock>().HasIndex(x => x.VentaId);
         b.Entity<MovimientoStock>().HasOne(x => x.Deposito).WithMany(x => x.MovimientosStock)
             .HasForeignKey(x => x.DepositoId).OnDelete(DeleteBehavior.Restrict);

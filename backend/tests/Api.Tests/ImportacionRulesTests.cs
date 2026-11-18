@@ -1,10 +1,18 @@
 using Api.Features.Stock;
+using Api.Features.Ventas;
 using Api.Shared.Database;
 
 namespace Api.Tests;
 
 public sealed class ImportacionRulesTests
 {
+    [Fact]
+    public void CancelledSalesDoNotConsumeStock()
+    {
+        Assert.False(VentaService.ShouldConsumeStock(EstadoVenta.Cancelada));
+        Assert.True(VentaService.ShouldConsumeStock(EstadoVenta.Confirmada));
+        Assert.True(VentaService.ShouldConsumeStock(EstadoVenta.Futura));
+    }
     [Fact]
     public void BucketBalances_SeparateNullAndImportCodes()
     {
