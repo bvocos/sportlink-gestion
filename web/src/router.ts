@@ -26,6 +26,7 @@ const routes = [
   { path: '/ventas/nueva', component: () => import('./views/NuevaVentaView.vue'), meta: { permission: 'ventas', title: 'Nueva venta' } },
   { path: '/ventas/:id/editar', component: () => import('./views/NuevaVentaView.vue'), meta: { permission: 'ventas', title: 'Editar venta' } },
   { path: '/stock', name: 'stock', component: () => import('./views/StockView.vue'), meta: { permission: 'stock', title: 'Stock' } },
+  { path: '/importaciones', name: 'importaciones', component: () => import('./views/ImportacionesView.vue'), meta: { permission: 'stock', title: 'Importaciones' } },
   { path: '/presupuestos', component: () => import('./views/PresupuestosView.vue'), meta: { permission: 'presupuestos', title: 'Presupuestos' } },
   { path: '/presupuestos/nuevo', component: () => import('./views/NuevoPresupuestoView.vue'), meta: { permission: 'presupuestos', title: 'Nuevo presupuesto' } },
   { path: '/presupuestos/:id/editar', component: () => import('./views/NuevoPresupuestoView.vue'), meta: { permission: 'presupuestos', title: 'Editar presupuesto' } },

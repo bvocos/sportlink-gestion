@@ -48,6 +48,7 @@ const blank = () => ({
   costoM2: 0,
   colores: [] as string[],
   controlPorLotes: false,
+  esImportado: false,
   activo: true,
 })
 const form = ref(blank())
@@ -134,6 +135,7 @@ function edit(x: any) {
     costoM2: x.costoM2,
     colores: [...(x.colores ?? [])],
     controlPorLotes: Boolean(x.controlPorLotes),
+    esImportado: Boolean(x.esImportado),
     activo: x.activo,
   }
   error.value = ''
@@ -215,6 +217,7 @@ async function toggle(x: any) {
     costoM2: x.costoM2,
     colores: x.colores ?? [],
     controlPorLotes: Boolean(x.controlPorLotes),
+    esImportado: Boolean(x.esImportado),
     activo: !x.activo,
   })
   await load()
@@ -508,9 +511,15 @@ onMounted(load)
         </section>
 
         <div class="inline-form-footer">
-          <div class="flex align-items-center gap-2">
-            <ToggleSwitch v-model="form.activo" input-id="productoActivo" />
-            <label for="productoActivo">Disponible para nuevas ventas</label>
+          <div class="flex flex-column gap-2">
+            <div class="flex align-items-center gap-2">
+              <ToggleSwitch v-model="form.esImportado" input-id="productoImportado" />
+              <label for="productoImportado">Producto importado (lleva código de importación)</label>
+            </div>
+            <div class="flex align-items-center gap-2">
+              <ToggleSwitch v-model="form.activo" input-id="productoActivo" />
+              <label for="productoActivo">Disponible para nuevas ventas</label>
+            </div>
           </div>
           <div class="flex gap-2">
             <AppButton type="button" label="Cancelar" severity="secondary" size="small" @click="cancelForm" />

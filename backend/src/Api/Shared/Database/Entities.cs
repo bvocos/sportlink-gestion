@@ -100,7 +100,7 @@ public sealed class Cliente : AuditableEntity, ISucursalScoped
     public string? Domicilio { get; set; }
     public string? CodigoPostal { get; set; }
 }
-public sealed class TipoCesped : AuditableEntity { public Guid DepositoId { get; set; } public Deposito Deposito { get; set; } = null!; public List<TipoCespedDeposito> Depositos { get; set; } = []; public string Nombre { get; set; } = ""; public string? Descripcion { get; set; } public string? DescripcionPresupuesto { get; set; } public string? EspecificacionesPresupuesto { get; set; } public string? FichaTecnicaUrl { get; set; } public decimal PrecioVentaM2 { get; set; } public decimal PrecioContadoM2 { get; set; } public decimal PrecioFinanciadoM2 { get; set; } public decimal CostoM2 { get; set; } public string ColoresJson { get; set; } = "[]"; public bool ControlPorLotes { get; set; } public bool Activo { get; set; } = true; }
+public sealed class TipoCesped : AuditableEntity { public Guid DepositoId { get; set; } public Deposito Deposito { get; set; } = null!; public List<TipoCespedDeposito> Depositos { get; set; } = []; public string Nombre { get; set; } = ""; public string? Descripcion { get; set; } public string? DescripcionPresupuesto { get; set; } public string? EspecificacionesPresupuesto { get; set; } public string? FichaTecnicaUrl { get; set; } public decimal PrecioVentaM2 { get; set; } public decimal PrecioContadoM2 { get; set; } public decimal PrecioFinanciadoM2 { get; set; } public decimal CostoM2 { get; set; } public string ColoresJson { get; set; } = "[]"; public bool ControlPorLotes { get; set; } public bool EsImportado { get; set; } public bool Activo { get; set; } = true; }
 public sealed class TipoCespedDeposito
 {
     public Guid TipoCespedId { get; set; }
@@ -180,6 +180,8 @@ public sealed class MovimientoStock : AuditableEntity
     public string? Observaciones { get; set; }
     public Guid? VentaId { get; set; }
     public Venta? Venta { get; set; }
+    public Guid? ImportacionId { get; set; }
+    public Importacion? Importacion { get; set; }
 }
 public sealed class LoteStock : AuditableEntity
 {
@@ -193,8 +195,21 @@ public sealed class LoteStock : AuditableEntity
     public string? Observaciones { get; set; }
     public Guid? VentaId { get; set; }
     public Venta? Venta { get; set; }
+    public Guid? ImportacionId { get; set; }
+    public Importacion? Importacion { get; set; }
     public EstadoLoteStock Estado { get; set; } = EstadoLoteStock.Disponible;
     public List<Rollo> Rollos { get; set; } = [];
+}
+public sealed class Importacion : AuditableEntity, ISucursalScoped
+{
+    public Guid SucursalId { get; set; }
+    public Sucursal Sucursal { get; set; } = null!;
+    public string Codigo { get; set; } = "";
+    public string? NumeroDespacho { get; set; }
+    public DateOnly Fecha { get; set; }
+    public string? Observaciones { get; set; }
+    public List<MovimientoStock> Movimientos { get; set; } = [];
+    public List<LoteStock> Lotes { get; set; } = [];
 }
 public sealed class Rollo : AuditableEntity
 {

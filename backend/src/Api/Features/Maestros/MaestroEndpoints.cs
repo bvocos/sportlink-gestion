@@ -10,7 +10,7 @@ namespace Api.Features.Maestros;
 public record TipoCespedRequest(Guid DepositoId, string Nombre, string? Descripcion, string? DescripcionPresupuesto,
     string? EspecificacionesPresupuesto, string? FichaTecnicaUrl, decimal PrecioVentaM2, decimal PrecioContadoM2,
     decimal PrecioFinanciadoM2, decimal CostoM2, IReadOnlyList<string>? Colores, bool ControlPorLotes = false,
-    bool Activo = true, IReadOnlyList<Guid>? DepositoIds = null);
+    bool Activo = true, IReadOnlyList<Guid>? DepositoIds = null, bool EsImportado = false);
 
 public static class MaestroEndpoints
 {
@@ -46,7 +46,7 @@ public static class MaestroEndpoints
                 .Select(id => new { id, nombre = visibleDeposits![id] }).ToArray(),
             type.Nombre, type.Descripcion, type.DescripcionPresupuesto, type.EspecificacionesPresupuesto,
             type.FichaTecnicaUrl, type.PrecioVentaM2, type.PrecioContadoM2, type.PrecioFinanciadoM2, type.CostoM2,
-            colores = Colors(type), type.ControlPorLotes, type.Activo
+            colores = Colors(type), type.ControlPorLotes, type.EsImportado, type.Activo
         };
     }
 
@@ -127,7 +127,7 @@ public static class MaestroEndpoints
             FichaTecnicaUrl = request.FichaTecnicaUrl?.Trim(), PrecioVentaM2 = request.PrecioVentaM2,
             PrecioContadoM2 = request.PrecioContadoM2, PrecioFinanciadoM2 = request.PrecioFinanciadoM2,
             CostoM2 = request.CostoM2, ColoresJson = JsonSerializer.Serialize(NormalizeColors(request.Colores)),
-            ControlPorLotes = request.ControlPorLotes, Activo = request.Activo,
+            ControlPorLotes = request.ControlPorLotes, EsImportado = request.EsImportado, Activo = request.Activo,
             Depositos = depositIds.Select(x => new TipoCespedDeposito { DepositoId = x }).ToList()
         };
         db.TiposCesped.Add(type); await db.SaveChangesAsync(ct);
@@ -156,7 +156,7 @@ public static class MaestroEndpoints
         type.FichaTecnicaUrl = request.FichaTecnicaUrl?.Trim(); type.PrecioVentaM2 = request.PrecioVentaM2;
         type.PrecioContadoM2 = request.PrecioContadoM2; type.PrecioFinanciadoM2 = request.PrecioFinanciadoM2;
         type.CostoM2 = request.CostoM2; type.ColoresJson = JsonSerializer.Serialize(NormalizeColors(request.Colores));
-        type.ControlPorLotes = request.ControlPorLotes; type.Activo = request.Activo;
+        type.ControlPorLotes = request.ControlPorLotes; type.EsImportado = request.EsImportado; type.Activo = request.Activo;
         await db.SaveChangesAsync(ct); return Results.Ok(ToDto(type));
     }
 

@@ -160,7 +160,7 @@ public static class Permissions
         ["dashboard"] = ["ver"], ["ventas"] = ["ver", "crear", "editar", "eliminar"], ["entregas"] = ["ver"],
         ["presupuestos"] = ["ver", "crear", "editar", "eliminar"], ["clientes"] = ["ver", "crear", "editar", "eliminar"],
         ["cuotas"] = ["ver", "editar", "registrarPago", "anularPago"], ["caja"] = ["ver", "crear", "editar"],
-        ["gastos"] = ["ver", "crear", "editar", "eliminar"], ["rentabilidad"] = ["ver"], ["stock"] = ["ver", "crear", "editar"],
+        ["gastos"] = ["ver", "crear", "editar", "eliminar"], ["rentabilidad"] = ["ver"], ["stock"] = ["ver", "crear", "editar", "eliminar"],
         ["administracion"] = ["ver", "crear", "editar"]
     };
     public static readonly string[] ModulosConMontos = ["ventas", "cuotas"];

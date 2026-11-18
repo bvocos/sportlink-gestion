@@ -27,7 +27,7 @@ const permissionModules = [
   { key: 'caja', label: 'Caja', actions: [['ver', 'Ver'], ['crear', 'Crear'], ['editar', 'Editar']] },
   { key: 'gastos', label: 'Gastos', actions: [['ver', 'Ver'], ['crear', 'Crear'], ['editar', 'Editar'], ['eliminar', 'Eliminar']] },
   { key: 'rentabilidad', label: 'Rentabilidad', actions: [['ver', 'Ver']] },
-  { key: 'stock', label: 'Stock', actions: [['ver', 'Ver'], ['crear', 'Registrar ingresos'], ['editar', 'Ajustar stock']] },
+  { key: 'stock', label: 'Stock', actions: [['ver', 'Ver'], ['crear', 'Registrar ingresos'], ['editar', 'Ajustar stock'], ['eliminar', 'Eliminar importaciones']] },
   { key: 'administracion', label: 'Productos', actions: [['ver', 'Ver'], ['crear', 'Crear'], ['editar', 'Editar']] },
 ] as const
 

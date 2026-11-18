@@ -288,6 +288,45 @@ namespace Api.Migrations
                     b.ToTable("Gastos");
                 });
 
+            modelBuilder.Entity("Api.Shared.Database.Importacion", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Codigo")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("citext");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateOnly>("Fecha")
+                        .HasColumnType("date");
+
+                    b.Property<string>("NumeroDespacho")
+                        .HasMaxLength(100)
+                        .HasColumnType("citext");
+
+                    b.Property<string>("Observaciones")
+                        .HasMaxLength(1000)
+                        .HasColumnType("citext");
+
+                    b.Property<Guid>("SucursalId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SucursalId", "Codigo")
+                        .IsUnique();
+
+                    b.ToTable("Importaciones");
+                });
+
             modelBuilder.Entity("Api.Shared.Database.LoteStock", b =>
                 {
                     b.Property<Guid>("Id")
@@ -311,6 +350,9 @@ namespace Api.Migrations
                     b.Property<DateTime>("FechaIngreso")
                         .HasColumnType("timestamp without time zone");
 
+                    b.Property<Guid?>("ImportacionId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("Observaciones")
                         .HasMaxLength(500)
                         .HasColumnType("citext");
@@ -330,6 +372,8 @@ namespace Api.Migrations
                         .HasColumnType("uuid");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("ImportacionId");
 
                     b.HasIndex("TipoCespedId");
 
@@ -415,6 +459,9 @@ namespace Api.Migrations
                     b.Property<DateTime>("Fecha")
                         .HasColumnType("timestamp without time zone");
 
+                    b.Property<Guid?>("ImportacionId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("Observaciones")
                         .HasMaxLength(500)
                         .HasColumnType("citext");
@@ -439,6 +486,8 @@ namespace Api.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("ImportacionId");
+
                     b.HasIndex("TipoCespedId");
 
                     b.HasIndex("VentaId");
@@ -446,6 +495,8 @@ namespace Api.Migrations
                     b.HasIndex("DepositoId", "Fecha");
 
                     b.HasIndex("DepositoId", "TipoCespedId");
+
+                    b.HasIndex("DepositoId", "TipoCespedId", "ImportacionId");
 
                     b.ToTable("MovimientosStock");
                 });
@@ -865,6 +916,9 @@ namespace Api.Migrations
                     b.Property<string>("DescripcionPresupuesto")
                         .HasColumnType("citext");
 
+                    b.Property<bool>("EsImportado")
+                        .HasColumnType("boolean");
+
                     b.Property<string>("EspecificacionesPresupuesto")
                         .HasColumnType("citext");
 
@@ -1155,6 +1209,17 @@ namespace Api.Migrations
                     b.Navigation("Sucursal");
                 });
 
+            modelBuilder.Entity("Api.Shared.Database.Importacion", b =>
+                {
+                    b.HasOne("Api.Shared.Database.Sucursal", "Sucursal")
+                        .WithMany()
+                        .HasForeignKey("SucursalId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Sucursal");
+                });
+
             modelBuilder.Entity("Api.Shared.Database.LoteStock", b =>
                 {
                     b.HasOne("Api.Shared.Database.Deposito", "Deposito")
@@ -1162,6 +1227,11 @@ namespace Api.Migrations
                         .HasForeignKey("DepositoId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.HasOne("Api.Shared.Database.Importacion", "Importacion")
+                        .WithMany("Lotes")
+                        .HasForeignKey("ImportacionId")
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("Api.Shared.Database.TipoCesped", "TipoCesped")
                         .WithMany()
@@ -1175,6 +1245,8 @@ namespace Api.Migrations
                         .OnDelete(DeleteBehavior.Restrict);
 
                     b.Navigation("Deposito");
+
+                    b.Navigation("Importacion");
 
                     b.Navigation("TipoCesped");
 
@@ -1210,6 +1282,11 @@ namespace Api.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("Api.Shared.Database.Importacion", "Importacion")
+                        .WithMany("Movimientos")
+                        .HasForeignKey("ImportacionId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("Api.Shared.Database.TipoCesped", "TipoCesped")
                         .WithMany()
                         .HasForeignKey("TipoCespedId")
@@ -1222,6 +1299,8 @@ namespace Api.Migrations
                         .OnDelete(DeleteBehavior.Restrict);
 
                     b.Navigation("Deposito");
+
+                    b.Navigation("Importacion");
 
                     b.Navigation("TipoCesped");
 
@@ -1416,6 +1495,13 @@ namespace Api.Migrations
                     b.Navigation("Sucursales");
 
                     b.Navigation("TiposCesped");
+                });
+
+            modelBuilder.Entity("Api.Shared.Database.Importacion", b =>
+                {
+                    b.Navigation("Lotes");
+
+                    b.Navigation("Movimientos");
                 });
 
             modelBuilder.Entity("Api.Shared.Database.LoteStock", b =>

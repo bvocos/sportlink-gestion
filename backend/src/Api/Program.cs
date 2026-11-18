@@ -14,6 +14,7 @@ using Api.Features.Geografia;
 using Api.Features.Gastos;
 using Api.Features.Presupuestos;
 using Api.Features.Remitos;
+using Api.Features.Importaciones;
 using Api.Features.Sucursales;
 using Api.Features.Stock;
 using Api.Shared.Behaviors;
@@ -168,6 +169,7 @@ app.MapPresupuestoEndpoints();
 app.MapRemitoEndpoints();
 app.MapSucursalEndpoints();
 app.MapStockEndpoints();
+app.MapImportacionEndpoints();
 app.MapFallbackToFile("index.html").AllowAnonymous();
 using (var scope = app.Services.CreateScope())
 {

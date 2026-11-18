@@ -71,6 +71,7 @@ const allGroups: NavGroup[] = [
       { to: '/', label: 'Inicio', icon: faHouse, permission: 'dashboard' },
       { to: '/ventas', label: 'Ventas', icon: faCartShopping, permission: 'ventas' },
       { to: '/stock', label: 'Stock', icon: faStock, permission: 'stock' },
+      { to: '/importaciones', label: 'Importaciones', icon: faClipboardList, permission: 'stock' },
       { to: '/presupuestos', label: 'Presupuestos', icon: faFileLines, permission: 'presupuestos' },
       { to: '/entregas', label: 'Entregas', icon: faTruck, permission: 'entregas' },
       { to: '/clientes', label: 'Clientes', icon: faUsers, permission: 'clientes' },

@@ -32,11 +32,12 @@ const loadError = ref('')
 const editingLine = ref<number | null>(null)
 const showNewClient = ref(false)
 const showProductEntry = ref(true)
+const importacionOptions = ref<Record<string, any[]>>({})
 
 const estados = ['Confirmada', 'Futura', 'Entregada', 'Cancelada']
 const formasPago = ['Contado', 'Transferencia', 'Cheque', 'Cuotas', 'Otros']
 
-const line = () => ({ tipoCespedId: '', color: '', cantidadM2: 1, precioCompraM2: 0, precioVentaM2: 0, total: 0 })
+const line = () => ({ tipoCespedId: '', importacionId: null as string | null, color: '', cantidadM2: 1, precioCompraM2: 0, precioVentaM2: 0, total: 0 })
 const draft = ref(line())
 const form = ref({
   clienteId: '', fechaVenta: new Date().toISOString().slice(0, 10), lineas: [] as ReturnType<typeof line>[],
@@ -51,18 +52,33 @@ const productosDisponibles = computed(() => maestros.value.tiposCesped.filter((x
   (x.depositoIds?.length ? x.depositoIds : [x.depositoId]).includes(form.value.depositoId)))
 
 function product(row: any) { return productosDisponibles.value.find((x: any) => x.id === row.tipoCespedId) }
-function selectProduct(row: any) {
+async function selectProduct(row: any) {
   const p = product(row)
   if (!p) return
   row.precioCompraM2 = p.costoM2
   row.precioVentaM2 = p.precioVentaM2
   row.color = p.colores?.length === 1 ? p.colores[0] : ''
+  row.importacionId = null
+  if (p.esImportado) {
+    const data = await loadImportOptions(row.tipoCespedId)
+    if (data.length === 1) row.importacionId = data[0].importacionId
+  }
   recalculate(row)
+}
+async function loadImportOptions(tipoCespedId: string) {
+  const { data } = await http.get('/ventas/importaciones/saldos', { params: { depositoId: form.value.depositoId, tipoCespedId } })
+  importacionOptions.value[tipoCespedId] = data
+  return data
 }
 function recalculate(row: any) { row.total = Math.round(Number(row.cantidadM2 || 0) * Number(row.precioVentaM2 || 0) * 100) / 100 }
 function saveLine() {
   if (!draft.value.tipoCespedId || draft.value.cantidadM2 <= 0 || draft.value.precioCompraM2 <= 0 || draft.value.precioVentaM2 <= 0 || draft.value.total <= 0) {
     error.value = 'Completá todos los datos del producto antes de agregarlo.'
+    return
+  }
+  if (product(draft.value)?.esImportado && !(importacionOptions.value[draft.value.tipoCespedId] ?? [])
+    .some(x => (x.importacionId ?? null) === (draft.value.importacionId ?? null))) {
+    error.value = 'Seleccioná el código de importación del producto.'
     return
   }
   if (editingLine.value === null) form.value.lineas.push({ ...draft.value })
@@ -107,6 +123,8 @@ async function load() {
         estado: v.estado, fechaEntregaEstimada: v.fechaEntregaEstimada, costoEnvio: v.costoEnvio,
         otrosCostos: v.otrosCostos, alicuotaIvaId: v.alicuotaIvaId, observaciones: v.observaciones ?? '',
       }
+      await Promise.all(form.value.lineas.filter(row => product(row)?.esImportado)
+        .map(row => loadImportOptions(row.tipoCespedId)))
       showProductEntry.value = false
     }
   } catch (e) {
@@ -230,6 +248,11 @@ watch(() => form.value.depositoId, (value, previous) => {
                 <Select v-model="draft.tipoCespedId" :options="productosDisponibles" option-label="nombre"
                   option-value="id" placeholder="Seleccionar producto" size="small" @change="selectProduct(draft)" />
               </div>
+              <div v-if="product(draft)?.esImportado" class="field col-12 md:col-4">
+                <label>Código de importación</label>
+                <Select v-model="draft.importacionId" :options="importacionOptions[draft.tipoCespedId] ?? []"
+                  option-label="etiqueta" option-value="importacionId" placeholder="Seleccionar código" required size="small" />
+              </div>
               <div class="field col-6 md:col-2">
                 <label>Color</label>
                 <Select v-if="product(draft)?.colores?.length" v-model="draft.color" :options="product(draft).colores"
@@ -284,6 +307,9 @@ watch(() => form.value.depositoId, (value, previous) => {
             </Column>
             <Column header="Color">
               <template #body="{ data: row }">{{ row.color || '—' }}</template>
+            </Column>
+            <Column header="Importación">
+              <template #body="{ data: row }">{{ (importacionOptions[row.tipoCespedId] ?? []).find(x => x.importacionId === row.importacionId)?.etiqueta || '—' }}</template>
             </Column>
             <Column header="Metros" body-class="text-right">
               <template #body="{ data: row }"><span class="num">{{ row.cantidadM2 }} m²</span></template>

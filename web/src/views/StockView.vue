@@ -4,6 +4,7 @@ import AppButton from '@/shared/components/AppButton.vue'
 import AppDatePicker from '@/shared/components/AppDatePicker.vue'
 import Column from 'primevue/column'
 import DataTable from 'primevue/datatable'
+import Dialog from 'primevue/dialog'
 import InputNumber from 'primevue/inputnumber'
 import InputText from 'primevue/inputtext'
 import Message from 'primevue/message'
@@ -16,7 +17,7 @@ import { http, apiErrorMessage } from '@/shared/api/httpClient'
 import { pluralize } from '@/shared/formatters'
 import { TABLE_ROWS, TABLE_ROWS_OPTIONS, tableFirst, type DataTablePageEvent } from '@/shared/tablePagination'
 
-type StockProduct = { tipoCespedId: string; nombre: string; stockActualM2: number; controlPorLotes: boolean; colores: string[] }
+type StockProduct = { tipoCespedId: string; nombre: string; stockActualM2: number; controlPorLotes: boolean; esImportado: boolean; colores: string[]; baldes: any[] }
 type StockDeposito = { id: string; nombre: string; productos: StockProduct[]; permiteRegistrarIngreso: boolean }
 type RolloForm = { posicion: 'A' | 'B' | 'C'; codigoBarra: string; cantidadM2: number }
 
@@ -33,7 +34,13 @@ const pageSize = ref(TABLE_ROWS)
 const total = ref(0)
 const first = computed(() => tableFirst(page.value, pageSize.value))
 const filters = ref({ depositoId: '', tipoCespedId: '', desde: '', hasta: '' })
-const form = ref({ depositoId: '', tipoCespedId: '', color: '', cantidadM2: 0, nuevoStockM2: 0, observaciones: '', rollos: newRolls() })
+const form = ref({ depositoId: '', tipoCespedId: '', importacionId: null as string | null, color: '', cantidadM2: 0, nuevoStockM2: 0, observaciones: '', rollos: newRolls() })
+const importaciones = ref<any[]>([])
+const quickImportVisible = ref(false)
+const quickImport = ref({ codigo: '', numeroDespacho: '', fecha: new Date().toISOString().slice(0, 10), observaciones: '' })
+const reassignVisible = ref(false)
+const reassign = ref({ depositoId: '', tipoCespedId: '', haciaImportacionId: null as string | null, cantidadM2: 0, observaciones: '' })
+let lastImportacionId: string | null = null
 const expandedLots = ref<Record<string, boolean>>({})
 const lotsByProduct = ref<Record<string, any[]>>({})
 const lotsLoading = ref<Record<string, boolean>>({})
@@ -50,6 +57,10 @@ const productosIngreso = computed(() => {
   return formMode.value === 'ajuste' ? products.filter(x => !x.controlPorLotes) : products
 })
 const selectedProduct = computed(() => productosIngreso.value.find(x => x.tipoCespedId === form.value.tipoCespedId))
+const selectedBucket = computed(() => selectedProduct.value?.baldes?.find(x => (x.importacionId ?? null) === (form.value.importacionId ?? null)))
+const importOptions = computed(() => formMode.value === 'ajuste' && selectedProduct.value?.baldes?.some(x => !x.importacionId)
+  ? [{ id: null, codigo: 'Stock anterior (sin código)' }, ...importaciones.value]
+  : importaciones.value)
 const depositoFilterOptions = computed(() => [{ id: '', nombre: 'Todos los depósitos' }, ...depositos.value])
 const productoFilterOptions = computed(() => [{ tipoCespedId: '', nombre: 'Todos los productos' }, ...productosFiltro.value])
 const productosFiltro = computed(() => {
@@ -84,6 +95,27 @@ async function loadStock() {
   ensureIngresoProduct()
 }
 
+async function loadImportaciones() {
+  importaciones.value = (await http.get('/importaciones', { params: { page: 1, pageSize: 100 } })).data.items
+}
+async function createQuickImport() {
+  try {
+    const { data } = await http.post('/importaciones', quickImport.value)
+    await loadImportaciones(); form.value.importacionId = data.id; lastImportacionId = data.id
+    quickImportVisible.value = false
+  } catch (e) { saveError.value = apiErrorMessage(e, 'No se pudo crear la importación.') }
+}
+function openReassign(depositoId: string, product: StockProduct) {
+  reassign.value = { depositoId, tipoCespedId: product.tipoCespedId, haciaImportacionId: null, cantidadM2: 0, observaciones: '' }
+  reassignVisible.value = true
+}
+async function saveReassign() {
+  try {
+    await http.post('/stock/reasignar-importacion', { ...reassign.value, desdeImportacionId: null })
+    reassignVisible.value = false; await Promise.all([loadStock(), loadMovimientos(true)])
+  } catch (e) { saveError.value = apiErrorMessage(e, 'No se pudo reasignar el stock.') }
+}
+
 function ensureIngresoProduct() {
   if (!productosIngreso.value.some(x => x.tipoCespedId === form.value.tipoCespedId)) {
     form.value.tipoCespedId = productosIngreso.value[0]?.tipoCespedId ?? ''
@@ -91,12 +123,18 @@ function ensureIngresoProduct() {
   form.value.color = selectedProduct.value?.colores[0] ?? ''
   form.value.nuevoStockM2 = Number(selectedProduct.value?.stockActualM2 ?? 0)
   form.value.rollos = newRolls()
+  form.value.importacionId = selectedProduct.value?.esImportado
+    ? (importaciones.value.some(x => x.id === lastImportacionId) ? lastImportacionId : null) : null
+  form.value.nuevoStockM2 = Number(selectedProduct.value?.esImportado ? selectedBucket.value?.saldoM2 ?? 0 : selectedProduct.value?.stockActualM2 ?? 0)
 }
 
 function ensureFilterProduct() {
   if (!productosFiltro.value.some(x => x.tipoCespedId === filters.value.tipoCespedId)) {
     filters.value.tipoCespedId = ''
   }
+}
+function importChanged() {
+  form.value.nuevoStockM2 = Number(selectedBucket.value?.saldoM2 ?? 0)
 }
 
 async function loadMovimientos(reset = false) {
@@ -119,7 +157,7 @@ async function load() {
   loading.value = true
   loadError.value = ''
   try {
-    await Promise.all([loadStock(), loadMovimientos()])
+    await Promise.all([loadStock(), loadMovimientos(), loadImportaciones()])
   } catch (e: any) {
     loadError.value = apiErrorMessage(e, 'No se pudo cargar el stock.')
   } finally {
@@ -137,6 +175,7 @@ function openIngreso() {
   form.value = {
     depositoId: depositosIngreso.value[0]?.id ?? '',
     tipoCespedId: '',
+    importacionId: null,
     color: '',
     cantidadM2: 0,
     nuevoStockM2: 0,
@@ -153,6 +192,7 @@ function openAjuste() {
   form.value = {
     depositoId: depositosIngreso.value[0]?.id ?? '',
     tipoCespedId: '',
+    importacionId: null,
     color: '',
     cantidadM2: 0,
     nuevoStockM2: 0,
@@ -174,6 +214,7 @@ async function saveIngreso() {
         tipoCespedId: form.value.tipoCespedId,
         nuevoStockM2: form.value.nuevoStockM2,
         observaciones: form.value.observaciones,
+        importacionId: form.value.importacionId,
       })
       cancelForm()
       await Promise.all([loadStock(), loadMovimientos(true)])
@@ -187,13 +228,16 @@ async function saveIngreso() {
         color: form.value.color || null,
         rollos: form.value.rollos,
         observaciones: form.value.observaciones,
+        importacionId: form.value.importacionId,
       }
       : {
         depositoId: form.value.depositoId,
         tipoCespedId: form.value.tipoCespedId,
         cantidadM2: form.value.cantidadM2,
         observaciones: form.value.observaciones,
+        importacionId: form.value.importacionId,
       })
+    if (form.value.importacionId) lastImportacionId = form.value.importacionId
     cancelForm()
     expandedLots.value = {}
     lotsByProduct.value = {}
@@ -353,6 +397,12 @@ onMounted(load)
           <header class="inline-form-block-head">
             <span>2. {{ formMode === 'ajuste' ? 'Resultado del ajuste' : 'Detalle del ingreso' }}</span>
           </header>
+          <div v-if="selectedProduct?.esImportado" class="field col-12 md:col-6">
+            <label>Código de importación</label>
+            <Select v-model="form.importacionId" :options="importOptions" option-label="codigo" option-value="id"
+              filter placeholder="Seleccionar importación" required @change="importChanged" />
+            <AppButton type="button" label="+ Nueva importación" text size="small" @click="quickImport = { codigo: '', numeroDespacho: '', fecha: new Date().toISOString().slice(0, 10), observaciones: '' }; quickImportVisible = true" />
+          </div>
           <template v-if="formMode === 'ajuste'">
             <Message severity="info" class="mb-3" :closable="false">
               Indicá la existencia física real. El sistema registrará automáticamente la diferencia como un movimiento de ajuste.
@@ -360,7 +410,7 @@ onMounted(load)
             <div class="grid formgrid p-fluid inline-form-grid">
               <div class="field col-12 md:col-4">
                 <label>Stock actual</label>
-                <InputNumber :model-value="selectedProduct?.stockActualM2 ?? 0" suffix=" m²" disabled />
+                <InputNumber :model-value="selectedProduct?.esImportado ? selectedBucket?.saldoM2 ?? 0 : selectedProduct?.stockActualM2 ?? 0" suffix=" m²" disabled />
               </div>
               <div class="field col-12 md:col-4">
                 <label>Nuevo stock (m²)</label>
@@ -368,7 +418,7 @@ onMounted(load)
               </div>
               <div class="field col-12 md:col-4">
                 <label>Diferencia</label>
-                <InputNumber :model-value="form.nuevoStockM2 - Number(selectedProduct?.stockActualM2 ?? 0)" suffix=" m²" disabled />
+                <InputNumber :model-value="form.nuevoStockM2 - Number(selectedProduct?.esImportado ? selectedBucket?.saldoM2 ?? 0 : selectedProduct?.stockActualM2 ?? 0)" suffix=" m²" disabled />
               </div>
             </div>
           </template>
@@ -471,6 +521,18 @@ onMounted(load)
                 <Column header="Stock actual" body-class="cell-num">
                   <template #body="{ data }">
                     <b :class="{ negative: data.stockActualM2 < 0 }">{{ meters(data.stockActualM2) }}</b>
+                  </template>
+                </Column>
+                <Column header="Importaciones">
+                  <template #body="{ data }">
+                    <div v-if="data.esImportado" class="flex flex-column gap-1">
+                      <small v-for="bucket in data.baldes" :key="bucket.importacionId ?? 'anterior'">
+                        {{ bucket.codigo || 'Stock anterior (sin código)' }}: <b>{{ meters(bucket.saldoM2) }}</b>
+                        <AppButton v-if="!bucket.importacionId && bucket.saldoM2 > 0 && auth.can('stock','editar')" text size="small" label="Reasignar a importación" @click="openReassign(deposito.id, data)" />
+                      </small>
+                      <small v-if="!data.baldes?.length" class="text-color-secondary">Sin saldo</small>
+                    </div>
+                    <span v-else class="text-color-secondary">—</span>
                   </template>
                 </Column>
                 <Column header="Lotes" body-class="cell-num">
@@ -642,5 +704,11 @@ onMounted(load)
         </Panel>
       </template>
     </template>
+    <Dialog v-model:visible="quickImportVisible" modal header="Nueva importación" :style="{ width: '34rem', maxWidth: '95vw' }">
+      <form class="p-fluid" @submit.prevent="createQuickImport"><div class="field"><label>Código</label><InputText v-model="quickImport.codigo" maxlength="50" required /></div><div class="field"><label>N° despacho</label><InputText v-model="quickImport.numeroDespacho" /></div><div class="field"><label>Fecha</label><AppDatePicker v-model="quickImport.fecha" required /></div><div class="field"><label>Observaciones</label><Textarea v-model="quickImport.observaciones" /></div><AppButton type="submit" label="Crear y seleccionar" /></form>
+    </Dialog>
+    <Dialog v-model:visible="reassignVisible" modal header="Reasignar stock anterior" :style="{ width: '34rem', maxWidth: '95vw' }">
+      <form class="p-fluid" @submit.prevent="saveReassign"><div class="field"><label>Importación destino</label><Select v-model="reassign.haciaImportacionId" :options="importaciones" option-label="codigo" option-value="id" filter required /></div><div class="field"><label>Cantidad m²</label><InputNumber v-model="reassign.cantidadM2" :min="0.01" required /></div><div class="field"><label>Observaciones</label><Textarea v-model="reassign.observaciones" /></div><AppButton type="submit" label="Reasignar" /></form>
+    </Dialog>
   </section>
 </template>

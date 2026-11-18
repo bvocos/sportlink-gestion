@@ -11,9 +11,9 @@ using System.Text.Json;
 namespace Api.Features.Ventas;
 
 public record VentaLineaCommand(Guid TipoCespedId, string? Color, decimal CantidadM2,
-    decimal PrecioCompraM2, decimal PrecioVentaM2, decimal Total, Guid? LoteStockId = null);
+    decimal PrecioCompraM2, decimal PrecioVentaM2, decimal Total, Guid? LoteStockId = null, Guid? ImportacionId = null);
 public record VentaLineaDto(Guid TipoCespedId, string? Color, decimal CantidadM2,
-    decimal? PrecioCompraM2, decimal? PrecioVentaM2, decimal? Total, Guid? LoteStockId);
+    decimal? PrecioCompraM2, decimal? PrecioVentaM2, decimal? Total, Guid? LoteStockId, Guid? ImportacionId = null);
 
 public record RegistrarVentaCommand(Guid ClienteId, DateOnly FechaVenta, Guid TipoCespedId, decimal CantidadM2,
     decimal PrecioUnitario, decimal PrecioTotal, decimal MontoEntrega, FormaPago FormaPago, int? CantidadCuotas, EstadoVenta Estado,
@@ -86,6 +86,7 @@ public sealed class RegistrarVentaHandler(AppDbContext db, IHttpContextAccessor 
         request = request with { SucursalId = sucursalId };
         request = await VentaService.NormalizeLines(db, request, ct);
         await VentaService.ValidateProductsScope(db, request.DepositoId, request.Lineas!, ct);
+        await VentaService.ValidateImportations(db, request.Lineas!, ct);
         var (cliente, tipo, alicuota) = await VentaService.GetReferences(db, request, ct);
         request = VentaService.NormalizeColor(request, tipo);
         var strategy = db.Database.CreateExecutionStrategy();
@@ -172,7 +173,7 @@ internal static class VentaService
             var quantity = lot!.Rollos.Sum(x => x.CantidadM2);
             if (lot.Rollos.Count != 3 || quantity <= 0) throw new LoteNoDisponibleException("El lote no tiene sus tres rollos correctamente registrados.");
             MarkLotSold(lot, targetSaleId);
-            lines[index] = line with { CantidadM2 = quantity, Color = lot.Color, Total = Math.Round(quantity * line.PrecioVentaM2, 2) };
+            lines[index] = line with { CantidadM2 = quantity, Color = lot.Color, ImportacionId = lot.ImportacionId, Total = Math.Round(quantity * line.PrecioVentaM2, 2) };
         }
         var first = lines[0];
         return request with { Lineas = lines, TipoCespedId = first.TipoCespedId, Color = first.Color, CantidadM2 = lines.Sum(x => x.CantidadM2), PrecioUnitario = lines.Sum(x => x.Total) / lines.Sum(x => x.CantidadM2), PrecioTotal = lines.Sum(x => x.Total), CostoCompraUnitario = lines.Sum(x => x.PrecioCompraM2 * x.CantidadM2) / lines.Sum(x => x.CantidadM2) };
@@ -187,15 +188,29 @@ internal static class VentaService
     public static async Task ValidateStock(AppDbContext db, Guid depositoId,
         IReadOnlyList<VentaLineaCommand> lines, CancellationToken ct)
     {
-        foreach (var group in lines.GroupBy(x => x.TipoCespedId))
+        foreach (var group in lines.GroupBy(x => new { x.TipoCespedId, x.ImportacionId }))
         {
             var requested = group.Sum(x => x.CantidadM2);
-            var available = await StockActual(db, depositoId, group.Key, ct);
+            var available = await db.MovimientosStock.Where(x => x.DepositoId == depositoId && x.TipoCespedId == group.Key.TipoCespedId && x.ImportacionId == group.Key.ImportacionId)
+                .SumAsync(x => x.Tipo == TipoMovimientoStock.SalidaPorVenta || x.Tipo == TipoMovimientoStock.AjusteSalida ? -x.CantidadM2 : x.CantidadM2, ct);
             var shortage = StockShortage(available, requested);
             if (shortage <= 0) continue;
-            var product = await db.TiposCesped.Where(x => x.Id == group.Key).Select(x => x.Nombre)
-                .SingleOrDefaultAsync(ct) ?? group.Key.ToString();
+            var product = await db.TiposCesped.Where(x => x.Id == group.Key.TipoCespedId).Select(x => x.Nombre)
+                .SingleOrDefaultAsync(ct) ?? group.Key.TipoCespedId.ToString();
             throw new StockInsuficienteException(product, shortage);
+        }
+    }
+    public static async Task ValidateImportations(AppDbContext db, IReadOnlyCollection<VentaLineaCommand> lines, CancellationToken ct)
+    {
+        var productIds = lines.Select(x => x.TipoCespedId).Distinct().ToArray();
+        var products = await db.TiposCesped.Where(x => productIds.Contains(x.Id)).ToDictionaryAsync(x => x.Id, ct);
+        var importIds = lines.Where(x => x.ImportacionId.HasValue).Select(x => x.ImportacionId!.Value).Distinct().ToArray();
+        var validImports = await db.Importaciones.Where(x => importIds.Contains(x.Id)).Select(x => x.Id).ToListAsync(ct);
+        foreach (var line in lines)
+        {
+            var imported = products.GetValueOrDefault(line.TipoCespedId)?.EsImportado == true;
+            if (!imported && line.ImportacionId.HasValue) throw new KeyNotFoundException("Un producto no importado no admite código de importación.");
+            if (line.ImportacionId.HasValue && !validImports.Contains(line.ImportacionId.Value)) throw new KeyNotFoundException("La importación seleccionada no pertenece a la sucursal activa.");
         }
     }
     public static async Task<RegistrarVentaCommand> NormalizeLines(AppDbContext db,
@@ -289,6 +304,7 @@ internal static class VentaService
         IReadOnlyList<VentaLineaCommand> lines, string usuario) => lines.Select(line => new MovimientoStock
         {
             DepositoId = venta.DepositoId, TipoCespedId = line.TipoCespedId,
+            ImportacionId = line.ImportacionId,
             Tipo = TipoMovimientoStock.SalidaPorVenta, CantidadM2 = line.CantidadM2,
             Fecha = DateTime.UtcNow, Usuario = usuario, VentaId = venta.Id,
             Observaciones = $"Salida por venta {venta.Id}"
@@ -305,7 +321,7 @@ internal static class VentaService
             v.FechaEntregaEstimada, v.Observaciones, v.Color,
             lines.Select(x => new VentaLineaDto(x.TipoCespedId, x.Color, x.CantidadM2,
                 verMontos ? x.PrecioCompraM2 : null, verMontos ? x.PrecioVentaM2 : null,
-                verMontos ? x.Total : null, x.LoteStockId)).ToList());
+                verMontos ? x.Total : null, x.LoteStockId, x.ImportacionId)).ToList());
     }
 }
 
