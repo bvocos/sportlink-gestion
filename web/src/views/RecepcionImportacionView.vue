@@ -32,7 +32,7 @@ const number = new Intl.NumberFormat('es-AR', { minimumFractionDigits: 0, maximu
 function rolls(): ReceptionRoll[] { return ['A', 'B', 'C'].map(posicion => ({ posicion: posicion as 'A' | 'B' | 'C', codigoBarra: '', cantidadM2: 0 })) }
 function product(line: Line) { return products.value.find(x => x.tipoCespedId === line.tipoCespedId) }
 function addLine(copy?: Line) { form.value.lineas.push({ tipoCespedId: copy?.tipoCespedId ?? '', cantidadM2: 0, color: '', rollos: rolls(), variantes: [], touched: false }) }
-function productChanged(line: Line) { const value = product(line); line.color = value?.colores[0] ?? ''; line.cantidadM2 = 0; line.rollos = rolls(); line.variantes = value && !value.controlPorLotes && value.colores.length ? [{ color: value.colores[0], cantidadM2: 0 }] : []; line.touched = false }
+function productChanged(line: Line) { const value = product(line); line.color = value?.colores[0] ?? ''; line.cantidadM2 = 0; line.rollos = rolls(); line.variantes = value && !value.controlPorLotes && value.colores.length ? [{ color: value.colores[0] ?? '', cantidadM2: 0 }] : []; line.touched = false }
 function addVariant(line: Line) { line.variantes.push({ color: '', cantidadM2: 0 }) }
 function addAllColors(line: Line) { line.variantes = addMissingColors(line.variantes, product(line)?.colores ?? []) }
 function lineTotal(line: Line) { return receptionLineTotal({ ...line, controlPorLotes: product(line)?.controlPorLotes ?? false }) }
