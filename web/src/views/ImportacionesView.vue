@@ -17,6 +17,7 @@ const items = ref<any[]>([]), total = ref(0), page = ref(1), pageSize = ref(20),
 const route = useRoute(), router = useRouter()
 const loading = ref(false), error = ref(''), visible = ref(false), saving = ref(false)
 const editingId = ref<string | null>(null), detail = ref<any | null>(null)
+const importSales = ref<any[]>([]), importSalesLoading = ref(false), importSalesLoaded = ref(false), importSalesError = ref('')
 const blank = () => ({ codigo: '', numeroDespacho: '', fecha: new Date().toISOString().slice(0, 10), observaciones: '' })
 const form = ref(blank())
 const dateFormat = new Intl.DateTimeFormat('es-AR', { timeZone: 'UTC' })
@@ -34,7 +35,14 @@ async function load() {
 function create() { editingId.value = null; form.value = blank(); error.value = ''; visible.value = true }
 function edit(row: any) { editingId.value = row.id; form.value = { codigo: row.codigo, numeroDespacho: row.numeroDespacho ?? '', fecha: row.fecha, observaciones: row.observaciones ?? '' }; error.value = ''; visible.value = true }
 async function save() { saving.value = true; error.value = ''; try { editingId.value ? await http.put(`/importaciones/${editingId.value}`, form.value) : await http.post('/importaciones', form.value); visible.value = false; await load() } catch (e) { error.value = apiErrorMessage(e, 'No se pudo guardar la importación.') } finally { saving.value = false } }
-async function openDetail(row: any) { try { detail.value = (await http.get(`/importaciones/${row.id}`)).data } catch (e) { notify(apiErrorMessage(e, 'No se pudo cargar el detalle.')) } }
+async function openDetail(row: any) { try { detail.value = (await http.get(`/importaciones/${row.id}`)).data; importSales.value = []; importSalesLoaded.value = false; importSalesError.value = '' } catch (e) { notify(apiErrorMessage(e, 'No se pudo cargar el detalle.')) } }
+async function loadImportSales(event: Event) {
+  if (!(event.currentTarget as HTMLDetailsElement).open || importSalesLoaded.value || !detail.value) return
+  importSalesLoading.value = true; importSalesError.value = ''
+  try { importSales.value = (await http.get(`/importaciones/${detail.value.id}/ventas`)).data; importSalesLoaded.value = true }
+  catch (e) { importSalesError.value = apiErrorMessage(e, 'No se pudieron cargar las ventas de esta importación.') }
+  finally { importSalesLoading.value = false }
+}
 async function remove(row: any) { if (!await confirmAction({ title: 'Eliminar importación', message: `¿Eliminar ${row.codigo}?`, confirmText: 'Eliminar', danger: true })) return; try { await http.delete(`/importaciones/${row.id}`); await load() } catch (e) { notify(apiErrorMessage(e, 'No se pudo eliminar la importación.')) } }
 onMounted(async () => {
   await load()
@@ -113,6 +121,25 @@ onMounted(async () => {
             <Column field="tipo" header="Tipo" />
             <Column header="m²" body-class="imp-number"><template #body="{ data }">{{ meters(data.cantidadM2) }}</template></Column>
           </DataTable>
+        </details>
+
+        <h4 class="mb-2">Ventas de esta importación</h4>
+        <details @toggle="loadImportSales">
+          <summary>Mostrar u ocultar ventas</summary>
+          <div class="mt-2">
+            <Message v-if="importSalesError" severity="error" :closable="false">{{ importSalesError }}</Message>
+            <p v-if="importSalesLoading" class="text-color-secondary">Cargando ventas…</p>
+            <template v-else-if="importSalesLoaded">
+              <DataTable :value="importSales" class="imp-detail-table">
+                <Column header="Fecha"><template #body="{ data }">{{ formatDate(data.fechaVenta) }}</template></Column>
+                <Column field="cliente" header="Cliente" />
+                <Column field="producto" header="Producto" />
+                <Column header="Color"><template #body="{ data }">{{ data.color || '—' }}</template></Column>
+                <Column header="m²" body-class="imp-number"><template #body="{ data }">{{ meters(data.cantidadM2) }}</template></Column>
+              </DataTable>
+              <p class="text-right mt-2 mb-0"><strong>Total vendido: {{ meters(importSales.reduce((sum, sale) => sum + Number(sale.cantidadM2 || 0), 0)) }} m²</strong></p>
+            </template>
+          </div>
         </details>
       </template>
     </Dialog>

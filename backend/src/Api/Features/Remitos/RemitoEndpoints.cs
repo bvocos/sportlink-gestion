@@ -18,7 +18,9 @@ public sealed record RemitoRequest(string ReceptorNombre, string? ReceptorDomici
     string? ReceptorLocalidad, string? ReceptorProvincia, string? ReceptorTelefono,
     string? ReceptorCuit, string? ReceptorCondicionIva, string? Observaciones);
 
-public sealed record RemitoLineaSnapshot(string Producto, string? Color, decimal CantidadM2);
+public sealed record RemitoLineaSnapshot(string Producto, string? Color, decimal CantidadM2,
+    IReadOnlyList<RemitoImportacionSnapshot>? Importaciones = null);
+public sealed record RemitoImportacionSnapshot(string? Codigo, string? NumeroDespacho, decimal CantidadM2);
 
 public static partial class RemitoEndpoints
 {
@@ -75,7 +77,7 @@ public static partial class RemitoEndpoints
             receptorCondicionIva = sale.Cliente.CondicionIva.HasValue
                 ? ArcaCodigos.Etiqueta(sale.Cliente.CondicionIva.Value) : "",
             observaciones = "",
-            lineas = lines.Select(x => new { x.Producto, x.Color, x.CantidadM2 })
+            lineas = lines.Select(x => new { x.Producto, x.Color, x.CantidadM2, x.Importaciones })
         });
     }
 
@@ -188,8 +190,18 @@ public static partial class RemitoEndpoints
         var ids = source.Select(x => x.TipoCespedId).Distinct().ToArray();
         var names = await db.TiposCesped.AsNoTracking().Where(x => ids.Contains(x.Id))
             .ToDictionaryAsync(x => x.Id, x => x.Nombre, ct);
+        var importIds = source.Where(x => x.ImportacionId.HasValue).Select(x => x.ImportacionId!.Value)
+            .Distinct().ToArray();
+        var imports = await db.Importaciones.IgnoreQueryFilters().AsNoTracking()
+            .Where(x => x.SucursalId == sale.SucursalId && importIds.Contains(x.Id))
+            .Select(x => new { x.Id, x.Codigo, x.NumeroDespacho })
+            .ToDictionaryAsync(x => x.Id, ct);
         return source.Select(x => new RemitoLineaSnapshot(
-            names.GetValueOrDefault(x.TipoCespedId, "Producto"), x.Color, x.CantidadM2)).ToList();
+            names.GetValueOrDefault(x.TipoCespedId, "Producto"), x.Color, x.CantidadM2,
+            x.ImportacionId.HasValue && imports.TryGetValue(x.ImportacionId.Value, out var importacion) &&
+                !string.IsNullOrWhiteSpace(importacion.Codigo)
+                ? [new RemitoImportacionSnapshot(importacion.Codigo, importacion.NumeroDespacho, x.CantidadM2)]
+                : null)).ToList();
     }
 
     internal static List<RemitoLineaSnapshot> DeserializeLines(string json)
@@ -269,7 +281,16 @@ internal static class RemitoPdf
                     foreach (var line in lines)
                     {
                         var description = string.IsNullOrWhiteSpace(line.Color) ? line.Producto : $"{line.Producto} - {line.Color}";
-                        table.Cell().BorderBottom(1).BorderColor(Colors.Grey.Lighten1).Padding(6).Text(description);
+                        table.Cell().BorderBottom(1).BorderColor(Colors.Grey.Lighten1).Padding(6).Column(cell =>
+                        {
+                            cell.Item().Text(description);
+                            foreach (var importacion in line.Importaciones ?? [])
+                            {
+                                var importText = ImportText(importacion);
+                                if (importText is not null)
+                                    cell.Item().PaddingTop(2).Text(importText).FontSize(8).FontColor(Colors.Grey.Darken1);
+                            }
+                        });
                         table.Cell().BorderBottom(1).BorderColor(Colors.Grey.Lighten1).Padding(6).AlignRight()
                             .Text(line.CantidadM2.ToString("0.##", Argentina));
                     }
@@ -306,6 +327,15 @@ internal static class RemitoPdf
         }.Where(x => !string.IsNullOrWhiteSpace(x)));
         if (fiscal.Length > 0) lines.Add(fiscal);
         return lines;
+    }
+
+    internal static string? ImportText(RemitoImportacionSnapshot importacion)
+    {
+        if (string.IsNullOrWhiteSpace(importacion.Codigo)) return null;
+        var text = $"Imp. {importacion.Codigo.Trim()}";
+        return string.IsNullOrWhiteSpace(importacion.NumeroDespacho)
+            ? text
+            : $"{text} · Despacho {importacion.NumeroDespacho.Trim()}";
     }
 
     private static void Field(ColumnDescriptor column, string label, string? value)

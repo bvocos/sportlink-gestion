@@ -39,6 +39,8 @@ public sealed class RemitoEndpointIntegrationTests
             var draftText = await draftResponse.Content.ReadAsStringAsync();
             AssertPriceFree(draftText);
             Assert.Contains(data.ProductAName, draftText);
+            Assert.Contains("IMP-REM-A", draftText);
+            Assert.Contains("DESP-A", draftText);
             Assert.Contains("Empresa Fiscal A", draftText);
             Assert.Contains("20-12345678-6", draftText);
             Assert.Contains("Responsable inscripto", draftText);
@@ -98,7 +100,26 @@ public sealed class RemitoEndpointIntegrationTests
             var onlyLine = Assert.Single(lines);
             Assert.Equal(data.ProductAName, onlyLine.Producto);
             Assert.Equal(25.5m, onlyLine.CantidadM2);
+            var importSnapshot = Assert.Single(onlyLine.Importaciones!);
+            Assert.Equal("IMP-REM-A", importSnapshot.Codigo);
+            Assert.Equal("DESP-A", importSnapshot.NumeroDespacho);
             Assert.DoesNotContain("Producto falso", stored.LineasJson);
+
+            var importation = await verify.Importaciones.IgnoreQueryFilters().SingleAsync(x => x.Id == data.ImportA);
+            importation.NumeroDespacho = "DESPACHO CAMBIADO";
+            await verify.SaveChangesAsync();
+            verify.ChangeTracker.Clear();
+            stored = await verify.Remitos.IgnoreQueryFilters().SingleAsync(x => x.Id == a1.Id);
+            importSnapshot = Assert.Single(Assert.Single(RemitoEndpoints.DeserializeLines(stored.LineasJson)).Importaciones!);
+            Assert.Equal("DESP-A", importSnapshot.NumeroDespacho);
+
+            var salesResponse = await adminA.GetAsync($"/api/importaciones/{data.ImportA}/ventas");
+            Assert.Equal(HttpStatusCode.OK, salesResponse.StatusCode);
+            var importSales = JsonDocument.Parse(await salesResponse.Content.ReadAsStringAsync()).RootElement;
+            Assert.Equal(1, importSales.GetArrayLength());
+            Assert.Equal(25.5m, importSales[0].GetProperty("cantidadM2").GetDecimal());
+            Assert.Equal(HttpStatusCode.NotFound,
+                (await adminA.GetAsync($"/api/importaciones/{data.ImportB}/ventas")).StatusCode);
         }
         finally
         {
@@ -220,22 +241,31 @@ public sealed class RemitoEndpointIntegrationTests
         var productB = NewProduct(depositB.Id, "Remito B"); productB.ControlPorLotes = false;
         db.AddRange(user, clientA, clientB, productA, productB);
         await db.SaveChangesAsync();
+        var importA = new Importacion { SucursalId = branchA.Id, Codigo = "IMP-REM-A", NumeroDespacho = "DESP-A", Fecha = DateOnly.FromDateTime(DateTime.Today) };
+        var importB = new Importacion { SucursalId = branchB.Id, Codigo = "IMP-REM-B", NumeroDespacho = "DESP-B", Fecha = DateOnly.FromDateTime(DateTime.Today) };
+        db.AddRange(importA, importB);
+        await db.SaveChangesAsync();
         var tax = await db.AlicuotasIva.FirstAsync();
-        var saleA = Sale(branchA.Id, branchA.DepositoPropioId, clientA.Id, productA, tax.Id, EstadoVenta.Confirmada, 25.5m);
+        var saleA = Sale(branchA.Id, branchA.DepositoPropioId, clientA.Id, productA, tax.Id, EstadoVenta.Confirmada, 25.5m, importA.Id);
         saleA.Observaciones = "nota interna que no debe imprimirse";
         var userSaleA = Sale(branchA.Id, branchA.DepositoPropioId, clientA.Id, productA, tax.Id, EstadoVenta.Entregada, 4m);
         var cancelledSaleA = Sale(branchA.Id, branchA.DepositoPropioId, clientA.Id, productA, tax.Id, EstadoVenta.Cancelada, 2m);
-        var saleB = Sale(branchB.Id, depositB.Id, clientB.Id, productB, tax.Id, EstadoVenta.Confirmada, 5m);
+        var saleB = Sale(branchB.Id, depositB.Id, clientB.Id, productB, tax.Id, EstadoVenta.Confirmada, 5m, importB.Id);
         db.AddRange(saleA, userSaleA, cancelledSaleA, saleB);
         await db.SaveChangesAsync();
+        db.AddRange(
+            new MovimientoStock { DepositoId = branchA.DepositoPropioId, TipoCespedId = productA.Id, Tipo = TipoMovimientoStock.SalidaPorVenta, CantidadM2 = 25.5m, Fecha = DateTime.UtcNow, VentaId = saleA.Id, ImportacionId = importA.Id, Color = "Verde" },
+            new MovimientoStock { DepositoId = depositB.Id, TipoCespedId = productB.Id, Tipo = TipoMovimientoStock.SalidaPorVenta, CantidadM2 = 5m, Fecha = DateTime.UtcNow, VentaId = saleB.Id, ImportacionId = importB.Id, Color = "Azul" });
+        await db.SaveChangesAsync();
         return new(branchA.Id, branchB.Id, clientA.Id, saleA.Id, userSaleA.Id, cancelledSaleA.Id, saleB.Id,
-            productA.Nombre);
+            productA.Nombre, importA.Id, importB.Id);
     }
 
     private static Venta Sale(Guid branch, Guid deposit, Guid client, TipoCesped product, Guid tax,
-        EstadoVenta status, decimal quantity)
+        EstadoVenta status, decimal quantity, Guid? importationId = null)
     {
-        var line = new VentaLineaCommand(product.Id, "Verde", quantity, 10, 20, quantity * 20);
+        var line = new VentaLineaCommand(product.Id, "Verde", quantity, 10, 20, quantity * 20,
+            ImportacionId: importationId);
         return new Venta
         {
             SucursalId = branch, DepositoId = deposit, ClienteId = client, TipoCespedId = product.Id,
@@ -248,5 +278,5 @@ public sealed class RemitoEndpointIntegrationTests
 
     private sealed record CreatedRemito(Guid Id, int Numero, string NumeroTexto);
     private sealed record RemitoSeed(Guid BranchA, Guid BranchB, Guid ClientA, Guid SaleA, Guid UserSaleA,
-        Guid CancelledSaleA, Guid SaleB, string ProductAName);
+        Guid CancelledSaleA, Guid SaleB, string ProductAName, Guid ImportA, Guid ImportB);
 }

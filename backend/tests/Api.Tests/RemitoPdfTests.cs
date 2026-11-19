@@ -36,8 +36,12 @@ public sealed class RemitoPdfTests
         };
         var lines = new List<RemitoLineaSnapshot>
         {
-            new(string.Join(' ', Enumerable.Repeat("Descripción extensa del producto", 30)), "Verde", 25.5m)
+            new(string.Join(' ', Enumerable.Repeat("Descripción extensa del producto", 30)), "Verde", 25.5m,
+                [new("IMP-2026-CODIGO-MUY-LARGO-001", "24001IC04000123X", 25.5m)])
         };
+        lines.AddRange(Enumerable.Range(1, 45).Select(index => new RemitoLineaSnapshot(
+            $"Producto adicional {index} con descripción para probar la paginación", "Verde", index,
+            [new($"IMP-2026-{index:000}", index % 2 == 0 ? null : $"DESP-{index:000}", index)])));
         var branding = new SucursalBranding(Guid.NewGuid(), "EMPRESA DE PRUEBA", "Calle 1",
             "San Francisco", "03564-555555", "sucursal@empresa.com", "30-12345678-9", null, null,
             "Responsable inscripto", new DateOnly(2020, 1, 2), "123-456", 4, "San Francisco");
@@ -59,6 +63,19 @@ public sealed class RemitoPdfTests
         Assert.Equal("%PDF", System.Text.Encoding.ASCII.GetString(withLogo, 0, 4));
         Assert.True(withoutLogo.Length > 5_000);
         Assert.True(withLogo.Length > 5_000);
+    }
+
+    [Fact]
+    public void Snapshot_DeserializesLegacyJsonAndFormatsImportationDetails()
+    {
+        const string legacy = "[{\"Producto\":\"Producto viejo\",\"Color\":null,\"CantidadM2\":12.5}]";
+        var legacyLine = Assert.Single(RemitoEndpoints.DeserializeLines(legacy));
+        Assert.Null(legacyLine.Importaciones);
+
+        Assert.Equal("Imp. IMP-2026-001 · Despacho 24001IC04000123X",
+            RemitoPdf.ImportText(new("IMP-2026-001", "24001IC04000123X", 12.5m)));
+        Assert.Equal("Imp. IMP-2026-001", RemitoPdf.ImportText(new("IMP-2026-001", null, 12.5m)));
+        Assert.Null(RemitoPdf.ImportText(new(" ", "DESPACHO", 12.5m)));
     }
 
     private static byte[] TinyPng() => Convert.FromBase64String(

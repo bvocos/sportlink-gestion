@@ -683,7 +683,13 @@ onMounted(load);
             <h5 class="mt-0 mb-2">Productos incluidos</h5>
             <div v-for="(linea, index) in remitoDraft.lineas" :key="index"
               class="flex justify-content-between gap-3 py-2 border-bottom-1 surface-border">
-              <span>{{ linea.producto }}<template v-if="linea.color"> · {{ linea.color }}</template></span>
+              <span>
+                <span>{{ linea.producto }}<template v-if="linea.color"> · {{ linea.color }}</template></span>
+                <small v-for="(importacion, importIndex) in linea.importaciones ?? []" :key="importIndex"
+                  class="block text-color-secondary mt-1">
+                  <template v-if="importacion.codigo">Imp. {{ importacion.codigo }}<template v-if="importacion.numeroDespacho"> · Despacho {{ importacion.numeroDespacho }}</template></template>
+                </small>
+              </span>
               <b class="white-space-nowrap">{{ linea.cantidadM2 }} m²</b>
             </div>
           </div>

@@ -25,6 +25,7 @@ public static class ImportacionEndpoints
         app.MapGet("/api/ventas/importaciones/saldos", Saldos).WithTags("Importaciones")
             .RequirePermiso("ventas", "crear");
         group.MapGet("/{id:guid}", Detail).RequirePermiso("stock", "ver");
+        group.MapGet("/{id:guid}/ventas", Sales).RequirePermiso("stock", "ver");
         group.MapPost("/", Create).RequirePermiso("stock", "crear");
         group.MapPost("/recepcion", Receive).RequirePermiso("stock", "crear");
         group.MapPut("/{id:guid}", Update).RequirePermiso("stock", "editar");
@@ -85,6 +86,37 @@ public static class ImportacionEndpoints
             .Select(x => new { x.Id, x.DepositoId, depositoNombre = x.Deposito.Nombre, x.TipoCespedId, productoNombre = x.TipoCesped.Nombre, x.Color, x.Tipo, x.CantidadM2, x.Fecha, x.Usuario, x.Observaciones })
             .ToListAsync(ct);
         return Results.Ok(new { importacion.Id, importacion.Codigo, importacion.NumeroDespacho, importacion.Fecha, importacion.Observaciones, saldos = balances, lotes = lots, movimientos = movements });
+    }
+
+    private static async Task<IResult> Sales(Guid id, ClaimsPrincipal user, AppDbContext db, CancellationToken ct)
+    {
+        if (!user.IsInRole("Administrador") && !user.HasClaim("permiso", "ventas.ver"))
+            return Results.Json(new { message = "Necesitás permiso para ver Ventas." }, statusCode: StatusCodes.Status403Forbidden);
+
+        var importacion = await db.Importaciones.AsNoTracking()
+            .Select(x => new { x.Id, x.SucursalId }).SingleOrDefaultAsync(x => x.Id == id, ct);
+        if (importacion is null) return Results.NotFound();
+
+        var visibleDeposits = SucursalDepositoService.VisibleDeposits(db.Depositos.AsNoTracking(), user)
+            .Select(x => x.Id);
+        var rows = await db.MovimientosStock.AsNoTracking()
+            .Where(x => x.ImportacionId == id && x.Tipo == TipoMovimientoStock.SalidaPorVenta &&
+                x.VentaId.HasValue && visibleDeposits.Contains(x.DepositoId) &&
+                x.Venta!.SucursalId == importacion.SucursalId)
+            .OrderByDescending(x => x.Venta!.FechaVenta).ThenByDescending(x => x.Fecha)
+            .Take(200)
+            .Select(x => new
+            {
+                ventaId = x.VentaId!.Value,
+                fechaVenta = x.Venta!.FechaVenta,
+                cliente = x.Venta.Cliente.RazonSocial ??
+                    (x.Venta.Cliente.Nombre + " " + x.Venta.Cliente.Apellido).Trim(),
+                depositoNombre = x.Deposito.Nombre,
+                producto = x.TipoCesped.Nombre,
+                x.Color,
+                x.CantidadM2
+            }).ToListAsync(ct);
+        return Results.Ok(rows);
     }
 
     private static async Task<IResult> Receive(RecepcionImportacionRequest request, ClaimsPrincipal user,
