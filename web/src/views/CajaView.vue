@@ -5,6 +5,7 @@ import Column from "primevue/column";
 import DataTable from "primevue/datatable";
 import Dialog from "primevue/dialog";
 import InputNumber from "primevue/inputnumber";
+import Select from "primevue/select";
 import Message from "primevue/message";
 import Tag from "primevue/tag";
 import Textarea from "primevue/textarea";
@@ -14,6 +15,7 @@ import { downloadCsv } from "@/shared/csv";
 import { auth } from "@/auth";
 import { branchContext } from "@/branchContext";
 import { TABLE_ROWS, TABLE_ROWS_OPTIONS } from "@/shared/tablePagination";
+import { montoEnUsd, validarCotizacion, type MonedaCaja } from "@/monedaCaja";
 
 const activeBranchName = computed(() => branchContext.state.active?.nombre ?? auth.state.user?.sucursalNombre);
 const hasActiveBranch = computed(() => Boolean(branchContext.state.active?.id ?? auth.state.user?.sucursalId));
@@ -25,7 +27,12 @@ const data = ref<any>({ saldo: 0, movimientos: [] }),
   editingMovement = ref<any | null>(null),
   observation = ref(""),
   observationError = ref("");
-const form = ref({ tipo: "Ingreso", monto: 0, concepto: "" });
+const form = ref({ tipo: "Ingreso", monto: 0, concepto: "", moneda: "USD" as MonedaCaja, cotizacion: null as number | null });
+const saving = ref(false);
+const blueVenta = ref<number | null>(null);
+const moneyArs = new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS" });
+const currencyOptions = [{ label: "Dólares", value: "USD" }, { label: "Pesos", value: "ARS" }];
+const equivalentUsd = computed(() => montoEnUsd(form.value.monto, form.value.moneda, form.value.cotizacion));
 
 async function load() {
   loading.value = true;
@@ -40,18 +47,24 @@ async function load() {
 }
 
 function openForm(tipo: "Ingreso" | "Retiro") {
-  form.value = { tipo, monto: 0, concepto: "" };
+  form.value = { tipo, monto: 0, concepto: "", moneda: "USD", cotizacion: null };
   error.value = "";
   show.value = true;
 }
 
 async function save() {
+  const currencyError = validarCotizacion(form.value.moneda, form.value.cotizacion);
+  if (currencyError) { error.value = currencyError; return; }
+  if (saving.value) return;
+  saving.value = true;
   try {
     await http.post("/caja/movimientos", form.value);
     show.value = false;
     await load();
   } catch (e: any) {
     error.value = apiErrorMessage(e, "No se pudo registrar el movimiento.");
+  } finally {
+    saving.value = false;
   }
 }
 
@@ -84,13 +97,14 @@ async function saveObservation() {
 function exportCsv() {
   downloadCsv(
     `caja-${new Date().toISOString().slice(0, 10)}.csv`,
-    ["Fecha", "Tipo", "Observación", "Usuario", "Monto"],
+    ["Fecha", "Tipo", "Observación", "Usuario", "Monto USD", "Moneda", "Importe moneda", "Cotización"],
     data.value.movimientos.map((m: any) => [
       new Date(m.fecha).toLocaleString("es-AR"),
       m.tipo,
       m.concepto,
       m.usuario,
       m.tipo === "Retiro" ? -m.monto : m.monto,
+      m.monedaCobro, m.importeMonedaCobro, m.cotizacionAplicada ?? "",
     ]),
   );
 }
@@ -99,7 +113,10 @@ function closeObservation() {
   editingMovement.value = null;
 }
 
-onMounted(load);
+onMounted(async () => {
+  await load();
+  try { blueVenta.value = (await http.get('/cotizaciones/dolares')).data?.blue?.venta ?? null; } catch { blueVenta.value = null; }
+});
 </script>
 
 <template>
@@ -131,10 +148,12 @@ onMounted(load);
     <template v-else>
       <div class="summary-metrics">
         <article class="card metric">
-          <small>Saldo actual</small>
+          <small>Saldo (equivalente en USD)</small>
           <strong>{{ money(data.saldo) }}</strong>
           <em>Calculado desde el historial</em>
         </article>
+        <article class="card metric"><small>Dólares en caja</small><strong>{{ money(data.saldoUsd ?? 0) }}</strong></article>
+        <article class="card metric"><small>Pesos en caja</small><strong>{{ moneyArs.format(data.saldoArs ?? 0) }}</strong></article>
       </div>
 
       <div class="table-panel">
@@ -163,6 +182,13 @@ onMounted(load);
           </Column>
           <Column field="concepto" header="Observación" body-class="cell-wrap" />
           <Column field="usuario" header="Usuario" />
+          <Column field="monedaCobro" header="Moneda" />
+          <Column header="Recibido/entregado" body-class="cell-num cell-wrap">
+            <template #body="{ data: m }">
+              <span v-if="m.monedaCobro === 'ARS'">{{ moneyArs.format(m.importeMonedaCobro) }} · cot. {{ Number(m.cotizacionAplicada).toLocaleString('es-AR') }}</span>
+              <span v-else>{{ money(m.importeMonedaCobro) }}</span>
+            </template>
+          </Column>
           <Column header="Monto" body-class="cell-num">
             <template #body="{ data: m }">
               <b :class="{ negative: m.tipo === 'Retiro' }">
@@ -193,18 +219,28 @@ onMounted(load);
         <Message v-if="error" severity="error" class="mb-3" :closable="false">{{ error }}</Message>
 
         <div class="grid formgrid p-fluid">
+          <div class="field col-12 md:col-6">
+            <label>Moneda</label>
+            <Select v-model="form.moneda" :options="currencyOptions" option-label="label" option-value="value"
+              @change="() => { if (form.moneda === 'ARS' && !form.cotizacion) form.cotizacion = blueVenta; if (form.moneda === 'USD') form.cotizacion = null }" />
+          </div>
+          <div v-if="form.moneda === 'ARS'" class="field col-12 md:col-6">
+            <label>Cotización (ARS por USD)</label>
+            <InputNumber v-model="form.cotizacion" :min="0.0001" :min-fraction-digits="2" :max-fraction-digits="4" required />
+          </div>
           <div class="field col-12">
-            <label>Monto</label>
+            <label>Monto ({{ form.moneda }})</label>
             <InputNumber
               v-model="form.monto"
               :min="0.01"
               :min-fraction-digits="2"
               :max-fraction-digits="2"
               mode="currency"
-              currency="ARS"
+              :currency="form.moneda"
               locale="es-AR"
               required
             />
+            <small v-if="form.moneda === 'ARS' && equivalentUsd !== null" class="text-color-secondary">Equivale a {{ money(equivalentUsd) }}</small>
           </div>
           <div class="field col-12">
             <label>Observación / motivo</label>
@@ -225,6 +261,8 @@ onMounted(load);
             type="submit"
             :label="`Confirmar ${form.tipo.toLowerCase()}`"
             :severity="form.tipo === 'Retiro' ? 'danger' : undefined"
+            :loading="saving"
+            :disabled="saving"
           />
         </div>
       </form>

@@ -19,13 +19,15 @@ public record RegistrarVentaCommand(Guid ClienteId, DateOnly FechaVenta, Guid Ti
     decimal PrecioUnitario, decimal PrecioTotal, decimal MontoEntrega, FormaPago FormaPago, int? CantidadCuotas, EstadoVenta Estado,
     DateOnly? FechaEntregaEstimada, string? Observaciones, decimal CostoCompraUnitario,
     decimal CostoEnvio, decimal OtrosCostos, Guid AlicuotaIvaId, string? Color = null,
-    List<VentaLineaCommand>? Lineas = null, Guid? SucursalId = null, Guid DepositoId = default) : IRequest<VentaDto>;
+    List<VentaLineaCommand>? Lineas = null, Guid? SucursalId = null, Guid DepositoId = default,
+    MonedaCaja MonedaEntrega = MonedaCaja.USD, decimal? CotizacionEntrega = null) : IRequest<VentaDto>;
 
 public record VentaDto(Guid Id, Guid SucursalId, Guid DepositoId, Guid ClienteId, string Cliente, Guid TipoCespedId, string TipoCesped,
     Guid AlicuotaIvaId, DateOnly FechaVenta, decimal CantidadM2, decimal? PrecioUnitario, decimal? PrecioTotal, decimal? MontoEntrega,
     decimal? CostoCompraUnitario, decimal? CostoEnvio, decimal? OtrosCostos, FormaPago FormaPago,
     int? CantidadCuotas, EstadoVenta Estado, decimal? GananciaBruta, decimal? GananciaNeta, decimal? Margen,
-    DateOnly? FechaEntregaEstimada, string? Observaciones, string? Color, List<VentaLineaDto> Lineas);
+    DateOnly? FechaEntregaEstimada, string? Observaciones, string? Color, List<VentaLineaDto> Lineas,
+    MonedaCaja MonedaEntrega = MonedaCaja.USD, decimal? CotizacionEntrega = null);
 
 public sealed class RegistrarVentaValidator : AbstractValidator<RegistrarVentaCommand>
 {
@@ -51,6 +53,9 @@ public sealed class RegistrarVentaValidator : AbstractValidator<RegistrarVentaCo
         RuleFor(x => x.OtrosCostos).GreaterThanOrEqualTo(0);
         RuleFor(x => x.CantidadCuotas).NotNull().InclusiveBetween(1, 60).When(x => x.FormaPago == FormaPago.Cuotas);
         RuleFor(x => x.FechaEntregaEstimada).NotNull().When(x => x.Estado == EstadoVenta.Futura);
+        RuleFor(x => x.CotizacionEntrega).NotNull().GreaterThan(0)
+            .When(x => x.MonedaEntrega == MonedaCaja.ARS)
+            .WithMessage(MonedaCajaService.CotizacionRequerida);
         RuleForEach(x => x.Lineas).ChildRules(linea =>
         {
             linea.RuleFor(x => x.TipoCespedId).NotEmpty();
@@ -291,7 +296,10 @@ internal static class VentaService
         venta.SucursalId = r.SucursalId ?? venta.SucursalId;
         venta.DepositoId = r.DepositoId == Guid.Empty ? venta.DepositoId : r.DepositoId;
         venta.FechaVenta = r.FechaVenta; venta.CantidadM2 = r.CantidadM2; venta.PrecioUnitario = r.PrecioUnitario;
-        venta.PrecioTotal = total; venta.MontoEntrega = r.MontoEntrega; venta.CostoCompraUnitario = r.CostoCompraUnitario; venta.CostoCompraTotal = costoCompra;
+        venta.PrecioTotal = total; venta.MontoEntrega = r.MontoEntrega;
+        venta.MonedaEntrega = r.MonedaEntrega;
+        venta.CotizacionEntrega = r.MonedaEntrega == MonedaCaja.ARS ? r.CotizacionEntrega : null;
+        venta.CostoCompraUnitario = r.CostoCompraUnitario; venta.CostoCompraTotal = costoCompra;
         venta.CostoEnvio = r.CostoEnvio; venta.OtrosCostos = r.OtrosCostos; venta.Iva = iva;
         venta.GananciaBruta = gananciaBruta; venta.GananciaNeta = gananciaBruta - iva;
         venta.Margen = total == 0 ? 0 : venta.GananciaNeta / total; venta.FormaPago = r.FormaPago;
@@ -317,6 +325,9 @@ internal static class VentaService
     public static MovimientoCaja CreateCashMovement(Venta venta) => new()
     {
         Tipo = TipoMovimiento.Ingreso, Fecha = DateTimeOffset.UtcNow, Monto = venta.MontoEntrega,
+        MonedaCobro = venta.MonedaEntrega,
+        CotizacionAplicada = venta.MonedaEntrega == MonedaCaja.ARS ? venta.CotizacionEntrega : null,
+        ImporteMonedaCobro = MonedaCajaService.ImporteCobrado(venta.MontoEntrega, venta.MonedaEntrega, venta.CotizacionEntrega),
         Concepto = $"Entrega inicial venta {venta.Id}", VentaId = venta.Id, SucursalId = venta.SucursalId
     };
 
@@ -342,7 +353,8 @@ internal static class VentaService
             v.FechaEntregaEstimada, v.Observaciones, v.Color,
             lines.Select(x => new VentaLineaDto(x.TipoCespedId, x.Color, x.CantidadM2,
                 verMontos ? x.PrecioCompraM2 : null, verMontos ? x.PrecioVentaM2 : null,
-                verMontos ? x.Total : null, x.LoteStockId, x.ImportacionId)).ToList());
+                verMontos ? x.Total : null, x.LoteStockId, x.ImportacionId)).ToList(),
+            v.MonedaEntrega, v.CotizacionEntrega);
     }
 }
 
@@ -546,6 +558,8 @@ public static class VentaEndpoints
                 .SetProperty(x => x.PrecioUnitario, updated.PrecioUnitario)
                 .SetProperty(x => x.PrecioTotal, updated.PrecioTotal)
                 .SetProperty(x => x.MontoEntrega, updated.MontoEntrega)
+                .SetProperty(x => x.MonedaEntrega, updated.MonedaEntrega)
+                .SetProperty(x => x.CotizacionEntrega, updated.CotizacionEntrega)
                 .SetProperty(x => x.CostoCompraUnitario, updated.CostoCompraUnitario)
                 .SetProperty(x => x.CostoCompraTotal, updated.CostoCompraTotal)
                 .SetProperty(x => x.CostoEnvio, updated.CostoEnvio)
@@ -610,6 +624,8 @@ public static class VentaEndpoints
         venta.PrecioUnitario == request.PrecioUnitario &&
         venta.PrecioTotal == request.PrecioTotal &&
         venta.MontoEntrega == request.MontoEntrega &&
+        venta.MonedaEntrega == request.MonedaEntrega &&
+        venta.CotizacionEntrega == (request.MonedaEntrega == MonedaCaja.ARS ? request.CotizacionEntrega : null) &&
         venta.CostoCompraUnitario == request.CostoCompraUnitario &&
         venta.CostoEnvio == request.CostoEnvio &&
         venta.OtrosCostos == request.OtrosCostos &&

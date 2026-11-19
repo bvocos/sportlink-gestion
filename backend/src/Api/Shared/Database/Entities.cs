@@ -14,6 +14,7 @@ public enum EstadoVenta { Confirmada, Futura, Entregada, Cancelada }
 public enum EstadoCuota { Pendiente, Pagada, PagadaParcial, Vencida }
 public enum TipoMovimiento { Ingreso, Retiro }
 public enum TipoMovimientoStock { Ingreso, Ajuste, AjusteSalida, SalidaPorVenta }
+public enum MonedaCaja { USD = 0, ARS = 1 }
 public enum EstadoLoteStock { Disponible, Vendido }
 public enum EstadoPresupuesto { Borrador, Enviado, Aceptado, Rechazado, Vencido }
 public sealed class Deposito : AuditableEntity
@@ -122,6 +123,8 @@ public sealed class Venta : AuditableEntity, ISucursalScoped
     public DateOnly FechaVenta { get; set; } public DateOnly? FechaEntregaEstimada { get; set; }
     public decimal CantidadM2 { get; set; } public decimal PrecioUnitario { get; set; } public decimal PrecioTotal { get; set; }
     public decimal MontoEntrega { get; set; }
+    public MonedaCaja MonedaEntrega { get; set; } = MonedaCaja.USD;
+    public decimal? CotizacionEntrega { get; set; }
     public decimal CostoCompraUnitario { get; set; } public decimal CostoCompraTotal { get; set; }
     public decimal CostoEnvio { get; set; } public decimal OtrosCostos { get; set; } public decimal Iva { get; set; }
     public decimal GananciaBruta { get; set; } public decimal GananciaNeta { get; set; } public decimal Margen { get; set; }
@@ -159,6 +162,9 @@ public sealed class MovimientoCaja : AuditableEntity, ISucursalScoped
     public Guid SucursalId { get; set; } public Sucursal Sucursal { get; set; } = null!;
     public TipoMovimiento Tipo { get; set; } public DateTimeOffset Fecha { get; set; } public decimal Monto { get; set; }
     public int? NumeroRecibo { get; set; }
+    public MonedaCaja MonedaCobro { get; set; } = MonedaCaja.USD;
+    public decimal ImporteMonedaCobro { get; set; }
+    public decimal? CotizacionAplicada { get; set; }
     public string Concepto { get; set; } = ""; public string Usuario { get; set; } = "sistema"; public Guid? VentaId { get; set; } public Guid? CuotaId { get; set; }
 }
 public sealed class Gasto : AuditableEntity, ISucursalScoped

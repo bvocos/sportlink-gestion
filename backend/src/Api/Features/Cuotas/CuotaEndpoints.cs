@@ -15,7 +15,9 @@ using System.Text.Json.Serialization;
 
 namespace Api.Features.Cuotas;
 
-public record PagoRequest(decimal Importe, string MedioPago, DateOnly FechaPago);
+// El operador ingresa Importe en USD; para ARS el servidor calcula los pesos con la cotización indicada.
+public record PagoRequest(decimal Importe, string MedioPago, DateOnly FechaPago,
+    MonedaCaja MonedaCobro = MonedaCaja.USD, decimal? Cotizacion = null);
 public record ActualizarVencimientoRequest(DateOnly FechaVencimiento);
 
 public static class CuotaEndpoints
@@ -107,6 +109,9 @@ public static class CuotaEndpoints
         var medioPago = request.MedioPago?.Trim();
         if (string.IsNullOrWhiteSpace(medioPago) || medioPago.Length > 100)
             return Results.ValidationProblem(new Dictionary<string, string[]> { ["medioPago"] = ["Seleccioná un medio de pago válido."] });
+        var currencyError = MonedaCajaService.Validate(request.MonedaCobro, request.Cotizacion);
+        if (currencyError is not null)
+            return Results.ValidationProblem(new Dictionary<string, string[]> { ["cotizacion"] = [currencyError] });
         var strategy = db.Database.CreateExecutionStrategy();
         return await strategy.ExecuteAsync(async () =>
         {
@@ -137,6 +142,9 @@ public static class CuotaEndpoints
                 .MaxAsync(x => (int?)x.NumeroRecibo, ct) ?? 0;
             db.MovimientosCaja.Add(new MovimientoCaja { Tipo = TipoMovimiento.Ingreso, Fecha = DateTimeOffset.UtcNow,
                 Monto = request.Importe, Concepto = $"Pago cuota {cuota.Numero}", Usuario = UserName(user),
+                MonedaCobro = request.MonedaCobro,
+                ImporteMonedaCobro = MonedaCajaService.ImporteCobrado(request.Importe, request.MonedaCobro, request.Cotizacion),
+                CotizacionAplicada = request.MonedaCobro == MonedaCaja.ARS ? request.Cotizacion : null,
                 CuotaId = cuota.Id, VentaId = cuota.VentaId, SucursalId = cuota.SucursalId,
                 NumeroRecibo = NextReceiptNumber(ultimoNumeroRecibo) });
             await db.SaveChangesAsync(ct); await transaction.CommitAsync(ct);
@@ -166,9 +174,24 @@ public static class CuotaEndpoints
         {
             cuota.ImportePagado = 0; cuota.Estado = EstadoCuota.Pendiente;
         }
-        db.MovimientosCaja.Add(new MovimientoCaja { Tipo = TipoMovimiento.Retiro, Fecha = DateTimeOffset.UtcNow,
-            Monto = importeAnulado, Concepto = $"Anulación cobro cuota {cuota.Numero}", Usuario = UserName(user),
-            CuotaId = cuota.Id, VentaId = cuota.VentaId, SucursalId = cuota.SucursalId });
+        var movements = await db.MovimientosCaja.Where(x => x.CuotaId == cuota.Id).ToListAsync(ct);
+        var reversals = movements.Where(x => x.Tipo == TipoMovimiento.Retiro &&
+            x.Concepto.StartsWith("Anulación cobro cuota"))
+            .GroupBy(x => new { x.MonedaCobro, x.CotizacionAplicada })
+            .ToDictionary(x => x.Key, x => new { Monto = x.Sum(y => y.Monto), Importe = x.Sum(y => y.ImporteMonedaCobro) });
+        foreach (var group in movements.Where(x => x.Tipo == TipoMovimiento.Ingreso)
+                     .GroupBy(x => new { x.MonedaCobro, x.CotizacionAplicada }))
+        {
+            reversals.TryGetValue(group.Key, out var reversed);
+            var monto = group.Sum(x => x.Monto) - (reversed?.Monto ?? 0);
+            var importe = group.Sum(x => x.ImporteMonedaCobro) - (reversed?.Importe ?? 0);
+            if (monto <= 0 || importe <= 0) continue;
+            db.MovimientosCaja.Add(new MovimientoCaja { Tipo = TipoMovimiento.Retiro, Fecha = DateTimeOffset.UtcNow,
+                Monto = monto, ImporteMonedaCobro = importe, MonedaCobro = group.Key.MonedaCobro,
+                CotizacionAplicada = group.Key.MonedaCobro == MonedaCaja.ARS ? group.Key.CotizacionAplicada : null,
+                Concepto = $"Anulación cobro cuota {cuota.Numero}", Usuario = UserName(user),
+                CuotaId = cuota.Id, VentaId = cuota.VentaId, SucursalId = cuota.SucursalId });
+        }
         await db.SaveChangesAsync(ct); await transaction.CommitAsync(ct);
         return Results.Ok(new { cuota.Id, importeAnulado, cuota.Estado });
         });
@@ -217,7 +240,7 @@ public static class CuotaEndpoints
             sucursal.IngresosBrutos ?? "", sucursal.CondicionIva ?? "");
         var cliente = cuota.Venta.Cliente;
         var localidad = string.Join(", ", new[] { cliente.Localidad, cliente.Provincia }.Where(s => !string.IsNullOrWhiteSpace(s)));
-        var dolarBlue = await dolarBlueService.GetAsync(ct);
+        var dolarBlue = movimiento.MonedaCobro == MonedaCaja.USD ? await dolarBlueService.GetAsync(ct) : null;
 
         return new ReciboData(
             SucursalId: sucursal.Id,
@@ -242,7 +265,10 @@ public static class CuotaEndpoints
                 Importe: cuota.ImportePagado,
                 MedioPago: cuota.MedioPago ?? "Efectivo",
                 ImporteEnLetras: NumerosEnLetras.ConvertirDolares(cuota.ImportePagado),
-                CotizacionDolarBlueVenta: dolarBlue?.Venta));
+                CotizacionDolarBlueVenta: dolarBlue?.Venta,
+                MonedaCobro: movimiento.MonedaCobro,
+                ImporteMonedaCobro: movimiento.ImporteMonedaCobro,
+                CotizacionAplicada: movimiento.CotizacionAplicada));
     }
 
     private static async Task<IResult> GenerarRecibo(
@@ -292,7 +318,8 @@ internal sealed record ReciboClienteDto(
 internal sealed record ReciboCuotaDto(int Numero, int? TotalCuotas, string Producto);
 
 internal sealed record ReciboPagoDto(
-    decimal Importe, string MedioPago, string ImporteEnLetras, decimal? CotizacionDolarBlueVenta);
+    decimal Importe, string MedioPago, string ImporteEnLetras, decimal? CotizacionDolarBlueVenta,
+    MonedaCaja MonedaCobro = MonedaCaja.USD, decimal ImporteMonedaCobro = 0, decimal? CotizacionAplicada = null);
 
 // ── PDF Generator ────────────────────────────────────────────────────────────────
 
@@ -434,8 +461,11 @@ internal static class CuotaReciboPdf
                     r.ConstantItem(115).Padding(5).AlignRight().Text(M(d.Pago.Importe)).Bold();
                 });
 
+                var exchangeText = d.Pago.MonedaCobro == MonedaCaja.ARS
+                    ? $"Cobrado en pesos: ARS {d.Pago.ImporteMonedaCobro:N2} (cotización {d.Pago.CotizacionAplicada:N4})"
+                    : Cotizacion(d.Pago.CotizacionDolarBlueVenta);
                 main.Item().BorderBottom(1).BorderColor(Colors.Grey.Lighten1)
-                    .Padding(5).Text(Cotizacion(d.Pago.CotizacionDolarBlueVenta)).FontSize(8);
+                    .Padding(5).Text(exchangeText).FontSize(8);
 
                 for (var i = 0; i < 3; i++)
                     main.Item().BorderBottom(1).BorderColor(Colors.Grey.Lighten1).Height(14);

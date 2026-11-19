@@ -50,8 +50,13 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, IHttpCo
         b.Entity<Cliente>().Property(x => x.Domicilio).HasMaxLength(250);
         b.Entity<Cliente>().Property(x => x.CodigoPostal).HasMaxLength(20);
         b.Entity<Venta>().Property(x => x.Estado).HasConversion<string>();
+        b.Entity<Venta>().Property(x => x.MonedaEntrega).HasConversion<string>();
+        b.Entity<Venta>().Property(x => x.CotizacionEntrega).HasColumnType("decimal(18,4)");
         b.Entity<Venta>().Property(x => x.FormaPago).HasConversion<string>(); b.Entity<Cuota>().Property(x => x.Estado).HasConversion<string>();
-        b.Entity<MovimientoCaja>().Property(x => x.Tipo).HasConversion<string>(); b.Entity<Configuracion>().HasIndex(x => x.Clave).IsUnique();
+        b.Entity<MovimientoCaja>().Property(x => x.Tipo).HasConversion<string>();
+        b.Entity<MovimientoCaja>().Property(x => x.MonedaCobro).HasConversion<string>();
+        b.Entity<MovimientoCaja>().Property(x => x.CotizacionAplicada).HasColumnType("decimal(18,4)");
+        b.Entity<Configuracion>().HasIndex(x => x.Clave).IsUnique();
         b.Entity<Deposito>().Property(x => x.Nombre).HasMaxLength(150);
         b.Entity<Deposito>().HasIndex(x => new { x.SucursalId, x.Nombre }).IsUnique();
         b.Entity<Deposito>().HasOne(x => x.Sucursal).WithMany(x => x.Depositos)
@@ -187,6 +192,15 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, IHttpCo
 
     public override async Task<int> SaveChangesAsync(CancellationToken ct = default)
     {
+        foreach (var movement in ChangeTracker.Entries<MovimientoCaja>().Where(x => x.State == EntityState.Added))
+        {
+            if (movement.Entity.MonedaCobro == MonedaCaja.USD)
+            {
+                movement.Entity.CotizacionAplicada = null;
+                if (movement.Entity.ImporteMonedaCobro == 0 && movement.Entity.Monto != 0)
+                    movement.Entity.ImporteMonedaCobro = movement.Entity.Monto;
+            }
+        }
         foreach (var e in ChangeTracker.Entries<IAuditableEntity>()) { if (e.State == EntityState.Added) e.Entity.CreatedAt = DateTimeOffset.UtcNow; if (e.State is EntityState.Added or EntityState.Modified) e.Entity.UpdatedAt = DateTimeOffset.UtcNow; }
         AddAuditEntries();
         return await base.SaveChangesAsync(ct);

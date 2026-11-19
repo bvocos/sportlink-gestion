@@ -43,6 +43,29 @@ public sealed class FinancialRulesTests
     }
 
     [Fact]
+    public void SaleValidation_RequiresQuoteForArsDelivery()
+    {
+        var result = new RegistrarVentaValidator().Validate(Sale() with
+        {
+            MonedaEntrega = MonedaCaja.ARS,
+            CotizacionEntrega = null
+        });
+        Assert.Contains(result.Errors, x => x.PropertyName == nameof(RegistrarVentaCommand.CotizacionEntrega));
+    }
+
+    [Fact]
+    public void InitialPaymentInArs_PreservesUsdAndStoresCollectedPesos()
+    {
+        var venta = new Venta { Id = Guid.NewGuid(), SucursalId = Guid.NewGuid() };
+        VentaService.Apply(venta, Sale() with { MonedaEntrega = MonedaCaja.ARS, CotizacionEntrega = 1250m }, 21m);
+        var movement = VentaService.CreateCashMovement(venta);
+        Assert.Equal(100m, movement.Monto);
+        Assert.Equal(MonedaCaja.ARS, movement.MonedaCobro);
+        Assert.Equal(125000m, movement.ImporteMonedaCobro);
+        Assert.Equal(1250m, movement.CotizacionAplicada);
+    }
+
+    [Fact]
     public void PaidSale_AllowsChangingOnlySaleDate()
     {
         var original = Sale(FormaPago.Cuotas, 3);

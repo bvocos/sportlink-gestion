@@ -18,6 +18,7 @@ import { formatCurrency as money } from '@/shared/formatters'
 import ClienteAutocomplete from '@/shared/components/ClienteAutocomplete.vue'
 import NuevoClienteForm from '@/shared/components/NuevoClienteForm.vue'
 import { auth } from '@/auth'
+import { importeEnPesos, validarCotizacion, type MonedaCaja } from '@/monedaCaja'
 
 const router = useRouter()
 const route = useRoute()
@@ -33,6 +34,8 @@ const editingLine = ref<number | null>(null)
 const showNewClient = ref(false)
 const showProductEntry = ref(true)
 const importacionOptions = ref<Record<string, any[]>>({})
+const blueVenta = ref<number | null>(null)
+const currencyOptions = [{ label: 'Dólares', value: 'USD' }, { label: 'Pesos', value: 'ARS' }]
 
 const estados = ['Confirmada', 'Futura', 'Entregada', 'Cancelada']
 const formasPago = ['Contado', 'Transferencia', 'Cheque', 'Cuotas', 'Otros']
@@ -43,11 +46,13 @@ const form = ref({
   clienteId: '', fechaVenta: new Date().toISOString().slice(0, 10), lineas: [] as ReturnType<typeof line>[],
   sucursalId: '', depositoId: '',
   montoEntrega: 0, formaPago: 'Contado', cantidadCuotas: null as number | null, estado: 'Confirmada',
+  monedaEntrega: 'USD' as MonedaCaja, cotizacionEntrega: null as number | null,
   fechaEntregaEstimada: null as string | null, costoEnvio: 0, otrosCostos: 0, alicuotaIvaId: '', observaciones: '',
 })
 
 const totalProductos = computed(() => form.value.lineas.reduce((sum, x) => sum + Number(x.total || 0), 0))
 const totalVenta = computed(() => totalProductos.value)
+const entregaPesos = computed(() => importeEnPesos(form.value.montoEntrega, form.value.cotizacionEntrega))
 const productosDisponibles = computed(() => maestros.value.tiposCesped.filter((x: any) =>
   (x.depositoIds?.length ? x.depositoIds : [x.depositoId]).includes(form.value.depositoId)))
 
@@ -115,6 +120,7 @@ async function load() {
     form.value.sucursalId = filters.data.sucursales?.[0]?.id ?? ''
     form.value.depositoId = filters.data.depositos?.[0]?.id ?? ''
     form.value.alicuotaIvaId = masters.data.alicuotasIva?.[0]?.id ?? ''
+    try { blueVenta.value = (await http.get('/cotizaciones/dolares')).data?.blue?.venta ?? null } catch { blueVenta.value = null }
     if (editingId.value) {
       const v = (await http.get(`/ventas/${editingId.value}`)).data
       form.value = {
@@ -125,6 +131,7 @@ async function load() {
           precioCompraM2: v.costoCompraUnitario, precioVentaM2: v.precioUnitario, total: v.precioTotal,
         }],
         montoEntrega: v.montoEntrega, formaPago: v.formaPago, cantidadCuotas: v.cantidadCuotas,
+        monedaEntrega: v.monedaEntrega ?? 'USD', cotizacionEntrega: v.cotizacionEntrega ?? null,
         estado: v.estado, fechaEntregaEstimada: v.fechaEntregaEstimada, costoEnvio: v.costoEnvio,
         otrosCostos: v.otrosCostos, alicuotaIvaId: v.alicuotaIvaId, observaciones: v.observaciones ?? '',
       }
@@ -142,6 +149,8 @@ async function save() {
   error.value = ''
   if (!form.value.depositoId) { error.value = 'Seleccioná el depósito que entrega el stock.'; return }
   if (!form.value.lineas.length) { error.value = 'Agregá al menos un producto a la venta.'; return }
+  const currencyError = validarCotizacion(form.value.monedaEntrega, form.value.cotizacionEntrega)
+  if (currencyError) { error.value = currencyError; return }
   saving.value = true
   try {
     const first = form.value.lineas[0]!
@@ -168,6 +177,10 @@ watch(() => form.value.depositoId, (value, previous) => {
   draft.value = line()
   editingLine.value = null
   showProductEntry.value = true
+})
+watch(() => form.value.monedaEntrega, moneda => {
+  if (moneda === 'USD') form.value.cotizacionEntrega = null
+  else if (!form.value.cotizacionEntrega) form.value.cotizacionEntrega = blueVenta.value
 })
 </script>
 
@@ -375,6 +388,16 @@ watch(() => form.value.depositoId, (value, previous) => {
                 <label>Entrega inicial</label>
                 <InputNumber v-model="form.montoEntrega" :min="0" :max="totalProductos" :min-fraction-digits="2"
                   :max-fraction-digits="2" size="small" required />
+              </div>
+              <div class="field col-12 md:col-3">
+                <label>Cobrado en</label>
+                <Select v-model="form.monedaEntrega" :options="currencyOptions" option-label="label" option-value="value" size="small" />
+              </div>
+              <div v-if="form.monedaEntrega === 'ARS'" class="field col-12 md:col-3">
+                <label>Cotización (ARS por USD)</label>
+                <InputNumber v-model="form.cotizacionEntrega" :min="0.0001" :min-fraction-digits="2"
+                  :max-fraction-digits="4" size="small" required />
+                <small v-if="entregaPesos !== null" class="text-color-secondary block mt-1">Equivale a ARS {{ entregaPesos.toLocaleString('es-AR', { minimumFractionDigits: 2 }) }}</small>
               </div>
             </div>
           </section>

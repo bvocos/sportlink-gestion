@@ -394,6 +394,9 @@ namespace Api.Migrations
                         .IsRequired()
                         .HasColumnType("citext");
 
+                    b.Property<decimal?>("CotizacionAplicada")
+                        .HasColumnType("decimal(18,4)");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -402,6 +405,13 @@ namespace Api.Migrations
 
                     b.Property<DateTimeOffset>("Fecha")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<decimal>("ImporteMonedaCobro")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<string>("MonedaCobro")
+                        .IsRequired()
+                        .HasColumnType("text");
 
                     b.Property<decimal>("Monto")
                         .HasColumnType("decimal(18,2)");
@@ -1057,6 +1067,9 @@ namespace Api.Migrations
                     b.Property<decimal>("CostoEnvio")
                         .HasColumnType("decimal(18,2)");
 
+                    b.Property<decimal?>("CotizacionEntrega")
+                        .HasColumnType("decimal(18,4)");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -1091,6 +1104,10 @@ namespace Api.Migrations
 
                     b.Property<decimal>("Margen")
                         .HasColumnType("decimal(18,6)");
+
+                    b.Property<string>("MonedaEntrega")
+                        .IsRequired()
+                        .HasColumnType("text");
 
                     b.Property<decimal>("MontoEntrega")
                         .HasColumnType("decimal(18,2)");

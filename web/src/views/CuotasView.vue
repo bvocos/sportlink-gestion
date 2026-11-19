@@ -19,6 +19,7 @@ import { downloadCsv } from "@/shared/csv";
 import { confirmAction, notify } from "@/shared/uiFeedback";
 import { isSearchFilterActive, searchQuery } from "@/shared/composables/useFilterTriggers";
 import { TABLE_ROWS, TABLE_ROWS_OPTIONS } from "@/shared/tablePagination";
+import { importeEnPesos, validarCotizacion, type MonedaCaja } from "@/monedaCaja";
 
 // ── Tipos ───────────────────────────────────────────────────────────────────────
 interface ComprobanteEmpresa {
@@ -32,7 +33,7 @@ interface ComprobanteData {
   empresa: ComprobanteEmpresa;
   cliente: { nombreCompleto: string; domicilio: string; localidad: string; telefono: string; categoriaFiscal: string; cuit: string };
   cuota: { numero: number; totalCuotas: number | null; producto: string };
-  pago: { importe: number; medioPago: string; importeEnLetras: string; cotizacionDolarBlueVenta: number | null };
+  pago: { importe: number; medioPago: string; importeEnLetras: string; cotizacionDolarBlueVenta: number | null; monedaCobro: MonedaCaja; importeMonedaCobro: number; cotizacionAplicada: number | null };
 }
 
 const pendientes = ref<any[]>([]),
@@ -63,7 +64,13 @@ const payment = ref({
   medioPago: "Transferencia",
   otroMedio: "",
   fechaPago: new Date().toISOString().slice(0, 10),
+  monedaCobro: "USD" as MonedaCaja,
+  cotizacion: null as number | null,
 });
+const blueVenta = ref<number | null>(null);
+const paymentSaving = ref(false);
+const currencyOptions = [{ label: "Dólares", value: "USD" }, { label: "Pesos", value: "ARS" }];
+const paymentArs = computed(() => importeEnPesos(payment.value.importe, payment.value.cotizacion));
 const medios = [
   "Efectivo",
   "Transferencia",
@@ -121,6 +128,8 @@ function openPayment(c: any) {
     medioPago: "Transferencia",
     otroMedio: "",
     fechaPago: new Date().toISOString().slice(0, 10),
+    monedaCobro: "USD",
+    cotizacion: null,
   };
   paymentError.value = "";
 }
@@ -193,11 +202,17 @@ async function pay() {
     paymentError.value = "Indicá el medio de pago.";
     return;
   }
+  const currencyError = validarCotizacion(payment.value.monedaCobro, payment.value.cotizacion);
+  if (currencyError) { paymentError.value = currencyError; return; }
+  if (paymentSaving.value) return;
+  paymentSaving.value = true;
   try {
     await http.post(`/cuotas/${selected.value.id}/pagos`, {
       importe: payment.value.importe,
       medioPago: medio,
       fechaPago: payment.value.fechaPago,
+      monedaCobro: payment.value.monedaCobro,
+      cotizacion: payment.value.monedaCobro === 'ARS' ? payment.value.cotizacion : null,
     });
     const cuotaId = selected.value.id;
     selected.value = null;
@@ -205,6 +220,8 @@ async function pay() {
     await downloadRecibo(cuotaId);
   } catch (e: any) {
     paymentError.value = apiError(e);
+  } finally {
+    paymentSaving.value = false;
   }
 }
 
@@ -379,7 +396,14 @@ function exportCsv() {
   );
 }
 
-onMounted(load);
+onMounted(async () => {
+  await load();
+  try { blueVenta.value = (await http.get('/cotizaciones/dolares')).data?.blue?.venta ?? null; } catch { blueVenta.value = null; }
+});
+watch(() => payment.value.monedaCobro, moneda => {
+  if (moneda === 'USD') payment.value.cotizacion = null;
+  else if (!payment.value.cotizacion) payment.value.cotizacion = blueVenta.value;
+});
 watch(clienteFiltro, () => {
   const q = clienteFiltro.value.trim();
   if (q.length > 0 && q.length < 3) return;
@@ -471,7 +495,10 @@ onBeforeUnmount(() => { if (resumenTimer) clearTimeout(resumenTimer); releaseCom
             <div class="rec-pay-sep"></div>
             <div class="rec-pay-amount">{{ usd(comprobante.pago.importe) }}</div>
           </div>
-          <div class="rec-exchange">{{ textoCotizacion(comprobante.pago.cotizacionDolarBlueVenta) }}</div>
+          <div class="rec-exchange">
+            <template v-if="comprobante.pago.monedaCobro === 'ARS'">Cobrado en pesos: ARS {{ comprobante.pago.importeMonedaCobro.toLocaleString('es-AR', { minimumFractionDigits: 2 }) }} (cotización {{ comprobante.pago.cotizacionAplicada?.toLocaleString('es-AR') }})</template>
+            <template v-else>{{ textoCotizacion(comprobante.pago.cotizacionDolarBlueVenta) }}</template>
+          </div>
           <div v-for="n in 3" :key="n" class="rec-empty-row"></div>
           <div class="rec-total-row">
             <div class="rec-total-spacer"></div>
@@ -673,6 +700,15 @@ onBeforeUnmount(() => { if (resumenTimer) clearTimeout(resumenTimer); releaseCom
                 : `Las ${selected.cuotasRestantes} cuotas pendientes se recalculan a ${money(nuevoValorCuotas)} c/u.` }}
             </small>
           </div>
+          <div class="field col-12 md:col-6">
+            <label>Cobrado en</label>
+            <Select v-model="payment.monedaCobro" :options="currencyOptions" option-label="label" option-value="value" />
+          </div>
+          <div v-if="payment.monedaCobro === 'ARS'" class="field col-12 md:col-6">
+            <label>Cotización (ARS por USD)</label>
+            <InputNumber v-model="payment.cotizacion" :min="0.0001" :min-fraction-digits="2" :max-fraction-digits="4" required />
+            <small v-if="paymentArs !== null" class="text-color-secondary block">Se cobran ARS {{ paymentArs.toLocaleString('es-AR', { minimumFractionDigits: 2 }) }}</small>
+          </div>
           <div class="field col-12">
             <label>Medio de pago</label>
             <Select v-model="payment.medioPago" :options="medios" />
@@ -689,7 +725,7 @@ onBeforeUnmount(() => { if (resumenTimer) clearTimeout(resumenTimer); releaseCom
 
         <div class="flex justify-content-end gap-2 mt-4">
           <AppButton type="button" label="Cancelar" severity="secondary" @click="closePayment" />
-          <AppButton type="submit" label="Confirmar pago" />
+          <AppButton type="submit" label="Confirmar pago" :loading="paymentSaving" :disabled="paymentSaving" />
         </div>
       </form>
     </Dialog>

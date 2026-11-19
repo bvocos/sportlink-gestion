@@ -23,6 +23,7 @@ import { useImmediateFilters } from "@/shared/composables/useFilterTriggers";
 import { TABLE_ROWS, TABLE_ROWS_OPTIONS, tableFirst, type DataTablePageEvent } from "@/shared/tablePagination";
 import { auth } from "@/auth";
 import { condicionIvaLabels } from "@/shared/fiscal";
+import { importeEnPesos, validarCotizacion, type MonedaCaja } from "@/monedaCaja";
 
 const items = ref<any[]>([]),
   clientes = ref<any[]>([]),
@@ -47,6 +48,8 @@ const items = ref<any[]>([]),
 
 const canCreateRemito = computed(() => auth.can("ventas", "crear"));
 const condicionIvaOptions = condicionIvaLabels;
+const currencyOptions = [{ label: "Dólares", value: "USD" }, { label: "Pesos", value: "ARS" }];
+const blueVenta = ref<number | null>(null);
 const blankRemito = () => ({
   receptorNombre: "",
   receptorDomicilio: "",
@@ -80,6 +83,8 @@ const blank = () => ({
   precioUnitario: 0,
   precioTotal: 0,
   montoEntrega: 0,
+  monedaEntrega: "USD" as MonedaCaja,
+  cotizacionEntrega: null as number | null,
   formaPago: "Contado",
   cantidadCuotas: null as number | null,
   estado: "Confirmada",
@@ -91,6 +96,7 @@ const blank = () => ({
   alicuotaIvaId: "",
 });
 const form = ref(blank());
+const entregaPesos = computed(() => importeEnPesos(form.value.montoEntrega, form.value.cotizacionEntrega));
 
 function saleStatusSeverity(status: string) {
   return ({
@@ -179,6 +185,7 @@ async function load() {
     const [filterData, masterData] = await Promise.all([http.get("/ventas/filtros"), http.get("/maestros")]);
     clientes.value = filterData.data.clientes;
     maestros.value = { ...masterData.data, tiposCespedFiltro: filterData.data.tiposCesped };
+    try { blueVenta.value = (await http.get('/cotizaciones/dolares')).data?.blue?.venta ?? null; } catch { blueVenta.value = null; }
     await loadSales();
   } catch (e) {
     loadError.value = apiErrorMessage(e, "No se pudieron cargar los datos necesarios para las ventas.");
@@ -208,6 +215,8 @@ function edit(v: any) {
     precioUnitario: v.precioUnitario,
     precioTotal: v.precioTotal,
     montoEntrega: v.montoEntrega ?? 0,
+    monedaEntrega: v.monedaEntrega ?? "USD",
+    cotizacionEntrega: v.cotizacionEntrega ?? null,
     formaPago: v.formaPago,
     cantidadCuotas: v.cantidadCuotas,
     estado: v.estado,
@@ -224,6 +233,8 @@ function edit(v: any) {
 }
 
 async function save() {
+  const currencyError = validarCotizacion(form.value.monedaEntrega, form.value.cotizacionEntrega);
+  if (currencyError) { error.value = currencyError; return; }
   try {
     editingId.value
       ? await http.put(`/ventas/${editingId.value}`, form.value)
@@ -238,6 +249,10 @@ async function save() {
       "Revisá los datos ingresados.";
   }
 }
+watch(() => form.value.monedaEntrega, moneda => {
+  if (moneda === 'USD') form.value.cotizacionEntrega = null;
+  else if (!form.value.cotizacionEntrega) form.value.cotizacionEntrega = blueVenta.value;
+});
 
 async function remove(v: any) {
   if (!await confirmAction({ title: "Eliminar venta", message: `¿Querés eliminar la venta de ${v.cliente} por ${money(v.precioTotal)}? También se eliminarán sus cuotas cobradas y los movimientos de caja relacionados.`, confirmText: "Eliminar", danger: true })) return;
@@ -574,6 +589,15 @@ onMounted(load);
               required
             />
             <small class="text-color-secondary">Se registra automáticamente como ingreso en Caja.</small>
+          </div>
+          <div class="field col-12 md:col-6">
+            <label>Cobrado en</label>
+            <Select v-model="form.monedaEntrega" :options="currencyOptions" option-label="label" option-value="value" />
+          </div>
+          <div v-if="form.monedaEntrega === 'ARS'" class="field col-12 md:col-6">
+            <label>Cotización (ARS por USD)</label>
+            <InputNumber v-model="form.cotizacionEntrega" :min="0.0001" :min-fraction-digits="2" :max-fraction-digits="4" required />
+            <small v-if="entregaPesos !== null" class="text-color-secondary">Equivale a ARS {{ entregaPesos.toLocaleString('es-AR', { minimumFractionDigits: 2 }) }}</small>
           </div>
           <div class="field col-12 md:col-6">
             <label>Costo compra por m²</label>

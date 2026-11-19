@@ -65,7 +65,7 @@ public sealed class BranchReportingIsolationIntegrationTests
                 new { tipo = "Retiro", monto = 100m, concepto = "No debe usar saldo B", sucursalId = data.BranchB });
             Assert.Equal(HttpStatusCode.Conflict, rejected.StatusCode);
             var rejectedBody = await rejected.Content.ReadFromJsonAsync<JsonElement>();
-            Assert.Contains("supera el saldo disponible", rejectedBody.GetProperty("message").GetString());
+            Assert.Contains("supera los dólares disponibles", rejectedBody.GetProperty("message").GetString());
             Assert.Equal(HttpStatusCode.Created, (await userA.PostAsJsonAsync("/api/caja/movimientos",
                 new { tipo = "Retiro", monto = 50m, concepto = "Retiro A", sucursalId = data.BranchB })).StatusCode);
             await AssertCash(userA, 20, 3, false);
@@ -89,10 +89,26 @@ public sealed class BranchReportingIsolationIntegrationTests
                 new { tipo = "Retiro", monto = 200m, concepto = "No debe usar saldo B" });
             Assert.Equal(HttpStatusCode.Conflict, rejectedAdminWithdrawal.StatusCode);
             var rejectedAdminBody = await rejectedAdminWithdrawal.Content.ReadFromJsonAsync<JsonElement>();
-            Assert.Contains("supera el saldo disponible", rejectedAdminBody.GetProperty("message").GetString());
+            Assert.Contains("supera los dólares disponibles", rejectedAdminBody.GetProperty("message").GetString());
             Assert.Equal(HttpStatusCode.Created, (await adminA.PostAsJsonAsync("/api/caja/movimientos",
                 new { tipo = "Retiro", monto = 50m, concepto = "Retiro admin A" })).StatusCode);
             await AssertCash(adminA, 90, 7, true);
+            await AssertCash(adminB, 700, 1, true);
+
+            var arsIncome = await adminA.PostAsJsonAsync("/api/caja/movimientos",
+                new { tipo = "Ingreso", monto = 125000m, concepto = "Ingreso ARS", moneda = "ARS", cotizacion = 1250m });
+            Assert.Equal(HttpStatusCode.Created, arsIncome.StatusCode);
+            var arsWithdrawal = await adminA.PostAsJsonAsync("/api/caja/movimientos",
+                new { tipo = "Retiro", monto = 50000m, concepto = "Retiro ARS", moneda = "ARS", cotizacion = 1250m });
+            Assert.Equal(HttpStatusCode.Created, arsWithdrawal.StatusCode);
+            var rejectedUsdWithoutUsdBalance = await adminA.PostAsJsonAsync("/api/caja/movimientos",
+                new { tipo = "Retiro", monto = 100m, concepto = "No usar pesos", moneda = "USD" });
+            Assert.Equal(HttpStatusCode.Conflict, rejectedUsdWithoutUsdBalance.StatusCode);
+            var mixedBox = await GetJson(adminA, "/api/caja");
+            Assert.Equal(150m, mixedBox.GetProperty("saldo").GetDecimal());
+            Assert.Equal(90m, mixedBox.GetProperty("saldoUsd").GetDecimal());
+            Assert.Equal(75000m, mixedBox.GetProperty("saldoArs").GetDecimal());
+            Assert.Equal(9, mixedBox.GetProperty("movimientos").GetArrayLength());
             await AssertCash(adminB, 700, 1, true);
 
             var adminABox = await GetJson(adminA, "/api/caja");
@@ -177,6 +193,8 @@ public sealed class BranchReportingIsolationIntegrationTests
     {
         var json = await GetJson(client, "/api/caja" + suffix);
         Assert.Equal(balance, json.GetProperty("saldo").GetDecimal());
+        Assert.Equal(balance, json.GetProperty("saldoUsd").GetDecimal());
+        Assert.Equal(0m, json.GetProperty("saldoArs").GetDecimal());
         Assert.Equal(count, json.GetProperty("movimientos").GetArrayLength());
         Assert.Equal(hasBranches, json.GetProperty("sucursales").GetArrayLength() > 0);
     }
