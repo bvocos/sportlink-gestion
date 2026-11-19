@@ -22,6 +22,7 @@ const form = ref(blank())
 const dateFormat = new Intl.DateTimeFormat('es-AR', { timeZone: 'UTC' })
 const number = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 2 })
 function formatDate(value: string) { return value ? dateFormat.format(new Date(`${value}T00:00:00Z`)) : '—' }
+function formatDateTime(value: string) { return value ? new Date(value).toLocaleString('es-AR') : '—' }
 function meters(value: number) { return number.format(Number(value ?? 0)) }
 
 async function load() {
@@ -65,8 +66,55 @@ onMounted(async () => {
       <Message v-if="error" severity="error" :closable="false">{{ error }}</Message>
       <form class="p-fluid" @submit.prevent="save"><div class="field"><label>Código</label><InputText v-model="form.codigo" maxlength="50" required /></div><div class="field"><label>N° de despacho</label><InputText v-model="form.numeroDespacho" maxlength="100" /></div><div class="field"><label>Fecha</label><AppDatePicker v-model="form.fecha" required /></div><div class="field"><label>Observaciones</label><Textarea v-model="form.observaciones" maxlength="1000" rows="3" /></div><div class="flex justify-content-end gap-2"><AppButton type="button" label="Cancelar" severity="secondary" @click="visible = false" /><AppButton type="submit" label="Guardar" :loading="saving" /></div></form>
     </Dialog>
-    <Dialog :visible="!!detail" modal header="Detalle de importación" :style="{ width: '64rem', maxWidth: '96vw' }" @update:visible="value => { if (!value) detail = null }">
-      <template v-if="detail"><div class="flex justify-content-between align-items-center gap-2 flex-wrap"><div class="imp-detail-summary flex-grow-1"><div><small>Código</small><strong class="block">{{ detail.codigo }}</strong></div><div><small>N° despacho</small><strong class="block">{{ detail.numeroDespacho || '—' }}</strong></div><div><small>Fecha</small><strong class="block">{{ formatDate(detail.fecha) }}</strong></div><div><small>Observaciones</small><span class="block">{{ detail.observaciones || '—' }}</span></div></div><div class="imp-actions"><AppButton v-if="auth.can('stock','crear')" label="Agregar mercadería" icon="pi pi-plus" @click="router.push(`/importaciones/${detail.id}/recepcion`)" /><AppButton v-if="auth.can('stock','editar')" label="Editar" severity="secondary" @click="edit(detail)" /></div></div><DataTable :value="detail.saldos"><Column field="depositoNombre" header="Depósito" /><Column field="productoNombre" header="Producto" /><Column field="color" header="Color" /><Column field="ingresadoM2" header="Ingresado" body-class="imp-number" /><Column field="vendidoM2" header="Vendido" body-class="imp-number" /><Column field="saldoM2" header="Saldo" body-class="imp-number"><template #body="{ data }"><span :class="['imp-balance', { 'imp-balance-negative': data.saldoM2 < 0 }]">{{ meters(data.saldoM2) }}</span></template></Column></DataTable><h4 v-if="detail.lotes?.length">Lotes</h4><DataTable v-if="detail.lotes?.length" :value="detail.lotes"><Column field="productoNombre" header="Producto" /><Column field="color" header="Color" /><Column field="estado" header="Estado" /><Column field="cantidadM2" header="m²" body-class="imp-number" /><Column header="Rollos"><template #body="{ data }">{{ data.rollos.map((r: any) => `${r.posicion}: ${r.codigoBarra} (${meters(r.cantidadM2)} m²)`).join(' · ') }}</template></Column></DataTable><details class="mt-3"><summary>Movimientos (últimos 50)</summary><DataTable :value="detail.movimientos"><Column field="fecha" header="Fecha" /><Column field="productoNombre" header="Producto" /><Column field="color" header="Color" /><Column field="tipo" header="Tipo" /><Column field="cantidadM2" header="m²" body-class="imp-number" /></DataTable></details></template>
+    <Dialog :visible="!!detail" modal header="Detalle de importación"
+      :style="{ width: '64rem', maxWidth: '96vw' }"
+      :content-style="{ maxHeight: '85vh', overflowY: 'auto' }"
+      @update:visible="value => { if (!value) detail = null }">
+      <template v-if="detail">
+        <div class="flex justify-content-between align-items-center gap-2 flex-wrap">
+          <div class="imp-detail-summary flex-grow-1">
+            <div><small>Código</small><strong class="block">{{ detail.codigo }}</strong></div>
+            <div><small>N° despacho</small><strong class="block">{{ detail.numeroDespacho || '—' }}</strong></div>
+            <div><small>Fecha</small><strong class="block">{{ formatDate(detail.fecha) }}</strong></div>
+            <div><small>Observaciones</small><span class="block">{{ detail.observaciones || '—' }}</span></div>
+          </div>
+          <div class="imp-actions">
+            <AppButton v-if="auth.can('stock','crear')" label="Agregar mercadería" icon="pi pi-plus" @click="router.push(`/importaciones/${detail.id}/recepcion`)" />
+            <AppButton v-if="auth.can('stock','editar')" label="Editar" severity="secondary" @click="edit(detail)" />
+          </div>
+        </div>
+
+        <h4 class="mb-2">Saldos por producto y color</h4>
+        <DataTable :value="detail.saldos" class="imp-detail-table">
+          <Column field="depositoNombre" header="Depósito" />
+          <Column field="productoNombre" header="Producto" />
+          <Column header="Color"><template #body="{ data }">{{ data.color || '—' }}</template></Column>
+          <Column header="Ingresado" body-class="imp-number"><template #body="{ data }">{{ meters(data.ingresadoM2) }}</template></Column>
+          <Column header="Vendido" body-class="imp-number"><template #body="{ data }">{{ meters(data.vendidoM2) }}</template></Column>
+          <Column header="Saldo" body-class="imp-number"><template #body="{ data }"><span :class="['imp-balance', { 'imp-balance-negative': data.saldoM2 < 0 }]">{{ meters(data.saldoM2) }}</span></template></Column>
+        </DataTable>
+
+        <h4 v-if="detail.lotes?.length" class="mb-2">Lotes</h4>
+        <DataTable v-if="detail.lotes?.length" :value="detail.lotes" class="imp-detail-table">
+          <Column field="productoNombre" header="Producto" />
+          <Column header="Color"><template #body="{ data }">{{ data.color || '—' }}</template></Column>
+          <Column field="estado" header="Estado" />
+          <Column header="m²" body-class="imp-number"><template #body="{ data }">{{ meters(data.cantidadM2) }}</template></Column>
+          <Column header="Rollos"><template #body="{ data }">{{ data.rollos.map((r: any) => `${r.posicion}: ${r.codigoBarra} (${meters(r.cantidadM2)} m²)`).join(' · ') }}</template></Column>
+        </DataTable>
+
+        <h4 class="mb-2">Movimientos (últimos 50)</h4>
+        <details>
+          <summary>Mostrar u ocultar movimientos</summary>
+          <DataTable :value="detail.movimientos" class="imp-detail-table mt-2">
+            <Column header="Fecha"><template #body="{ data }">{{ formatDateTime(data.fecha) }}</template></Column>
+            <Column field="productoNombre" header="Producto" />
+            <Column header="Color"><template #body="{ data }">{{ data.color || '—' }}</template></Column>
+            <Column field="tipo" header="Tipo" />
+            <Column header="m²" body-class="imp-number"><template #body="{ data }">{{ meters(data.cantidadM2) }}</template></Column>
+          </DataTable>
+        </details>
+      </template>
     </Dialog>
   </section>
 </template>

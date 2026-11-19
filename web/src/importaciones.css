@@ -22,6 +22,7 @@
 .imp-balance-negative { color: var(--red-600, #dc2626); }
 .imp-detail-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .75rem; margin-bottom: 1rem; }
 .imp-detail-summary > * { min-width: 0; }
+.imp-detail-table .p-datatable-wrapper { max-width: 100%; overflow-x: auto; }
 
 @media (max-width: 1099px) {
   .imp-header-grid, .imp-detail-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -35,4 +36,8 @@
   .imp-search { width: 100%; flex-wrap: wrap; }
   .imp-search .p-inputtext { flex: 1 1 100%; }
   .imp-actions { flex-wrap: wrap; }
+  .imp-detail-table .p-datatable-wrapper { overflow-x: hidden; }
+  .imp-detail-table .p-datatable-table { table-layout: fixed; width: 100%; }
+  .imp-detail-table .p-datatable-thead > tr > th,
+  .imp-detail-table .p-datatable-tbody > tr > td { padding: .3rem .2rem; white-space: normal; overflow-wrap: anywhere; font-size: .7rem; }
 }

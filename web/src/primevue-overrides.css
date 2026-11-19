@@ -40,13 +40,13 @@
   background: #f4f9f2;
 }
 
-.page .p-datatable .p-datatable-table {
+:is(.page, .p-dialog) .p-datatable .p-datatable-table {
   width: 100%;
   table-layout: auto;
 }
 
-.page .p-datatable .p-datatable-tbody > tr > td,
-.page .p-datatable .p-datatable-thead > tr > th {
+:is(.page, .p-dialog) .p-datatable .p-datatable-tbody > tr > td,
+:is(.page, .p-dialog) .p-datatable .p-datatable-thead > tr > th {
   padding: 0.45rem 0.6rem;
   vertical-align: middle;
 }
@@ -93,11 +93,11 @@
   overflow-x: auto;
 }
 
-.page .p-datatable:not(.p-datatable-scrollable) .p-datatable-table {
+:is(.page, .p-dialog) .p-datatable:not(.p-datatable-scrollable) .p-datatable-table {
   border-collapse: collapse;
 }
 
-.page .p-datatable .p-datatable-thead > tr > th {
+:is(.page, .p-dialog) .p-datatable .p-datatable-thead > tr > th {
   position: static;
   top: auto;
 }
