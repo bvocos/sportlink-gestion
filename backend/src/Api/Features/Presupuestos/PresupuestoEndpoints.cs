@@ -208,7 +208,7 @@ internal static class PresupuestoPdf
     internal const string CashPaymentText ="Pago de contado en dólar billete o pesos en efectivo a cotización del dólar blue.";
     internal const string ListPriceTitle = "PRECIO DE LISTA";
     internal static string ListPriceInitialText(decimal value) => $"Entrega inicial: {Usd(value)}";
-    internal static string ListPriceBalanceText(decimal value) => $"Saldo: {Usd(value)}";
+    internal static string ListPriceBalanceText(decimal value) => $"Saldo a financiar: {Usd(value)}";
     internal const string PaymentClarificationText = "Opción contado: pago de contado en dólar billete o pesos en efectivo a cotización del dólar blue. Precio de lista: valores en dólares; las cuotas abonadas en pesos toman la cotización de venta del dólar blue del día del pago.";
     private static string Usd(decimal value) => $"USD {value:N2}";
     public static byte[] Generate(Presupuesto p, string assets, SucursalBranding branding)

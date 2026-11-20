@@ -15,7 +15,7 @@ public sealed class PresupuestoPdfTests
         Assert.Equal("PRECIO DE LISTA", PresupuestoPdf.ListPriceTitle);
         Assert.Contains("Precio de lista: valores en dólares", PresupuestoPdf.PaymentClarificationText);
         Assert.Equal("Entrega inicial: USD 1.000,00", PresupuestoPdf.ListPriceInitialText(1000));
-        Assert.Equal("Saldo: USD 2.500,00", PresupuestoPdf.ListPriceBalanceText(2500));
+        Assert.Equal("Saldo a financiar: USD 2.500,00", PresupuestoPdf.ListPriceBalanceText(2500));
         Assert.DoesNotContain("IVA", PresupuestoPdf.ListPriceInitialText(1000));
         Assert.DoesNotContain("IVA", PresupuestoPdf.ListPriceBalanceText(2500));
         Assert.Contains("cotización de venta del dólar blue del día del pago", PresupuestoPdf.PaymentClarificationText);
