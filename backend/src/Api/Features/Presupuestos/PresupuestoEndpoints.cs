@@ -207,6 +207,7 @@ internal static class PresupuestoPdf
     internal static string CashDetailText(Presupuesto p) => $"Descuento {p.DescuentoContadoPorcentaje:N2}%";
     internal const string CashPaymentText ="Pago de contado en dólar billete o pesos en efectivo a cotización del dólar blue.";
     internal const string ListPriceTitle = "PRECIO DE LISTA";
+    internal const string CashPriceTitle = "PRECIO CONTADO";
     internal static string ListPriceInitialText(decimal value) => $"Entrega inicial: {Usd(value)}";
     internal static string ListPriceBalanceText(decimal value) => $"Saldo a financiar: {Usd(value)}";
     internal const string PaymentClarificationText = "Opción contado: pago de contado en dólar billete o pesos en efectivo a cotización del dólar blue. Precio de lista: valores en dólares; las cuotas abonadas en pesos toman la cotización de venta del dólar blue del día del pago.";
@@ -255,7 +256,7 @@ internal static class PresupuestoPdf
                         box.Item().PaddingTop(5).Row(r =>
                         {
                             r.RelativeItem().Background(Green).Padding(9).Column(x => { x.Item().Text(ListPriceTitle).FontColor(Lime).Bold(); x.Item().Text(Usd(financed)).FontSize(16).Bold().FontColor(Colors.White); x.Item().Text(ListPriceInitialText(totals.EntregaInicial)).FontSize(7).FontColor(Colors.White); x.Item().Text(ListPriceBalanceText(financedBalance)).FontSize(7).FontColor(Colors.Grey.Lighten2); });
-                            r.ConstantItem(8); r.RelativeItem().Border(1).BorderColor(Lime).Padding(9).Column(x => { x.Item().Text("OPCIÓN CONTADO").FontColor(Green).Bold(); x.Item().Text(Usd(cash)).FontSize(16).Bold().FontColor(Green); x.Item().Text(CashDetailText(p)).FontSize(7).FontColor(Colors.Grey.Darken1); x.Item().Text(CashPaymentText).FontSize(7).FontColor(Colors.Grey.Darken1); });
+                            r.ConstantItem(8); r.RelativeItem().Border(1).BorderColor(Lime).Padding(9).Column(x => { x.Item().Text(CashPriceTitle).FontColor(Green).Bold(); x.Item().Text(Usd(cash)).FontSize(16).Bold().FontColor(Green); x.Item().Text(CashDetailText(p)).FontSize(7).FontColor(Colors.Grey.Darken1); x.Item().Text(CashPaymentText).FontSize(7).FontColor(Colors.Grey.Darken1); });
                         });
                         box.Item().Text("Importes expresados exclusivamente en dólares estadounidenses (USD).").FontSize(7).Bold().FontColor(Orange);
                         box.Item().Background("#A8F5F5F5").Padding(7).Column(x =>

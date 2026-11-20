@@ -13,6 +13,7 @@ public sealed class PresupuestoPdfTests
         Assert.Equal("Pago de contado en dólar billete o pesos en efectivo a cotización del dólar blue.", PresupuestoPdf.CashPaymentText);
         Assert.Contains("Opción contado: pago de contado en dólar billete o pesos en efectivo a cotización del dólar blue.", PresupuestoPdf.PaymentClarificationText);
         Assert.Equal("PRECIO DE LISTA", PresupuestoPdf.ListPriceTitle);
+        Assert.Equal("PRECIO CONTADO", PresupuestoPdf.CashPriceTitle);
         Assert.Contains("Precio de lista: valores en dólares", PresupuestoPdf.PaymentClarificationText);
         Assert.Equal("Entrega inicial: USD 1.000,00", PresupuestoPdf.ListPriceInitialText(1000));
         Assert.Equal("Saldo a financiar: USD 2.500,00", PresupuestoPdf.ListPriceBalanceText(2500));
