@@ -300,7 +300,7 @@ onBeforeUnmount(() => {
           <div class="flex justify-content-between align-items-center flex-wrap gap-2 w-full">
             <div>
               <span class="font-bold">2. Productos</span>
-              <small class="block text-color-secondary">Los precios contado y financiado se cargan desde Productos y siguen siendo editables.</small>
+              <small class="block text-color-secondary">Los precios de lista y contado se cargan desde Productos y siguen siendo editables.</small>
             </div>
             <AppButton type="button" label="Agregar producto" severity="secondary" size="small" @click="addLine">
               <AppIcon :icon="faPlus" class="mr-1" />
@@ -341,13 +341,13 @@ onBeforeUnmount(() => {
               <InputNumber v-model="l.precioContadoM2" :min="0.01" :min-fraction-digits="2" :max-fraction-digits="2" required />
             </div>
             <div class="field col-12 md:col-2">
-              <label>Financiado / m² (USD)</label>
+              <label>Precio de lista / m² (USD)</label>
               <InputNumber v-model="l.precioFinanciadoM2" :min="0.01" :min-fraction-digits="2" :max-fraction-digits="2" required />
             </div>
             <div class="field col-12 md:col-2 highlight-field">
               <label>Totales de línea</label>
               <strong class="block">Contado {{ usd(l.cantidadM2 * l.precioContadoM2) }}</strong>
-              <small class="text-color-secondary">Financiado {{ usd(l.cantidadM2 * l.precioFinanciadoM2) }}</small>
+              <small class="text-color-secondary">Precio de lista {{ usd(l.cantidadM2 * l.precioFinanciadoM2) }}</small>
             </div>
             <div class="col-12 md:col-1 flex justify-content-end">
               <AppButton type="button" text rounded severity="danger" title="Quitar producto" :disabled="form.lineas.length === 1" @click="removeLine(i)">
@@ -358,7 +358,7 @@ onBeforeUnmount(() => {
         </div>
         <div class="sale-products-total quote-subtotals flex flex-wrap gap-3 mt-3">
           <span>Subtotal contado <strong>{{ usd(subtotalContado) }}</strong></span>
-          <span>Subtotal financiado <strong>{{ usd(subtotalFinanciado) }}</strong></span>
+          <span>Subtotal precio de lista <strong>{{ usd(subtotalFinanciado) }}</strong></span>
         </div>
       </Panel>
 
@@ -366,27 +366,12 @@ onBeforeUnmount(() => {
         <template #header>
           <div>
             <span class="font-bold">3. Opciones para el cliente</span>
-            <small class="block text-color-secondary">El PDF siempre incluirá contado y financiado.</small>
+            <small class="block text-color-secondary">El PDF siempre incluirá precio de lista y contado.</small>
           </div>
         </template>
         <div class="quote-payment grid">
-          <article class="quote-option col-12 md:col-6">
-            <h4>Contado</h4>
-            <p class="text-color-secondary">{{ CASH_PAYMENT_TEXT }}</p>
-            <div class="grid formgrid p-fluid">
-              <div class="field col-12 md:col-6">
-                <label>Descuento (%)</label>
-                <InputNumber v-model="form.descuentoContadoPorcentaje" :min="0" :max="100" :min-fraction-digits="2" :max-fraction-digits="2" />
-              </div>
-              <div class="field col-12 md:col-6">
-                <label>IVA (%)</label>
-                <InputNumber v-model="form.ivaContadoPorcentaje" :min="0" :min-fraction-digits="2" :max-fraction-digits="2" />
-              </div>
-            </div>
-            <strong class="text-xl">{{ usd(contado) }}</strong>
-          </article>
           <article class="quote-option financed col-12 md:col-6">
-            <h4>Financiado</h4>
+            <h4>Precio de lista</h4>
             <div class="grid formgrid p-fluid">
               <div class="field col-12 md:col-6">
                 <label>IVA (%)</label>
@@ -407,6 +392,21 @@ onBeforeUnmount(() => {
             </div>
             <strong class="text-xl">{{ usd(financiado) }}</strong>
             <small class="text-color-secondary block">Entrega inicial: {{ usd(entregaInicial) }} · Saldo a financiar: {{ usd(saldoFinanciado) }}</small>
+          </article>
+          <article class="quote-option col-12 md:col-6">
+            <h4>Contado</h4>
+            <p class="text-color-secondary">{{ CASH_PAYMENT_TEXT }}</p>
+            <div class="grid formgrid p-fluid">
+              <div class="field col-12 md:col-6">
+                <label>Descuento (%)</label>
+                <InputNumber v-model="form.descuentoContadoPorcentaje" :min="0" :max="100" :min-fraction-digits="2" :max-fraction-digits="2" />
+              </div>
+              <div class="field col-12 md:col-6">
+                <label>IVA (%)</label>
+                <InputNumber v-model="form.ivaContadoPorcentaje" :min="0" :min-fraction-digits="2" :max-fraction-digits="2" />
+              </div>
+            </div>
+            <strong class="text-xl">{{ usd(contado) }}</strong>
           </article>
         </div>
         <div class="field quote-notes mt-3">

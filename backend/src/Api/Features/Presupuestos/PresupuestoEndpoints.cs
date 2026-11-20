@@ -206,7 +206,10 @@ internal static class PresupuestoPdf
     // La opción contado muestra solo el descuento: el IVA no se informa en el comprobante.
     internal static string CashDetailText(Presupuesto p) => $"Descuento {p.DescuentoContadoPorcentaje:N2}%";
     internal const string CashPaymentText ="Pago de contado en dólar billete o pesos en efectivo a cotización del dólar blue.";
-    internal const string PaymentClarificationText = "Opción contado: pago de contado en dólar billete o pesos en efectivo a cotización del dólar blue. Opción financiada: valores en dólares; las cuotas abonadas en pesos toman la cotización de venta del dólar blue del día del pago.";
+    internal const string ListPriceTitle = "PRECIO DE LISTA";
+    internal static string ListPriceInitialText(decimal value) => $"Entrega inicial: {Usd(value)}";
+    internal static string ListPriceBalanceText(decimal value) => $"Saldo: {Usd(value)}";
+    internal const string PaymentClarificationText = "Opción contado: pago de contado en dólar billete o pesos en efectivo a cotización del dólar blue. Precio de lista: valores en dólares; las cuotas abonadas en pesos toman la cotización de venta del dólar blue del día del pago.";
     private static string Usd(decimal value) => $"USD {value:N2}";
     public static byte[] Generate(Presupuesto p, string assets, SucursalBranding branding)
     {
@@ -251,8 +254,8 @@ internal static class PresupuestoPdf
                         });
                         box.Item().PaddingTop(5).Row(r =>
                         {
-                            r.RelativeItem().Border(1).BorderColor(Lime).Padding(9).Column(x => { x.Item().Text("OPCIÓN CONTADO").FontColor(Green).Bold(); x.Item().Text(Usd(cash)).FontSize(16).Bold().FontColor(Green); x.Item().Text(CashDetailText(p)).FontSize(7).FontColor(Colors.Grey.Darken1); x.Item().Text(CashPaymentText).FontSize(7).FontColor(Colors.Grey.Darken1); });
-                            r.ConstantItem(8); r.RelativeItem().Background(Green).Padding(9).Column(x => { x.Item().Text("OPCIÓN FINANCIADA").FontColor(Lime).Bold(); x.Item().Text(Usd(financed)).FontSize(16).Bold().FontColor(Colors.White); x.Item().Text($"Entrega inicial: {Usd(totals.EntregaInicial)} · IVA incluido").FontSize(7).FontColor(Colors.White); x.Item().Text($"Saldo: {Usd(financedBalance)} · IVA {p.IvaFinanciadoPorcentaje:N2}% incluido").FontSize(7).FontColor(Colors.Grey.Lighten2); });
+                            r.RelativeItem().Background(Green).Padding(9).Column(x => { x.Item().Text(ListPriceTitle).FontColor(Lime).Bold(); x.Item().Text(Usd(financed)).FontSize(16).Bold().FontColor(Colors.White); x.Item().Text(ListPriceInitialText(totals.EntregaInicial)).FontSize(7).FontColor(Colors.White); x.Item().Text(ListPriceBalanceText(financedBalance)).FontSize(7).FontColor(Colors.Grey.Lighten2); });
+                            r.ConstantItem(8); r.RelativeItem().Border(1).BorderColor(Lime).Padding(9).Column(x => { x.Item().Text("OPCIÓN CONTADO").FontColor(Green).Bold(); x.Item().Text(Usd(cash)).FontSize(16).Bold().FontColor(Green); x.Item().Text(CashDetailText(p)).FontSize(7).FontColor(Colors.Grey.Darken1); x.Item().Text(CashPaymentText).FontSize(7).FontColor(Colors.Grey.Darken1); });
                         });
                         box.Item().Text("Importes expresados exclusivamente en dólares estadounidenses (USD).").FontSize(7).Bold().FontColor(Orange);
                         box.Item().Background("#A8F5F5F5").Padding(7).Column(x =>
