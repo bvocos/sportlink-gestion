@@ -128,7 +128,8 @@ header {
 aside {
   background: linear-gradient(180deg, #0d2a20 0%, var(--brand) 42%, #0f2e24 100%);
   padding: 12px 10px 10px;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 .sidebar-head {
   display: flex;
@@ -148,7 +149,13 @@ aside {
   color: #fff;
   cursor: pointer;
 }
-nav { gap: 2px; flex: 1; min-height: 0; overflow: hidden; }
+nav {
+  gap: 2px;
+  flex: 0 0 auto;
+  min-height: auto;
+  overflow: visible;
+  align-content: start;
+}
 .nav-group { display: grid; gap: 2px; margin-bottom: 6px; }
 .nav-group:last-child { margin-bottom: 0; }
 .nav-label {
@@ -176,7 +183,10 @@ nav a.router-link-active {
   color: #fff;
   box-shadow: inset 3px 0 0 var(--lime);
 }
-.profile { flex: 0 0 auto; }
+.profile {
+  flex: 0 0 auto;
+  margin-top: 8px;
+}
 .user-chip {
   display: flex;
   align-items: center;

@@ -43,9 +43,9 @@ body {
   }
 
   aside nav {
-    overflow-y: auto;
-    flex: 1;
-    min-height: 0;
+    overflow: visible;
+    flex: 0 0 auto;
+    min-height: auto;
   }
 
   .shell-overlay {
