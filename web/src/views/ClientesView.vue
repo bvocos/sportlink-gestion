@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import AppButton from '@/shared/components/AppButton.vue'
 import Column from 'primevue/column'
 import DataTable from 'primevue/datatable'
+import Dialog from 'primevue/dialog'
 import AppDatePicker from '@/shared/components/AppDatePicker.vue'
 import InputText from 'primevue/inputtext'
 import Message from 'primevue/message'
@@ -15,7 +16,8 @@ import { faCommentDots, faPen, faTrash } from '@/shared/icons'
 import { http, apiErrorMessage } from '@/shared/api/httpClient'
 import { confirmAction, notify } from '@/shared/uiFeedback'
 import GeografiaAutocomplete from '@/shared/components/GeografiaAutocomplete.vue'
-import { pluralize } from '@/shared/formatters'
+import { formatCurrency as money, pluralize } from '@/shared/formatters'
+import { useRoute } from 'vue-router'
 import { isSearchFilterActive, searchQuery, useDebouncedSearch } from '@/shared/composables/useFilterTriggers'
 import { TABLE_ROWS, TABLE_ROWS_OPTIONS, tableFirst, type DataTablePageEvent } from '@/shared/tablePagination'
 import { condicionIvaOptions, esCuitValido, esDniValido, normalizarDocumento, tipoDocumentoOptions } from '@/shared/fiscal'
@@ -41,6 +43,12 @@ const geoMode = ref(false)
 const geoLoading = ref(false)
 const geoNotice = ref('')
 const tipos = ['Particular', 'Club', 'Empresa', 'Constructor', 'Revendedor', 'Otro']
+const route = useRoute()
+const soloDeudores = ref(route.query.deuda === '1')
+const deudas = ref<Record<string, any>>({})
+const cuentaVisible = ref(false)
+const cuenta = ref<any | null>(null)
+const cuentaError = ref('')
 
 const blank = () => ({
   nombre: '', apellido: '', telefono: '', correo: '', localidad: '', provincia: '',
@@ -59,11 +67,30 @@ async function load(reset = false) {
     const { data } = await http.get('/clientes', { params: { page: page.value, pageSize: pageSize.value, buscar: searchQuery(buscar.value) ?? undefined } })
     items.value = data.items
     total.value = Number(data.totalCount ?? data.total ?? data.items?.length ?? 0)
+    if (!showForm.value) await loadDeudas()
   } catch (e: any) {
     loadError.value = apiErrorMessage(e, 'No se pudieron cargar los clientes.')
   } finally {
     loading.value = false
   }
+}
+
+async function loadDeudas() {
+  try {
+    const { data } = await http.get('/clientes/deudores', { params: { page: 1, pageSize: 100, buscar: searchQuery(buscar.value) ?? undefined } })
+    deudas.value = Object.fromEntries((data.items ?? []).map((x: any) => [x.id, x]))
+    if (soloDeudores.value) { items.value = items.value.filter(x => deudas.value[x.id]); total.value = Number(data.total ?? items.value.length) }
+  } catch { deudas.value = {} }
+}
+async function openAccount(client: any) {
+  cuentaVisible.value = true; cuenta.value = null; cuentaError.value = ''
+  try { cuenta.value = (await http.get(`/clientes/${client.id}/cuenta-corriente`)).data }
+  catch (e) { cuentaError.value = apiErrorMessage(e, 'No se pudo cargar la cuenta corriente.') }
+}
+async function downloadAccount(ext: 'csv' | 'pdf') {
+  if (!cuenta.value) return
+  const response = await http.get(`/clientes/${cuenta.value.cliente.id}/cuenta-corriente.${ext}`, { responseType: 'blob' })
+  const url = URL.createObjectURL(response.data); const a = document.createElement('a'); a.href = url; a.download = `Estado-cuenta.${ext}`; a.click(); URL.revokeObjectURL(url)
 }
 
 function onPage(event: DataTablePageEvent) {
@@ -259,6 +286,9 @@ useDebouncedSearch(buscar, () => load(true))
         <div class="field col-12 md:col-2 filter-actions flex align-items-end">
           <AppButton type="button" label="Limpiar" icon="pi pi-filter-slash" severity="secondary" size="small" @click="buscar = ''; load(true)" />
         </div>
+        <div class="field col-12">
+          <label class="flex align-items-center gap-2"><input v-model="soloDeudores" type="checkbox" @change="load(true)"> Con deuda</label>
+        </div>
       </div>
     </Panel>
 
@@ -330,9 +360,13 @@ useDebouncedSearch(buscar, () => load(true))
               />
             </template>
           </Column>
+          <Column header="Deuda" body-class="cell-num">
+            <template #body="{ data }"><span v-if="deudas[data.id]" :class="{ 'text-orange-600 font-bold': deudas[data.id].deudaVencidaUsd > 0 }">{{ money(deudas[data.id].deudaTotalUsd) }}</span><span v-else>—</span></template>
+          </Column>
           <Column header="" body-class="cell-actions">
             <template #body="{ data }">
               <div class="flex gap-1">
+                <AppButton text rounded severity="secondary" icon="pi pi-wallet" aria-label="Cuenta corriente" tooltip="Cuenta corriente" @click="openAccount(data)" />
                 <AppButton text rounded severity="secondary" aria-label="Editar cliente" @click="edit(data)">
                   <AppIcon :icon="faPen" />
                 </AppButton>
@@ -463,5 +497,21 @@ useDebouncedSearch(buscar, () => load(true))
         </div>
       </form>
     </article>
+
+    <Dialog v-model:visible="cuentaVisible" modal :header="`Cuenta corriente${cuenta?.cliente?.nombre ? ` — ${cuenta.cliente.nombre}` : ''}`" :style="{ width: 'min(1050px, 96vw)' }">
+      <Message v-if="cuentaError" severity="error" :closable="false">{{ cuentaError }}</Message>
+      <div v-else-if="cuenta" class="flex flex-column gap-3">
+        <div class="summary-metrics">
+          <article class="card metric"><small>Deuda total</small><strong>{{ money(cuenta.resumen.deudaTotalUsd) }}</strong><em v-if="cuenta.resumen.deudaTotalArs">≈ ARS {{ Number(cuenta.resumen.deudaTotalArs).toLocaleString('es-AR') }}</em></article>
+          <article class="card metric"><small>Saldo de ventas</small><strong>{{ money(cuenta.resumen.saldoVentasUsd) }}</strong></article>
+          <article class="card metric"><small>Cuotas pendientes</small><strong>{{ money(cuenta.resumen.cuotasPendientesUsd) }}</strong></article>
+          <article class="card metric"><small>Vencido</small><strong class="text-orange-600">{{ money(cuenta.resumen.cuotasVencidasUsd) }}</strong></article>
+        </div>
+        <div class="flex justify-content-end gap-2"><AppButton label="CSV" icon="pi pi-download" severity="secondary" @click="downloadAccount('csv')" /><AppButton label="Estado de cuenta PDF" icon="pi pi-file-pdf" @click="downloadAccount('pdf')" /></div>
+        <section><h4>Ventas con saldo</h4><div class="table-panel"><DataTable :value="cuenta.ventasConSaldo" striped-rows><Column field="fechaVenta" header="Fecha" /><Column field="producto" header="Producto" /><Column header="Total"><template #body="{ data }">{{ money(data.total) }}</template></Column><Column header="Cobrado"><template #body="{ data }">{{ money(data.cobrado) }}</template></Column><Column header="Saldo"><template #body="{ data }"><b>{{ money(data.saldo) }}</b></template></Column></DataTable></div></section>
+        <section><h4>Cuotas pendientes</h4><div class="table-panel"><DataTable :value="cuenta.cuotasPendientes" striped-rows><Column field="numero" header="Cuota" /><Column field="fechaVencimiento" header="Vencimiento" /><Column header="Pendiente"><template #body="{ data }"><b>{{ money(data.pendiente) }}</b></template></Column><Column field="estado" header="Estado" /></DataTable></div></section>
+        <section><h4>Movimientos recientes</h4><div class="table-panel"><DataTable :value="cuenta.movimientos" striped-rows><Column field="fecha" header="Fecha" /><Column field="concepto" header="Concepto" /><Column header="Importe USD"><template #body="{ data }">{{ money(data.importeUsd) }}</template></Column></DataTable></div></section>
+      </div>
+    </Dialog>
   </section>
 </template>

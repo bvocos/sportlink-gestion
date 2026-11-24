@@ -19,6 +19,7 @@ import ClienteAutocomplete from '@/shared/components/ClienteAutocomplete.vue'
 import NuevoClienteForm from '@/shared/components/NuevoClienteForm.vue'
 import { auth } from '@/auth'
 import { importeEnPesos, validarCotizacion, type MonedaCaja } from '@/monedaCaja'
+import { entregaAutomatica, equivalenteArs, saldoVenta } from '@/ventaSaldo'
 
 const router = useRouter()
 const route = useRoute()
@@ -35,6 +36,7 @@ const showNewClient = ref(false)
 const showProductEntry = ref(true)
 const importacionOptions = ref<Record<string, any[]>>({})
 const blueVenta = ref<number | null>(null)
+const entregaModificada = ref(false)
 const currencyOptions = [{ label: 'Dólares', value: 'USD' }, { label: 'Pesos', value: 'ARS' }]
 
 const estados = ['Confirmada', 'Futura', 'Entregada', 'Cancelada']
@@ -47,12 +49,16 @@ const form = ref({
   sucursalId: '', depositoId: '',
   montoEntrega: 0, formaPago: 'Contado', cantidadCuotas: null as number | null, estado: 'Confirmada',
   monedaEntrega: 'USD' as MonedaCaja, cotizacionEntrega: null as number | null,
+  cotizacionVenta: null as number | null,
   fechaEntregaEstimada: null as string | null, costoEnvio: 0, otrosCostos: 0, alicuotaIvaId: '', observaciones: '',
 })
 
 const totalProductos = computed(() => form.value.lineas.reduce((sum, x) => sum + Number(x.total || 0), 0))
 const totalVenta = computed(() => totalProductos.value)
 const entregaPesos = computed(() => importeEnPesos(form.value.montoEntrega, form.value.cotizacionEntrega))
+const totalPesos = computed(() => equivalenteArs(totalVenta.value, form.value.cotizacionVenta))
+const saldoPendiente = computed(() => form.value.formaPago === 'Cuotas' ? 0 : saldoVenta(totalVenta.value, form.value.montoEntrega))
+const saldoPesos = computed(() => equivalenteArs(saldoPendiente.value, form.value.cotizacionVenta))
 const productosDisponibles = computed(() => maestros.value.tiposCesped.filter((x: any) =>
   (x.depositoIds?.length ? x.depositoIds : [x.depositoId]).includes(form.value.depositoId)))
 
@@ -121,6 +127,8 @@ async function load() {
     form.value.depositoId = filters.data.depositos?.[0]?.id ?? ''
     form.value.alicuotaIvaId = masters.data.alicuotasIva?.[0]?.id ?? ''
     try { blueVenta.value = (await http.get('/cotizaciones/dolares')).data?.blue?.venta ?? null } catch { blueVenta.value = null }
+    form.value.cotizacionVenta = blueVenta.value
+    form.value.cotizacionEntrega = blueVenta.value
     if (editingId.value) {
       const v = (await http.get(`/ventas/${editingId.value}`)).data
       form.value = {
@@ -132,9 +140,11 @@ async function load() {
         }],
         montoEntrega: v.montoEntrega, formaPago: v.formaPago, cantidadCuotas: v.cantidadCuotas,
         monedaEntrega: v.monedaEntrega ?? 'USD', cotizacionEntrega: v.cotizacionEntrega ?? null,
+        cotizacionVenta: v.cotizacionVenta ?? null,
         estado: v.estado, fechaEntregaEstimada: v.fechaEntregaEstimada, costoEnvio: v.costoEnvio,
         otrosCostos: v.otrosCostos, alicuotaIvaId: v.alicuotaIvaId, observaciones: v.observaciones ?? '',
       }
+      entregaModificada.value = true
       await Promise.all(form.value.lineas.filter(row => product(row)?.esImportado)
         .map(row => loadImportOptions(row.tipoCespedId, row.color)))
       showProductEntry.value = false
@@ -179,9 +189,12 @@ watch(() => form.value.depositoId, (value, previous) => {
   showProductEntry.value = true
 })
 watch(() => form.value.monedaEntrega, moneda => {
-  if (moneda === 'USD') form.value.cotizacionEntrega = null
-  else if (!form.value.cotizacionEntrega) form.value.cotizacionEntrega = blueVenta.value
+  if (!form.value.cotizacionEntrega) form.value.cotizacionEntrega = form.value.cotizacionVenta ?? blueVenta.value
 })
+watch([totalVenta, () => form.value.formaPago], () => {
+  form.value.montoEntrega = entregaAutomatica(totalVenta.value, form.value.formaPago, entregaModificada.value, form.value.montoEntrega)
+})
+function markDeliveryEdited() { entregaModificada.value = true }
 </script>
 
 <template>
@@ -387,7 +400,7 @@ watch(() => form.value.monedaEntrega, moneda => {
               <div class="field col-12 md:col-3">
                 <label>Entrega inicial</label>
                 <InputNumber v-model="form.montoEntrega" :min="0" :max="totalProductos" :min-fraction-digits="2"
-                  :max-fraction-digits="2" size="small" required />
+                  :max-fraction-digits="2" size="small" required @update:model-value="markDeliveryEdited" />
               </div>
               <div class="field col-12 md:col-3">
                 <label>Cobrado en</label>
@@ -399,7 +412,16 @@ watch(() => form.value.monedaEntrega, moneda => {
                   :max-fraction-digits="4" size="small" required />
                 <small v-if="entregaPesos !== null" class="text-color-secondary block mt-1">Equivale a ARS {{ entregaPesos.toLocaleString('es-AR', { minimumFractionDigits: 2 }) }}</small>
               </div>
+              <div class="field col-12 md:col-3">
+                <label>Dólar del día (referencia)</label>
+                <InputNumber v-model="form.cotizacionVenta" :min="0.0001" :min-fraction-digits="2"
+                  :max-fraction-digits="4" size="small" />
+              </div>
             </div>
+            <Message v-if="saldoPendiente > 0" severity="warn" :closable="false" class="mt-2">
+              Saldo pendiente: {{ money(saldoPendiente) }}<template v-if="saldoPesos !== null"> (ARS {{ saldoPesos.toLocaleString('es-AR', { minimumFractionDigits: 2 }) }})</template>.
+              Después vas a poder registrar los cobros desde Ventas.
+            </Message>
           </section>
 
           <section class="sale-payment-block">
@@ -432,6 +454,7 @@ watch(() => form.value.monedaEntrega, moneda => {
             <div>
               <span class="text-color-secondary">Total final de la venta</span>
               <strong class="block">{{ money(totalVenta) }}</strong>
+              <small v-if="totalPesos !== null" class="block">Total en pesos ≈ ARS {{ totalPesos.toLocaleString('es-AR', { minimumFractionDigits: 2 }) }}</small>
             </div>
             <small>Envío y otros costos impactan rentabilidad, no el importe por productos.</small>
           </div>

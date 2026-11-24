@@ -6,7 +6,7 @@ import DataTable from 'primevue/datatable'
 import Message from 'primevue/message'
 import Tag from 'primevue/tag'
 import { http, apiErrorMessage } from '@/shared/api/httpClient'
-import { pluralize } from '@/shared/formatters'
+import { formatCurrency as money, pluralize } from '@/shared/formatters'
 
 const items = ref<any[]>([])
 const loading = ref(false)
@@ -112,6 +112,9 @@ function formatDate(value: string) {
           </Column>
           <Column header="Superficie" body-class="cell-num">
             <template #body="{ data }">{{ data.cantidadM2 }} m²</template>
+          </Column>
+          <Column header="Cobro">
+            <template #body="{ data }"><Tag v-if="data.saldoUsd > 0" :value="`Debe ${money(data.saldoUsd)}`" severity="warn" /></template>
           </Column>
           <Column header="Observaciones" body-class="cell-wrap">
             <template #body="{ data }">{{ data.observaciones || '—' }}</template>

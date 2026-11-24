@@ -20,14 +20,17 @@ public record RegistrarVentaCommand(Guid ClienteId, DateOnly FechaVenta, Guid Ti
     DateOnly? FechaEntregaEstimada, string? Observaciones, decimal CostoCompraUnitario,
     decimal CostoEnvio, decimal OtrosCostos, Guid AlicuotaIvaId, string? Color = null,
     List<VentaLineaCommand>? Lineas = null, Guid? SucursalId = null, Guid DepositoId = default,
-    MonedaCaja MonedaEntrega = MonedaCaja.USD, decimal? CotizacionEntrega = null) : IRequest<VentaDto>;
+    MonedaCaja MonedaEntrega = MonedaCaja.USD, decimal? CotizacionEntrega = null,
+    decimal? CotizacionVenta = null) : IRequest<VentaDto>;
 
 public record VentaDto(Guid Id, Guid SucursalId, Guid DepositoId, Guid ClienteId, string Cliente, Guid TipoCespedId, string TipoCesped,
     Guid AlicuotaIvaId, DateOnly FechaVenta, decimal CantidadM2, decimal? PrecioUnitario, decimal? PrecioTotal, decimal? MontoEntrega,
     decimal? CostoCompraUnitario, decimal? CostoEnvio, decimal? OtrosCostos, FormaPago FormaPago,
     int? CantidadCuotas, EstadoVenta Estado, decimal? GananciaBruta, decimal? GananciaNeta, decimal? Margen,
     DateOnly? FechaEntregaEstimada, string? Observaciones, string? Color, List<VentaLineaDto> Lineas,
-    MonedaCaja MonedaEntrega = MonedaCaja.USD, decimal? CotizacionEntrega = null);
+    MonedaCaja MonedaEntrega = MonedaCaja.USD, decimal? CotizacionEntrega = null,
+    bool SeguimientoSaldo = false, decimal? CobradoUsd = null, decimal? SaldoUsd = null,
+    decimal? CotizacionVenta = null);
 
 public sealed class RegistrarVentaValidator : AbstractValidator<RegistrarVentaCommand>
 {
@@ -56,6 +59,7 @@ public sealed class RegistrarVentaValidator : AbstractValidator<RegistrarVentaCo
         RuleFor(x => x.CotizacionEntrega).NotNull().GreaterThan(0)
             .When(x => x.MonedaEntrega == MonedaCaja.ARS)
             .WithMessage(MonedaCajaService.CotizacionRequerida);
+        RuleFor(x => x.CotizacionVenta).GreaterThan(0).When(x => x.CotizacionVenta.HasValue);
         RuleForEach(x => x.Lineas).ChildRules(linea =>
         {
             linea.RuleFor(x => x.TipoCespedId).NotEmpty();
@@ -103,6 +107,7 @@ public sealed class RegistrarVentaHandler(AppDbContext db, IHttpContextAccessor 
             await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
             request = await VentaService.ResolveControlledLots(db, request, null, venta.Id, ct);
             VentaService.Apply(venta, request, alicuota.Porcentaje);
+            venta.SeguimientoSaldo = request.FormaPago != FormaPago.Cuotas;
             var stockLines = VentaService.StockLines(request);
             if (VentaService.ShouldConsumeStock(request.Estado))
                 await VentaService.ValidateStock(db, request.DepositoId, stockLines, ct);
@@ -298,7 +303,8 @@ internal static class VentaService
         venta.FechaVenta = r.FechaVenta; venta.CantidadM2 = r.CantidadM2; venta.PrecioUnitario = r.PrecioUnitario;
         venta.PrecioTotal = total; venta.MontoEntrega = r.MontoEntrega;
         venta.MonedaEntrega = r.MonedaEntrega;
-        venta.CotizacionEntrega = r.MonedaEntrega == MonedaCaja.ARS ? r.CotizacionEntrega : null;
+        venta.CotizacionEntrega = r.CotizacionEntrega;
+        venta.CotizacionVenta = r.CotizacionVenta;
         venta.CostoCompraUnitario = r.CostoCompraUnitario; venta.CostoCompraTotal = costoCompra;
         venta.CostoEnvio = r.CostoEnvio; venta.OtrosCostos = r.OtrosCostos; venta.Iva = iva;
         venta.GananciaBruta = gananciaBruta; venta.GananciaNeta = gananciaBruta - iva;
@@ -326,7 +332,7 @@ internal static class VentaService
     {
         Tipo = TipoMovimiento.Ingreso, Fecha = DateTimeOffset.UtcNow, Monto = venta.MontoEntrega,
         MonedaCobro = venta.MonedaEntrega,
-        CotizacionAplicada = venta.MonedaEntrega == MonedaCaja.ARS ? venta.CotizacionEntrega : null,
+        CotizacionAplicada = venta.CotizacionEntrega,
         ImporteMonedaCobro = MonedaCajaService.ImporteCobrado(venta.MontoEntrega, venta.MonedaEntrega, venta.CotizacionEntrega),
         Concepto = $"Entrega inicial venta {venta.Id}", VentaId = venta.Id, SucursalId = venta.SucursalId
     };
@@ -345,6 +351,8 @@ internal static class VentaService
     public static VentaDto ToDto(Venta v, Cliente c, TipoCesped t, bool verMontos = true)
     {
         var lines = JsonSerializer.Deserialize<List<VentaLineaCommand>>(v.LineasJson ?? "[]") ?? [];
+        var activeCollected = v.Cobros?.Where(x => !x.Anulado).Sum(x => x.ImporteUsd) ?? 0m;
+        var balance = VentaSaldo.Calcular(v.PrecioTotal, v.MontoEntrega, activeCollected);
         return new(v.Id, v.SucursalId, v.DepositoId, v.ClienteId, $"{c.Nombre} {c.Apellido}", v.TipoCespedId, t.Nombre,
             v.AlicuotaIvaId, v.FechaVenta, v.CantidadM2, verMontos ? v.PrecioUnitario : null,
             verMontos ? v.PrecioTotal : null, verMontos ? v.MontoEntrega : null, verMontos ? v.CostoCompraUnitario : null,
@@ -354,7 +362,10 @@ internal static class VentaService
             lines.Select(x => new VentaLineaDto(x.TipoCespedId, x.Color, x.CantidadM2,
                 verMontos ? x.PrecioCompraM2 : null, verMontos ? x.PrecioVentaM2 : null,
                 verMontos ? x.Total : null, x.LoteStockId, x.ImportacionId)).ToList(),
-            v.MonedaEntrega, v.CotizacionEntrega);
+            v.MonedaEntrega, v.CotizacionEntrega, v.SeguimientoSaldo,
+            verMontos ? v.MontoEntrega + activeCollected : null,
+            verMontos && v.SeguimientoSaldo && v.FormaPago != FormaPago.Cuotas && v.Estado != EstadoVenta.Cancelada ? balance : null,
+            v.CotizacionVenta);
     }
 }
 
@@ -415,14 +426,20 @@ public static class VentaEndpoints
         VentaService.ToDto(venta, venta.Cliente, venta.TipoCesped, PuedeVerMontos(user));
 
     private static async Task<PaginatedResponse<VentaDto>> List(ClaimsPrincipal user, AppDbContext db, int page = 1, int pageSize = 20,
-        string? estado = null, DateOnly? desde = null, DateOnly? hasta = null,
+        string? estado = null, DateOnly? desde = null, DateOnly? hasta = null, string? cobro = null,
         Guid? clienteId = null, Guid? tipoCespedId = null, Guid? sucursalId = null, CancellationToken ct = default)
     {
-        var query = VisibleQuery(db.Ventas.AsNoTracking().Include(x => x.Cliente).Include(x => x.TipoCesped), user, sucursalId);
+        var query = VisibleQuery(db.Ventas.AsNoTracking().Include(x => x.Cliente).Include(x => x.TipoCesped).Include(x => x.Cobros), user, sucursalId);
         if (Enum.TryParse<EstadoVenta>(estado, true, out var parsed)) query = query.Where(x => x.Estado == parsed);
         if (desde.HasValue) query = query.Where(x => x.FechaVenta >= desde.Value);
         if (hasta.HasValue) query = query.Where(x => x.FechaVenta <= hasta.Value);
         if (clienteId.HasValue) query = query.Where(x => x.ClienteId == clienteId.Value);
+        if (string.Equals(cobro, "pendiente", StringComparison.OrdinalIgnoreCase))
+            query = query.Where(x => x.SeguimientoSaldo && x.FormaPago != FormaPago.Cuotas && x.Estado != EstadoVenta.Cancelada &&
+                x.PrecioTotal - x.MontoEntrega - (x.Cobros.Where(c => !c.Anulado).Sum(c => (decimal?)c.ImporteUsd) ?? 0m) > 0);
+        else if (string.Equals(cobro, "cobrada", StringComparison.OrdinalIgnoreCase))
+            query = query.Where(x => x.SeguimientoSaldo && x.FormaPago != FormaPago.Cuotas && x.Estado != EstadoVenta.Cancelada &&
+                x.PrecioTotal - x.MontoEntrega - (x.Cobros.Where(c => !c.Anulado).Sum(c => (decimal?)c.ImporteUsd) ?? 0m) <= 0);
         if (tipoCespedId.HasValue)
         {
             var productId = tipoCespedId.Value.ToString();
@@ -437,7 +454,7 @@ public static class VentaEndpoints
 
     private static async Task<IResult> GetById(Guid id, ClaimsPrincipal user, AppDbContext db, CancellationToken ct)
     {
-        var venta = await VisibleQuery(db.Ventas.AsNoTracking().Include(x => x.Cliente).Include(x => x.TipoCesped), user)
+        var venta = await VisibleQuery(db.Ventas.AsNoTracking().Include(x => x.Cliente).Include(x => x.TipoCesped).Include(x => x.Cobros), user)
             .SingleOrDefaultAsync(x => x.Id == id, ct);
         return venta is null ? Results.NotFound() : Results.Ok(ToVisibleDto(venta, user));
     }
@@ -506,6 +523,12 @@ public static class VentaEndpoints
         if (hasPaidInstallments)
             return await UpdateDateOrColorPreservingPayments(venta, request, db, ct);
 
+        var activeCharges = await db.CobrosVenta.Where(x => x.VentaId == id && !x.Anulado).SumAsync(x => (decimal?)x.ImporteUsd, ct) ?? 0m;
+        if (request.FormaPago == FormaPago.Cuotas && activeCharges > 0)
+            return Results.Conflict(new { message = "Anulá los cobros antes de pasar la venta a cuotas." });
+        if (request.PrecioTotal < request.MontoEntrega + activeCharges)
+            return Results.Conflict(new { message = $"La venta ya tiene cobros por USD {activeCharges:N2}; el total no puede ser menor." });
+
         var validation = await validator.ValidateAsync(request, ct);
         if (!validation.IsValid) return Results.ValidationProblem(validation.Errors.GroupBy(x => x.PropertyName)
             .ToDictionary(x => x.Key, x => x.Select(e => e.ErrorMessage).ToArray()));
@@ -540,11 +563,13 @@ public static class VentaEndpoints
             }
 
             // ExecuteDelete evita conflictos entre cuotas eliminadas y las nuevas con el mismo número.
-            await db.MovimientosCaja.Where(x => x.VentaId == id).ExecuteDeleteAsync(ct);
+            await db.MovimientosCaja.Where(x => x.VentaId == id && x.CuotaId == null && x.CobroVentaId == null).ExecuteDeleteAsync(ct);
             await db.Cuotas.Where(x => x.VentaId == id).ExecuteDeleteAsync(ct);
 
             var updated = new Venta { Id = id };
             VentaService.Apply(updated, request, alicuota.Porcentaje);
+            updated.SeguimientoSaldo = request.FormaPago == FormaPago.Cuotas ? false :
+                venta.FormaPago == FormaPago.Cuotas ? true : venta.SeguimientoSaldo;
 
             var affected = await VisibleQuery(db.Ventas.Where(x => x.Id == id), user).ExecuteUpdateAsync(setters => setters
                 .SetProperty(x => x.ClienteId, updated.ClienteId)
@@ -560,6 +585,8 @@ public static class VentaEndpoints
                 .SetProperty(x => x.MontoEntrega, updated.MontoEntrega)
                 .SetProperty(x => x.MonedaEntrega, updated.MonedaEntrega)
                 .SetProperty(x => x.CotizacionEntrega, updated.CotizacionEntrega)
+                .SetProperty(x => x.CotizacionVenta, updated.CotizacionVenta)
+                .SetProperty(x => x.SeguimientoSaldo, updated.SeguimientoSaldo)
                 .SetProperty(x => x.CostoCompraUnitario, updated.CostoCompraUnitario)
                 .SetProperty(x => x.CostoCompraTotal, updated.CostoCompraTotal)
                 .SetProperty(x => x.CostoEnvio, updated.CostoEnvio)
@@ -676,6 +703,8 @@ public static class VentaEndpoints
     private static async Task<IResult> Delete(Guid id, ClaimsPrincipal user, AppDbContext db, CancellationToken ct)
     {
         if (!await VisibleQuery(db.Ventas, user).AnyAsync(x => x.Id == id, ct)) return Results.NotFound();
+        if (await db.CobrosVenta.AnyAsync(x => x.VentaId == id && !x.Anulado, ct))
+            return Results.Conflict(new { message = "La venta tiene cobros activos. Anulalos antes de eliminarla." });
         var strategy = db.Database.CreateExecutionStrategy();
         await strategy.ExecuteAsync(async () =>
         {
@@ -685,6 +714,7 @@ public static class VentaEndpoints
                 .SetProperty(x => x.VentaId, (Guid?)null), ct);
             await db.MovimientosStock.Where(x => x.VentaId == id && x.Tipo == TipoMovimientoStock.SalidaPorVenta).ExecuteDeleteAsync(ct);
             await db.MovimientosCaja.Where(x => x.VentaId == id).ExecuteDeleteAsync(ct);
+            await db.CobrosVenta.Where(x => x.VentaId == id).ExecuteDeleteAsync(ct);
             await db.Cuotas.Where(x => x.VentaId == id).ExecuteDeleteAsync(ct);
             await VisibleQuery(db.Ventas.Where(x => x.Id == id), user).ExecuteDeleteAsync(ct);
             await transaction.CommitAsync(ct);
@@ -712,6 +742,13 @@ public static class VentaEndpoints
                     .SetProperty(x => x.VentaId, (Guid?)null), ct);
                 await db.MovimientosStock.Where(x => x.VentaId == id && x.Tipo == TipoMovimientoStock.SalidaPorVenta)
                     .ExecuteDeleteAsync(ct);
+                var charges = await db.CobrosVenta.Where(x => x.VentaId == id && !x.Anulado).ToListAsync(ct);
+                foreach (var charge in charges)
+                {
+                    charge.Anulado = true; charge.AnuladoPor = user.Identity?.Name ?? user.FindFirstValue("usuario") ?? "sistema"; charge.AnuladoAt = DateTimeOffset.UtcNow;
+                    charge.MotivoAnulacion = "Venta cancelada";
+                }
+                await db.MovimientosCaja.Where(x => x.VentaId == id && x.CobroVentaId != null).ExecuteDeleteAsync(ct);
             }
             await db.SaveChangesAsync(ct);
             await transaction.CommitAsync(ct);
@@ -737,11 +774,15 @@ public static class VentaEndpoints
             .OrderBy(x => x.FechaEntregaEstimada).ThenBy(x => x.Cliente.Apellido)
             .Select(x => new { x.Id, Cliente = x.Cliente.Nombre + " " + x.Cliente.Apellido,
                 TipoCesped = x.TipoCesped.Nombre, x.CantidadM2, x.FechaEntregaEstimada,
-                x.Observaciones })
+                x.Observaciones, x.SeguimientoSaldo, x.PrecioTotal, x.MontoEntrega,
+                CobradoUsd = x.Cobros.Where(c => !c.Anulado).Sum(c => (decimal?)c.ImporteUsd) ?? 0m })
             .ToListAsync(ct);
         var today = FechaArgentina.Hoy();
         return Results.Ok(rows.Select(x => new { x.Id, x.Cliente, x.TipoCesped, x.CantidadM2,
             x.FechaEntregaEstimada, x.Observaciones,
+            SaldoUsd = PuedeVerMontos(user) && x.SeguimientoSaldo
+                ? VentaSaldo.Calcular(x.PrecioTotal, x.MontoEntrega, x.CobradoUsd)
+                : (decimal?)null,
             DiasRestantes = x.FechaEntregaEstimada!.Value.DayNumber - today.DayNumber }));
     }
 }

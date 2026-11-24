@@ -28,19 +28,21 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, IHttpCo
     public DbSet<Presupuesto> Presupuestos => Set<Presupuesto>(); public DbSet<PresupuestoLinea> PresupuestoLineas => Set<PresupuestoLinea>();
     public DbSet<Remito> Remitos => Set<Remito>();
     public DbSet<Importacion> Importaciones => Set<Importacion>();
+    public DbSet<CobroVenta> CobrosVenta => Set<CobroVenta>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
         b.Entity<Cliente>().HasQueryFilter(x => CurrentSucursalId != null && x.SucursalId == CurrentSucursalId);
         b.Entity<Importacion>().HasQueryFilter(x => CurrentSucursalId != null && x.SucursalId == CurrentSucursalId);
         b.Entity<Venta>().HasQueryFilter(x => CurrentSucursalId != null && x.SucursalId == CurrentSucursalId);
+        b.Entity<CobroVenta>().HasQueryFilter(x => CurrentSucursalId != null && x.SucursalId == CurrentSucursalId);
         b.Entity<Remito>().HasQueryFilter(x => CurrentSucursalId != null && x.SucursalId == CurrentSucursalId);
         b.Entity<Cuota>().HasQueryFilter(x => CurrentSucursalId != null && x.SucursalId == CurrentSucursalId);
         b.Entity<MovimientoCaja>().HasQueryFilter(x => CurrentSucursalId != null && x.SucursalId == CurrentSucursalId);
         b.Entity<Presupuesto>().HasQueryFilter(x => CurrentSucursalId != null && x.SucursalId == CurrentSucursalId);
         b.Entity<PresupuestoLinea>().HasQueryFilter(x => CurrentSucursalId != null && x.Presupuesto.SucursalId == CurrentSucursalId);
         b.Entity<Gasto>().HasQueryFilter(x => CurrentSucursalId != null && x.SucursalId == CurrentSucursalId);
-        foreach (var t in new[] { typeof(Venta), typeof(Cuota), typeof(MovimientoCaja), typeof(MovimientoStock), typeof(LoteStock), typeof(Rollo), typeof(Gasto), typeof(TipoCesped), typeof(AlicuotaIva), typeof(Configuracion), typeof(Presupuesto), typeof(PresupuestoLinea) })
+        foreach (var t in new[] { typeof(Venta), typeof(CobroVenta), typeof(Cuota), typeof(MovimientoCaja), typeof(MovimientoStock), typeof(LoteStock), typeof(Rollo), typeof(Gasto), typeof(TipoCesped), typeof(AlicuotaIva), typeof(Configuracion), typeof(Presupuesto), typeof(PresupuestoLinea) })
             foreach (var p in b.Entity(t).Metadata.GetProperties().Where(p => p.ClrType == typeof(decimal))) p.SetColumnType("decimal(18,2)");
         b.Entity<Cliente>().Property(x => x.Tipo).HasConversion<string>();
         b.Entity<Cliente>().Property(x => x.TipoDocumento).HasConversion<string>();
@@ -52,6 +54,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, IHttpCo
         b.Entity<Venta>().Property(x => x.Estado).HasConversion<string>();
         b.Entity<Venta>().Property(x => x.MonedaEntrega).HasConversion<string>();
         b.Entity<Venta>().Property(x => x.CotizacionEntrega).HasColumnType("decimal(18,4)");
+        b.Entity<Venta>().Property(x => x.CotizacionVenta).HasColumnType("decimal(18,4)");
         b.Entity<Venta>().Property(x => x.FormaPago).HasConversion<string>(); b.Entity<Cuota>().Property(x => x.Estado).HasConversion<string>();
         b.Entity<MovimientoCaja>().Property(x => x.Tipo).HasConversion<string>();
         b.Entity<MovimientoCaja>().Property(x => x.MonedaCobro).HasConversion<string>();
@@ -105,6 +108,15 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, IHttpCo
         b.Entity<Venta>().HasOne(x => x.Deposito).WithMany().HasForeignKey(x => x.DepositoId).OnDelete(DeleteBehavior.Restrict);
         b.Entity<Venta>().HasIndex(x => new { x.SucursalId, x.FechaVenta });
         b.Entity<Venta>().HasMany(x => x.Cuotas).WithOne(x => x.Venta).HasForeignKey(x => x.VentaId).OnDelete(DeleteBehavior.Cascade);
+        b.Entity<Venta>().HasMany(x => x.Cobros).WithOne(x => x.Venta).HasForeignKey(x => x.VentaId).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<CobroVenta>().Property(x => x.MonedaCobro).HasConversion<string>();
+        b.Entity<CobroVenta>().Property(x => x.Cotizacion).HasColumnType("decimal(18,4)");
+        b.Entity<CobroVenta>().Property(x => x.MedioPago).HasMaxLength(100);
+        b.Entity<CobroVenta>().Property(x => x.Observaciones).HasMaxLength(500);
+        b.Entity<CobroVenta>().Property(x => x.MotivoAnulacion).HasMaxLength(500);
+        b.Entity<CobroVenta>().HasIndex(x => new { x.SucursalId, x.VentaId });
+        b.Entity<CobroVenta>().HasIndex(x => new { x.SucursalId, x.NumeroRecibo }).IsUnique();
+        b.Entity<CobroVenta>().HasOne(x => x.Sucursal).WithMany().HasForeignKey(x => x.SucursalId).OnDelete(DeleteBehavior.Restrict);
         b.Entity<Remito>().Property(x => x.ReceptorNombre).HasMaxLength(200);
         b.Entity<Remito>().Property(x => x.ReceptorDomicilio).HasMaxLength(250);
         b.Entity<Remito>().Property(x => x.ReceptorLocalidad).HasMaxLength(150);
@@ -124,6 +136,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, IHttpCo
         b.Entity<Cuota>().HasIndex(x => new { x.SucursalId, x.FechaVencimiento });
         b.Entity<MovimientoCaja>().HasOne<Venta>().WithMany().HasForeignKey(x => x.VentaId).OnDelete(DeleteBehavior.Restrict);
         b.Entity<MovimientoCaja>().HasOne<Cuota>().WithMany().HasForeignKey(x => x.CuotaId).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<MovimientoCaja>().HasOne<CobroVenta>().WithMany().HasForeignKey(x => x.CobroVentaId).OnDelete(DeleteBehavior.Restrict);
         b.Entity<MovimientoCaja>().HasOne(x => x.Sucursal).WithMany().HasForeignKey(x => x.SucursalId).OnDelete(DeleteBehavior.Restrict);
         b.Entity<MovimientoCaja>().HasIndex(x => new { x.SucursalId, x.Fecha });
         b.Entity<MovimientoCaja>().HasIndex(x => new { x.SucursalId, x.NumeroRecibo }).IsUnique()
@@ -241,7 +254,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, IHttpCo
     private static bool IsSensitive(string name) => name.Contains("Password", StringComparison.OrdinalIgnoreCase) || name.Contains("Hash", StringComparison.OrdinalIgnoreCase);
 
     private static object? Printable(object? value) => value is DateOnly date ? date.ToString("yyyy-MM-dd") : value;
-    private static string ModuleFor(string entity) => entity switch { "Venta" or "Remito" => "Ventas", "Cuota" => "Cuotas", "MovimientoCaja" => "Caja", "MovimientoStock" or "LoteStock" or "Rollo" or "Importacion" => "Stock", "Gasto" => "Gastos", "Presupuesto" or "PresupuestoLinea" => "Presupuestos", "Cliente" => "Clientes", "Usuario" => "Usuarios", "Deposito" or "Sucursal" or "SucursalLogo" or "TipoCesped" or "AlicuotaIva" or "Configuracion" => "Administración", _ => entity };
+    private static string ModuleFor(string entity) => entity switch { "Venta" or "Remito" or "CobroVenta" => "Ventas", "Cuota" => "Cuotas", "MovimientoCaja" => "Caja", "MovimientoStock" or "LoteStock" or "Rollo" or "Importacion" => "Stock", "Gasto" => "Gastos", "Presupuesto" or "PresupuestoLinea" => "Presupuestos", "Cliente" => "Clientes", "Usuario" => "Usuarios", "Deposito" or "Sucursal" or "SucursalLogo" or "TipoCesped" or "AlicuotaIva" or "Configuracion" => "Administración", _ => entity };
 }
 
 public static class SeedData

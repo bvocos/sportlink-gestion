@@ -125,12 +125,34 @@ public sealed class Venta : AuditableEntity, ISucursalScoped
     public decimal MontoEntrega { get; set; }
     public MonedaCaja MonedaEntrega { get; set; } = MonedaCaja.USD;
     public decimal? CotizacionEntrega { get; set; }
+    public decimal? CotizacionVenta { get; set; }
+    public bool SeguimientoSaldo { get; set; }
     public decimal CostoCompraUnitario { get; set; } public decimal CostoCompraTotal { get; set; }
     public decimal CostoEnvio { get; set; } public decimal OtrosCostos { get; set; } public decimal Iva { get; set; }
     public decimal GananciaBruta { get; set; } public decimal GananciaNeta { get; set; } public decimal Margen { get; set; }
     public FormaPago FormaPago { get; set; } public int? CantidadCuotas { get; set; } public EstadoVenta Estado { get; set; }
     public string? Observaciones { get; set; } public List<Cuota> Cuotas { get; set; } = [];
     public List<Remito> Remitos { get; set; } = [];
+    public List<CobroVenta> Cobros { get; set; } = [];
+}
+public sealed class CobroVenta : AuditableEntity, ISucursalScoped
+{
+    public Guid SucursalId { get; set; } public Sucursal Sucursal { get; set; } = null!;
+    public Guid VentaId { get; set; } public Venta Venta { get; set; } = null!;
+    public DateOnly FechaCobro { get; set; }
+    public decimal ImporteUsd { get; set; }
+    public MonedaCaja MonedaCobro { get; set; } = MonedaCaja.USD;
+    public decimal ImporteMonedaCobro { get; set; }
+    public decimal? Cotizacion { get; set; }
+    public string MedioPago { get; set; } = "";
+    public string? Observaciones { get; set; }
+    public Guid? MovimientoCajaId { get; set; }
+    public int NumeroRecibo { get; set; }
+    public bool Anulado { get; set; }
+    public string? AnuladoPor { get; set; }
+    public DateTimeOffset? AnuladoAt { get; set; }
+    public string? MotivoAnulacion { get; set; }
+    public Guid? MovimientoAnulacionId { get; set; }
 }
 public sealed class Remito : AuditableEntity, ISucursalScoped
 {
@@ -166,6 +188,7 @@ public sealed class MovimientoCaja : AuditableEntity, ISucursalScoped
     public decimal ImporteMonedaCobro { get; set; }
     public decimal? CotizacionAplicada { get; set; }
     public string Concepto { get; set; } = ""; public string Usuario { get; set; } = "sistema"; public Guid? VentaId { get; set; } public Guid? CuotaId { get; set; }
+    public Guid? CobroVentaId { get; set; }
 }
 public sealed class Gasto : AuditableEntity, ISucursalScoped
 {

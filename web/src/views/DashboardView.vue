@@ -21,6 +21,8 @@ type DashboardData = {
   saldo: number
   cuotasPendientes: number
   entregasPendientes: number
+  ventasConSaldo: { cantidad: number; totalUsd: number } | null
+  deudaClientes: { totalUsd: number; vencidaUsd: number } | null
   series: DashboardSeriesPoint[]
   periodo: { desde: string; hasta: string }
 }
@@ -28,7 +30,7 @@ type DashboardData = {
 const emptyData = (): DashboardData => ({
   total: { cantidad: 0, facturacion: 0, metros: 0, gananciaNeta: 0 },
   finalizadas: { cantidad: 0, facturacion: 0 }, enCurso: { cantidad: 0, facturacion: 0 },
-  saldo: 0, cuotasPendientes: 0, entregasPendientes: 0, series: [], periodo: { desde: '', hasta: '' },
+  saldo: 0, cuotasPendientes: 0, entregasPendientes: 0, ventasConSaldo: null, deudaClientes: null, series: [], periodo: { desde: '', hasta: '' },
 })
 const data = ref<DashboardData>(emptyData())
 const loading = ref(false)
@@ -156,6 +158,16 @@ onMounted(load)
           <strong>{{ money(data.saldo) }}</strong>
           <em>Actualizado al momento</em>
         </article>
+        <RouterLink v-if="data.ventasConSaldo && auth.can('ventas')" class="card metric metric-link" to="/ventas?cobro=pendiente">
+          <small>Ventas con saldo pendiente</small>
+          <strong>{{ money(data.ventasConSaldo.totalUsd) }}</strong>
+          <em>{{ pluralize(data.ventasConSaldo.cantidad, 'venta', 'ventas') }} · Ver detalle →</em>
+        </RouterLink>
+        <RouterLink v-if="data.deudaClientes && auth.can('clientes')" class="card metric metric-link" to="/clientes?deuda=1">
+          <small>Deuda total de clientes</small>
+          <strong>{{ money(data.deudaClientes.totalUsd) }}</strong>
+          <em>Vencida: {{ money(data.deudaClientes.vencidaUsd) }} · Ver deudores →</em>
+        </RouterLink>
       </div>
 
       <div v-if="hasChartData" class="dashboard-charts">

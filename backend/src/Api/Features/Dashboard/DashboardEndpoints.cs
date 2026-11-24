@@ -1,6 +1,7 @@
 using Api.Shared.Database;
 using Api.Features.Auth;
 using Api.Features.Rentabilidad;
+using Api.Features.Ventas;
 using Microsoft.EntityFrameworkCore;
 using Api.Shared.Common;
 using System.Security.Claims;
@@ -115,6 +116,28 @@ public static class DashboardEndpoints
         var entregasPendientes = await VisibleQuery(db.Ventas.AsNoTracking(), user, sucursalId)
             .CountAsync(x => x.Estado == EstadoVenta.Futura, ct);
 
+        var puedeVerMontos = VentaEndpoints.PuedeVerMontos(user);
+        var ventasSaldoQuery = VisibleQuery(db.Ventas.AsNoTracking(), user, sucursalId)
+            .Where(x => x.SeguimientoSaldo && x.FormaPago != FormaPago.Cuotas && x.Estado != EstadoVenta.Cancelada)
+            .Select(x => new
+            {
+                saldo = x.PrecioTotal - x.MontoEntrega -
+                    (x.Cobros.Where(c => !c.Anulado).Sum(c => (decimal?)c.ImporteUsd) ?? 0m)
+            }).Where(x => x.saldo > 0);
+        var ventasConSaldo = puedeVerMontos
+            ? await ventasSaldoQuery.GroupBy(_ => 1).Select(g => new { cantidad = g.Count(), totalUsd = g.Sum(x => x.saldo) })
+                .SingleOrDefaultAsync(ct)
+            : null;
+        var cuotasDeuda = db.Cuotas.AsNoTracking().WhereVisibleParaUsuario(user, sucursalId)
+            .Where(x => x.Venta.Estado != EstadoVenta.Cancelada && x.ImportePagado < x.ImportePactado);
+        var deudaCuotasUsd = puedeVerMontos
+            ? await cuotasDeuda.SumAsync(x => (decimal?)(x.ImportePactado - x.ImportePagado), ct) ?? 0m
+            : 0m;
+        var deudaVencidaUsd = puedeVerMontos
+            ? await cuotasDeuda.Where(x => x.FechaVencimiento < today)
+                .SumAsync(x => (decimal?)(x.ImportePactado - x.ImportePagado), ct) ?? 0m
+            : 0m;
+
         var clientes = await db.Clientes.AsNoTracking().WhereVisibleParaUsuario(user).OrderBy(x => x.Apellido).ThenBy(x => x.Nombre)
             .Select(x => new { x.Id, nombre = x.Nombre + " " + x.Apellido }).ToListAsync(ct);
         var productos = await SucursalDepositoService.VisibleProducts(db.TiposCesped.AsNoTracking(), user,
@@ -142,6 +165,12 @@ public static class DashboardEndpoints
             saldo,
             cuotasPendientes,
             entregasPendientes,
+            ventasConSaldo = puedeVerMontos ? new { cantidad = ventasConSaldo?.cantidad ?? 0, totalUsd = ventasConSaldo?.totalUsd ?? 0m } : null,
+            deudaClientes = puedeVerMontos ? new
+            {
+                totalUsd = (ventasConSaldo?.totalUsd ?? 0m) + deudaCuotasUsd,
+                vencidaUsd = deudaVencidaUsd
+            } : null,
             series,
             ventas
         });

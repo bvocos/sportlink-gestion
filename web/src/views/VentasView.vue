@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, watch, computed, reactive } from "vue";
+import { useRoute } from "vue-router";
 import AppButton from "@/shared/components/AppButton.vue";
 import Column from "primevue/column";
 import DataTable from "primevue/datatable";
@@ -13,7 +14,7 @@ import Select from "primevue/select";
 import Tag from "primevue/tag";
 import Textarea from "primevue/textarea";
 import AppIcon from "@/shared/components/AppIcon.vue";
-import { faPen, faTrash, faTruck } from "@/shared/icons";
+import { faPen, faTrash, faTruck, faWallet } from "@/shared/icons";
 import { http, apiErrorMessage } from "@/shared/api/httpClient";
 import ClienteAutocomplete from "@/shared/components/ClienteAutocomplete.vue";
 import { formatCurrency as money } from "@/shared/formatters";
@@ -50,6 +51,17 @@ const canCreateRemito = computed(() => auth.can("ventas", "crear"));
 const condicionIvaOptions = condicionIvaLabels;
 const currencyOptions = [{ label: "Dólares", value: "USD" }, { label: "Pesos", value: "ARS" }];
 const blueVenta = ref<number | null>(null);
+const route = useRoute();
+const cobrosVisible = ref(false);
+const cobrosLoading = ref(false);
+const cobrosSaving = ref(false);
+const cobrosError = ref('');
+const cobrosData = ref<any | null>(null);
+const cobroSale = ref<any | null>(null);
+const cobroForm = ref({ importeUsd: 0, fechaCobro: new Date().toISOString().slice(0, 10), monedaCobro: 'USD' as MonedaCaja, cotizacion: null as number | null, medioPago: 'Efectivo', observaciones: '' });
+const anularId = ref<string | null>(null);
+const motivoAnulacion = ref('');
+const medioPagoOptions = ['Efectivo', 'Transferencia', 'Cheque', 'Tarjeta', 'Otros'];
 const blankRemito = () => ({
   receptorNombre: "",
   receptorDomicilio: "",
@@ -72,7 +84,7 @@ const periodoOptions = [
 const estadoOptions = ["Confirmada", "Futura", "Entregada", "Cancelada"];
 const formaPagoOptions = ["Contado", "Transferencia", "Cheque", "Cuotas", "Otros"];
 
-const filters = reactive({ periodo: "month", ...monthRange(), clienteId: "", tipoCespedId: "" });
+const filters = reactive({ periodo: "month", ...monthRange(), clienteId: "", tipoCespedId: "", cobro: route.query.cobro === 'pendiente' || route.query.cobro === 'cobrada' ? String(route.query.cobro) : "" });
 const filterPeriodLabel = computed(() => formatDateRangeLabel(filters.desde, filters.hasta));
 const blank = () => ({
   clienteId: "",
@@ -159,7 +171,7 @@ function customDates() { filters.periodo = "custom"; }
 
 function resetFilters() {
   filters.periodo = "month";
-  Object.assign(filters, monthRange(), { clienteId: "", tipoCespedId: "" });
+  Object.assign(filters, monthRange(), { clienteId: "", tipoCespedId: "", cobro: "" });
 }
 
 function onPage(event: DataTablePageEvent) {
@@ -171,7 +183,7 @@ function onPage(event: DataTablePageEvent) {
 async function loadSales() {
   loading.value = true; loadError.value = "";
   try {
-    const response = await http.get("/ventas", { params: { page: page.value, pageSize: pageSize.value, desde: filters.desde || undefined, hasta: filters.hasta || undefined, clienteId: filters.clienteId || undefined, tipoCespedId: filters.tipoCespedId || undefined } });
+    const response = await http.get("/ventas", { params: { page: page.value, pageSize: pageSize.value, desde: filters.desde || undefined, hasta: filters.hasta || undefined, clienteId: filters.clienteId || undefined, tipoCespedId: filters.tipoCespedId || undefined, cobro: filters.cobro || undefined } });
     items.value = response.data.items;
     total.value = response.data.total;
   } catch { loadError.value = "No se pudieron cargar las ventas."; }
@@ -267,10 +279,50 @@ async function remove(v: any) {
 async function deliver(id: string) {
   try {
     await http.post(`/ventas/${id}/entregar`);
+    const delivered = items.value.find(x => x.id === id);
+    if (delivered?.saldoUsd > 0) notify(`Se entregó con saldo pendiente de ${money(delivered.saldoUsd)}.`);
     await loadSales();
   } catch (e: any) {
     notify(e.response?.data?.message ?? "No se pudo actualizar.");
   }
+}
+
+async function loadCobros() {
+  if (!cobroSale.value) return;
+  cobrosLoading.value = true; cobrosError.value = '';
+  try { cobrosData.value = (await http.get(`/ventas/${cobroSale.value.id}/cobros`)).data; }
+  catch (e) { cobrosError.value = apiErrorMessage(e, 'No se pudieron cargar los cobros.'); }
+  finally { cobrosLoading.value = false; }
+}
+async function openCobros(v: any) {
+  cobroSale.value = v; cobrosVisible.value = true; anularId.value = null;
+  await loadCobros();
+  cobroForm.value = { importeUsd: cobrosData.value?.saldoUsd ?? 0, fechaCobro: new Date().toISOString().slice(0, 10), monedaCobro: 'USD', cotizacion: cobrosData.value?.cotizacionReferencia ?? blueVenta.value, medioPago: 'Efectivo', observaciones: '' };
+}
+async function registrarCobro() {
+  if (!cobroSale.value || cobrosSaving.value) return;
+  cobrosSaving.value = true; cobrosError.value = '';
+  try {
+    const created = (await http.post(`/ventas/${cobroSale.value.id}/cobros`, cobroForm.value)).data;
+    await Promise.all([loadCobros(), loadSales()]);
+    notify(`Cobro registrado. Recibo N° ${String(created.numeroRecibo).padStart(8, '0')}.`, 'success');
+  } catch (e) { cobrosError.value = apiErrorMessage(e, 'No se pudo registrar el cobro.'); }
+  finally { cobrosSaving.value = false; }
+}
+async function activarSeguimiento() {
+  if (!cobroSale.value || !await confirmAction({ title: 'Controlar saldo', message: '¿Querés comenzar a controlar el saldo de esta venta?', confirmText: 'Activar' })) return;
+  try { await http.post(`/ventas/${cobroSale.value.id}/seguimiento-saldo`); await Promise.all([loadCobros(), loadSales()]); }
+  catch (e) { cobrosError.value = apiErrorMessage(e, 'No se pudo activar el seguimiento.'); }
+}
+async function anularCobro() {
+  if (!cobroSale.value || !anularId.value || !motivoAnulacion.value.trim()) return;
+  try { await http.post(`/ventas/${cobroSale.value.id}/cobros/${anularId.value}/anular`, { motivo: motivoAnulacion.value }); anularId.value = null; motivoAnulacion.value = ''; await Promise.all([loadCobros(), loadSales()]); }
+  catch (e) { cobrosError.value = apiErrorMessage(e, 'No se pudo anular el cobro.'); }
+}
+async function descargarRecibo(cobro: any) {
+  if (!cobroSale.value) return;
+  const response = await http.get(`/ventas/${cobroSale.value.id}/cobros/${cobro.id}/recibo`, { responseType: 'blob' });
+  const url = URL.createObjectURL(response.data); const a = document.createElement('a'); a.href = url; a.download = `Recibo-${cobro.numeroRecibo}.pdf`; a.click(); URL.revokeObjectURL(url);
 }
 
 async function openRemito(v: any) {
@@ -404,6 +456,14 @@ onMounted(load);
           />
         </div>
         <div class="field col-12 md:col-6 lg:col-3 filter-actions flex align-items-end">
+          <div class="w-full">
+            <label for="cobroFiltro">Cobro</label>
+            <Select id="cobroFiltro" v-model="filters.cobro" :options="[
+              { label: 'Todas', value: '' }, { label: 'Con saldo pendiente', value: 'pendiente' }, { label: 'Cobradas', value: 'cobrada' }
+            ]" option-label="label" option-value="value" />
+          </div>
+        </div>
+        <div class="field col-12 md:col-6 lg:col-3 filter-actions flex align-items-end">
           <AppButton type="button" label="Restablecer" icon="pi pi-filter-slash" severity="secondary" @click="resetFilters" />
         </div>
       </div>
@@ -458,9 +518,19 @@ onMounted(load);
             <Tag :value="v.estado" :severity="saleStatusSeverity(v.estado)" />
           </template>
         </Column>
+        <Column v-if="auth.canVerMontos('ventas')" header="Cobro">
+          <template #body="{ data: v }">
+            <Tag v-if="v.seguimientoSaldo && v.saldoUsd > 0" :value="`Debe ${money(v.saldoUsd)}`" severity="warn" />
+            <Tag v-else-if="v.seguimientoSaldo" value="Cobrada" severity="success" />
+          </template>
+        </Column>
         <Column header="Acciones" body-class="cell-actions">
           <template #body="{ data: v }">
             <div class="flex gap-1 flex-wrap">
+              <AppButton v-if="v.formaPago !== 'Cuotas' && v.estado !== 'Cancelada' && auth.canVerMontos('ventas')"
+                text rounded severity="secondary" tooltip="Cobros" aria-label="Cobros" @click="openCobros(v)">
+                <AppIcon :icon="faWallet" />
+              </AppButton>
               <AppButton
                 v-if="!['Entregada', 'Cancelada'].includes(v.estado)"
                 text
@@ -727,6 +797,46 @@ onMounted(load);
         <Message v-else-if="!canCreateRemito && !remitos.length" severity="info" :closable="false">
           No hay remitos generados para esta venta.
         </Message>
+      </div>
+    </Dialog>
+
+    <Dialog v-model:visible="cobrosVisible" modal header="Cobros de la venta" :style="{ width: 'min(980px, 96vw)' }">
+      <Message v-if="cobrosError" severity="error" :closable="false" class="mb-3">{{ cobrosError }}</Message>
+      <Message v-if="cobrosLoading" severity="info" :closable="false">Cargando cobros…</Message>
+      <div v-else-if="cobrosData" class="flex flex-column gap-3">
+        <div class="grid">
+          <div class="col-12 md:col-3"><small>Cliente</small><b class="block">{{ cobrosData.cliente }}</b></div>
+          <div class="col-6 md:col-3"><small>Total</small><b class="block">{{ money(cobrosData.precioTotalUsd) }}</b></div>
+          <div class="col-6 md:col-3"><small>Cobrado</small><b class="block">{{ money(cobrosData.cobradoUsd) }}</b></div>
+          <div class="col-12 md:col-3"><small>Saldo</small><b class="block text-orange-600">{{ money(cobrosData.saldoUsd) }}</b></div>
+        </div>
+        <div class="surface-200 border-round overflow-hidden" style="height:.65rem"><div class="bg-green-500 h-full" :style="{ width: `${Math.min(100, cobrosData.precioTotalUsd ? cobrosData.cobradoUsd / cobrosData.precioTotalUsd * 100 : 0)}%` }" /></div>
+        <Message v-if="!cobrosData.seguimientoSaldo" severity="warn" :closable="false">Esta venta no tiene seguimiento de saldo.<AppButton v-if="auth.can('ventas', 'editar')" label="Controlar saldo de esta venta" size="small" class="ml-2" @click="activarSeguimiento" /></Message>
+        <div class="table-panel">
+          <DataTable :value="[{ id:'entrega', fechaCobro:cobrosData.entrega.fecha, importeUsd:cobrosData.entrega.montoUsd, importeMonedaCobro:cobrosData.entrega.importeMoneda, monedaCobro:cobrosData.entrega.moneda, cotizacion:cobrosData.entrega.cotizacion, medioPago:'Entrega inicial', inicial:true }, ...cobrosData.cobros]" striped-rows>
+            <Column field="fechaCobro" header="Fecha" /><Column field="medioPago" header="Concepto / medio" />
+            <Column header="Recibido"><template #body="{ data:c }">{{ c.monedaCobro }} {{ Number(c.importeMonedaCobro).toLocaleString('es-AR', { minimumFractionDigits:2 }) }}</template></Column>
+            <Column header="USD aplicado"><template #body="{ data:c }"><span :class="{ 'line-through text-color-secondary':c.anulado }">{{ money(c.importeUsd) }}</span></template></Column>
+            <Column header="Cotización"><template #body="{ data:c }">{{ c.cotizacion ? Number(c.cotizacion).toLocaleString('es-AR') : '—' }}</template></Column>
+            <Column header="Recibo"><template #body="{ data:c }">{{ c.numeroRecibo ? String(c.numeroRecibo).padStart(8, '0') : '—' }}</template></Column>
+            <Column header="Estado"><template #body="{ data:c }"><Tag :value="c.anulado ? 'Anulado' : 'Vigente'" :severity="c.anulado ? 'danger' : 'success'" /></template></Column>
+            <Column header=""><template #body="{ data:c }"><div v-if="!c.inicial && !c.anulado" class="flex gap-1"><AppButton icon="pi pi-file-pdf" text rounded tooltip="Recibo PDF" @click="descargarRecibo(c)" /><AppButton icon="pi pi-ban" text rounded severity="danger" tooltip="Anular" @click="anularId = c.id" /></div></template></Column>
+          </DataTable>
+        </div>
+        <form v-if="cobrosData.seguimientoSaldo && cobrosData.saldoUsd > 0" class="card p-3" @submit.prevent="registrarCobro">
+          <h4 class="mt-0">Registrar cobro</h4>
+          <div class="grid formgrid p-fluid">
+            <div class="field col-12 md:col-3"><label>Importe USD</label><InputNumber v-model="cobroForm.importeUsd" :min="0.01" :max="cobrosData.saldoUsd" :min-fraction-digits="2" required /></div>
+            <div class="field col-12 md:col-3"><label>Fecha</label><AppDatePicker v-model="cobroForm.fechaCobro" required /></div>
+            <div class="field col-12 md:col-3"><label>Cobrado en</label><Select v-model="cobroForm.monedaCobro" :options="currencyOptions" option-label="label" option-value="value" /></div>
+            <div class="field col-12 md:col-3"><label>Cotización</label><InputNumber v-model="cobroForm.cotizacion" :min="0.01" :min-fraction-digits="2" /></div>
+            <div class="field col-12 md:col-4"><label>Medio de pago</label><Select v-model="cobroForm.medioPago" :options="medioPagoOptions" /></div>
+            <div class="field col-12 md:col-8"><label>Observación</label><InputText v-model="cobroForm.observaciones" maxlength="500" /></div>
+          </div>
+          <small class="block mb-2">Si cargás un cobro de días anteriores, ajustá la cotización a la de ese día.</small>
+          <div class="text-right"><AppButton type="submit" label="Registrar cobro" :loading="cobrosSaving" /></div>
+        </form>
+        <form v-if="anularId" class="card p-3" @submit.prevent="anularCobro"><label>Motivo de anulación</label><Textarea v-model="motivoAnulacion" rows="2" maxlength="500" class="w-full mb-2" required /><div class="text-right"><AppButton label="Confirmar anulación" severity="danger" type="submit" /></div></form>
       </div>
     </Dialog>
   </section>

@@ -132,6 +132,83 @@ namespace Api.Migrations
                     b.ToTable("Clientes");
                 });
 
+            modelBuilder.Entity("Api.Shared.Database.CobroVenta", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("Anulado")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset?>("AnuladoAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("AnuladoPor")
+                        .HasColumnType("citext");
+
+                    b.Property<decimal?>("Cotizacion")
+                        .HasColumnType("decimal(18,4)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateOnly>("FechaCobro")
+                        .HasColumnType("date");
+
+                    b.Property<decimal>("ImporteMonedaCobro")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal>("ImporteUsd")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<string>("MedioPago")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("citext");
+
+                    b.Property<string>("MonedaCobro")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("MotivoAnulacion")
+                        .HasMaxLength(500)
+                        .HasColumnType("citext");
+
+                    b.Property<Guid?>("MovimientoAnulacionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("MovimientoCajaId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("NumeroRecibo")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Observaciones")
+                        .HasMaxLength(500)
+                        .HasColumnType("citext");
+
+                    b.Property<Guid>("SucursalId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("VentaId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("VentaId");
+
+                    b.HasIndex("SucursalId", "NumeroRecibo")
+                        .IsUnique();
+
+                    b.HasIndex("SucursalId", "VentaId");
+
+                    b.ToTable("CobrosVenta");
+                });
+
             modelBuilder.Entity("Api.Shared.Database.Configuracion", b =>
                 {
                     b.Property<Guid>("Id")
@@ -390,6 +467,9 @@ namespace Api.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("CobroVentaId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("Concepto")
                         .IsRequired()
                         .HasColumnType("citext");
@@ -437,6 +517,8 @@ namespace Api.Migrations
                         .HasColumnType("uuid");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("CobroVentaId");
 
                     b.HasIndex("CuotaId");
 
@@ -1070,6 +1152,9 @@ namespace Api.Migrations
                     b.Property<decimal?>("CotizacionEntrega")
                         .HasColumnType("decimal(18,4)");
 
+                    b.Property<decimal?>("CotizacionVenta")
+                        .HasColumnType("decimal(18,4)");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -1124,6 +1209,9 @@ namespace Api.Migrations
                     b.Property<decimal>("PrecioUnitario")
                         .HasColumnType("decimal(18,2)");
 
+                    b.Property<bool>("SeguimientoSaldo")
+                        .HasColumnType("boolean");
+
                     b.Property<Guid>("SucursalId")
                         .HasColumnType("uuid");
 
@@ -1176,6 +1264,25 @@ namespace Api.Migrations
                         .IsRequired();
 
                     b.Navigation("Sucursal");
+                });
+
+            modelBuilder.Entity("Api.Shared.Database.CobroVenta", b =>
+                {
+                    b.HasOne("Api.Shared.Database.Sucursal", "Sucursal")
+                        .WithMany()
+                        .HasForeignKey("SucursalId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Api.Shared.Database.Venta", "Venta")
+                        .WithMany("Cobros")
+                        .HasForeignKey("VentaId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Sucursal");
+
+                    b.Navigation("Venta");
                 });
 
             modelBuilder.Entity("Api.Shared.Database.Cuota", b =>
@@ -1278,6 +1385,11 @@ namespace Api.Migrations
 
             modelBuilder.Entity("Api.Shared.Database.MovimientoCaja", b =>
                 {
+                    b.HasOne("Api.Shared.Database.CobroVenta", null)
+                        .WithMany()
+                        .HasForeignKey("CobroVentaId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("Api.Shared.Database.Cuota", null)
                         .WithMany()
                         .HasForeignKey("CuotaId")
@@ -1553,6 +1665,8 @@ namespace Api.Migrations
 
             modelBuilder.Entity("Api.Shared.Database.Venta", b =>
                 {
+                    b.Navigation("Cobros");
+
                     b.Navigation("Cuotas");
 
                     b.Navigation("Remitos");
