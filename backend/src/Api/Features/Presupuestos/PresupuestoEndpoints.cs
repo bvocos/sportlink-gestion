@@ -2,6 +2,7 @@ using Api.Shared.Database;
 using Api.Features.Auth;
 using Api.Shared.Common;
 using System.Data;
+using System.Globalization;
 using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
 using QuestPDF.Fluent;
@@ -204,14 +205,15 @@ internal static class PresupuestoPdf
 {
     private const string Green = "#173F32"; private const string Lime = "#79C817"; private const string Orange = "#F04A22";
     // La opción contado muestra solo el descuento: el IVA no se informa en el comprobante.
-    internal static string CashDetailText(Presupuesto p) => $"Descuento {p.DescuentoContadoPorcentaje:N2}%";
+    private static readonly CultureInfo Argentina = CultureInfo.GetCultureInfo("es-AR");
+    internal static string CashDetailText(Presupuesto p) => $"Descuento {p.DescuentoContadoPorcentaje.ToString("N2", Argentina)}%";
     internal const string CashPaymentText ="Pago de contado en dólar billete o pesos en efectivo a cotización del dólar blue.";
     internal const string ListPriceTitle = "PRECIO DE LISTA";
     internal const string CashPriceTitle = "PRECIO CONTADO";
     internal static string ListPriceInitialText(decimal value) => $"Entrega inicial: {Usd(value)}";
     internal static string ListPriceBalanceText(decimal value) => $"Saldo a financiar: {Usd(value)}";
     internal const string PaymentClarificationText = "Opción contado: pago de contado en dólar billete o pesos en efectivo a cotización del dólar blue. Precio de lista: valores en dólares; las cuotas abonadas en pesos toman la cotización de venta del dólar blue del día del pago.";
-    private static string Usd(decimal value) => $"USD {value:N2}";
+    private static string Usd(decimal value) => $"USD {value.ToString("N2", Argentina)}";
     public static byte[] Generate(Presupuesto p, string assets, SucursalBranding branding)
     {
         QuestPDF.Settings.License = LicenseType.Evaluation;
@@ -251,7 +253,7 @@ internal static class PresupuestoPdf
                         {
                             t.ColumnsDefinition(x => { x.RelativeColumn(3); x.RelativeColumn(); });
                             t.Header(h => { foreach (var s in new[] { "Producto", "Metros solicitados" }) h.Cell().Background(Green).Padding(4).Text(s).FontSize(7).FontColor(Colors.White).Bold(); });
-                            foreach (var l in p.Lineas) { t.Cell().BorderBottom(1).BorderColor("#DDE5DF").Padding(4).Text(l.Producto).FontSize(7.5f); t.Cell().BorderBottom(1).BorderColor("#DDE5DF").Padding(4).AlignRight().Text($"{l.CantidadM2:N2} m²").FontSize(7.5f).Bold(); }
+                            foreach (var l in p.Lineas) { t.Cell().BorderBottom(1).BorderColor("#DDE5DF").Padding(4).Text(l.Producto).FontSize(7.5f); t.Cell().BorderBottom(1).BorderColor("#DDE5DF").Padding(4).AlignRight().Text($"{l.CantidadM2.ToString("N2", Argentina)} m²").FontSize(7.5f).Bold(); }
                         });
                         box.Item().PaddingTop(5).Row(r =>
                         {
