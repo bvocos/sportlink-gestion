@@ -228,7 +228,7 @@ internal static class PresupuestoPdf
                     c.Item().Row(r =>
                     {
                         if (branding.Logo is not null)
-                            r.ConstantItem(145).Height(42).Background(Colors.White).Padding(4)
+                            r.ConstantItem(145).Height(42).AlignMiddle()
                                 .Image(branding.Logo).FitArea();
                         else
                             r.ConstantItem(145).Height(42).AlignMiddle().Text(branding.RazonSocial).FontSize(15).FontColor(Colors.White).Bold();
