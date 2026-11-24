@@ -16,6 +16,7 @@ import { auth } from '@/auth'
 import { http, apiErrorMessage } from '@/shared/api/httpClient'
 import { pluralize } from '@/shared/formatters'
 import { TABLE_ROWS, TABLE_ROWS_OPTIONS, tableFirst, type DataTablePageEvent } from '@/shared/tablePagination'
+import { isoDate } from '@/shared/dateFilters'
 
 type StockProduct = { tipoCespedId: string; nombre: string; stockActualM2: number; controlPorLotes: boolean; esImportado: boolean; colores: string[]; baldes: any[] }
 type StockDeposito = { id: string; nombre: string; productos: StockProduct[]; permiteRegistrarIngreso: boolean }
@@ -37,7 +38,7 @@ const filters = ref({ depositoId: '', tipoCespedId: '', desde: '', hasta: '' })
 const form = ref({ depositoId: '', tipoCespedId: '', importacionId: null as string | null, color: '', cantidadM2: 0, nuevoStockM2: 0, observaciones: '', rollos: newRolls() })
 const importaciones = ref<any[]>([])
 const quickImportVisible = ref(false)
-const quickImport = ref({ codigo: '', numeroDespacho: '', fecha: new Date().toISOString().slice(0, 10), observaciones: '' })
+const quickImport = ref({ codigo: '', numeroDespacho: '', fecha: isoDate(), observaciones: '' })
 const reassignVisible = ref(false)
 const reassign = ref({ depositoId: '', tipoCespedId: '', haciaImportacionId: null as string | null, haciaColor: '', cantidadM2: 0, observaciones: '' })
 let lastImportacionId: string | null = null
@@ -403,7 +404,7 @@ onMounted(load)
             <label>Código de importación</label>
             <Select v-model="form.importacionId" :options="importOptions" option-label="codigo" option-value="id"
               filter placeholder="Seleccionar importación" required @change="importChanged" />
-            <AppButton type="button" label="+ Nueva importación" text size="small" @click="quickImport = { codigo: '', numeroDespacho: '', fecha: new Date().toISOString().slice(0, 10), observaciones: '' }; quickImportVisible = true" />
+            <AppButton type="button" label="+ Nueva importación" text size="small" @click="quickImport = { codigo: '', numeroDespacho: '', fecha: isoDate(), observaciones: '' }; quickImportVisible = true" />
           </div>
           <div v-if="selectedProduct?.esImportado && selectedProduct.colores.length && form.importacionId && !selectedProduct.controlPorLotes" class="field col-12 md:col-6">
             <label>Color</label>

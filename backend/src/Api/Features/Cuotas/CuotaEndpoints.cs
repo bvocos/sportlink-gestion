@@ -233,13 +233,7 @@ public static class CuotaEndpoints
         var sucursal = cuota.Sucursal!;
         var branding = await brandingService.GetAsync(sucursal.Id, ct);
         if (branding is null) return null;
-        var empresa = new ReciboEmisorDto(
-            branding.RazonSocial, branding.Domicilio, branding.Localidad, branding.Telefono,
-            branding.Email, branding.Cuit,
-            sucursal.InicioActividades?.ToString("dd/MM/yyyy") ?? "",
-            sucursal.IngresosBrutos ?? "", sucursal.CondicionIva ?? "");
         var cliente = cuota.Venta.Cliente;
-        var localidad = string.Join(", ", new[] { cliente.Localidad, cliente.Provincia }.Where(s => !string.IsNullOrWhiteSpace(s)));
         var dolarBlue = movimiento.MonedaCobro == MonedaCaja.USD ? await dolarBlueService.GetAsync(ct) : null;
 
         return new ReciboData(
@@ -249,14 +243,8 @@ public static class CuotaEndpoints
             NumeroRecibo: movimiento.NumeroRecibo,
             PuntoVenta: sucursal.PuntoVentaAfip,
             Fecha: cuota.FechaPago ?? FechaArgentina.Hoy(),
-            Empresa: empresa,
-            Cliente: new ReciboClienteDto(
-                NombreCompleto: $"{cliente.Apellido.ToUpper()}, {cliente.Nombre.ToUpper()}",
-                Domicilio: "",
-                Localidad: localidad,
-                Telefono: cliente.Telefono ?? "",
-                CategoriaFiscal: "CONSUMIDOR FINAL",
-                CUIT: ""),
+            Empresa: ReciboDataFactory.Emisor(sucursal, branding),
+            Cliente: ReciboDataFactory.Cliente(cliente),
             Cuota: new ReciboCuotaDto(
                 Numero: cuota.Numero,
                 TotalCuotas: cuota.Venta.CantidadCuotas,
@@ -309,7 +297,9 @@ internal sealed record ReciboEmisorDto(string RazonSocial, string Domicilio, str
 internal sealed record ReciboData(
     Guid SucursalId, bool TieneLogo, [property: JsonIgnore] byte[]? Logo,
     int? NumeroRecibo, int? PuntoVenta, DateOnly Fecha,
-    ReciboEmisorDto Empresa, ReciboClienteDto Cliente, ReciboCuotaDto Cuota, ReciboPagoDto Pago);
+    ReciboEmisorDto Empresa, ReciboClienteDto Cliente, ReciboCuotaDto Cuota, ReciboPagoDto Pago,
+    string? Concepto = null, string? Observaciones = null, decimal? SaldoRestante = null,
+    bool Anulado = false, string? MotivoAnulacion = null, DateOnly? FechaAnulacion = null);
 
 internal sealed record ReciboClienteDto(
     string NombreCompleto, string Domicilio, string Localidad,
@@ -320,6 +310,24 @@ internal sealed record ReciboCuotaDto(int Numero, int? TotalCuotas, string Produ
 internal sealed record ReciboPagoDto(
     decimal Importe, string MedioPago, string ImporteEnLetras, decimal? CotizacionDolarBlueVenta,
     MonedaCaja MonedaCobro = MonedaCaja.USD, decimal ImporteMonedaCobro = 0, decimal? CotizacionAplicada = null);
+
+internal static class ReciboDataFactory
+{
+    public static ReciboEmisorDto Emisor(Sucursal sucursal, SucursalBranding branding) => new(
+        branding.RazonSocial, branding.Domicilio, branding.Localidad, branding.Telefono,
+        branding.Email, branding.Cuit, sucursal.InicioActividades?.ToString("dd/MM/yyyy") ?? "",
+        sucursal.IngresosBrutos ?? "", sucursal.CondicionIva ?? "");
+
+    public static ReciboClienteDto Cliente(Cliente cliente)
+    {
+        var localidad = string.Join(", ", new[] { cliente.Localidad, cliente.Provincia }.Where(x => !string.IsNullOrWhiteSpace(x)));
+        var nombre = !string.IsNullOrWhiteSpace(cliente.RazonSocial)
+            ? cliente.RazonSocial.ToUpperInvariant()
+            : $"{cliente.Apellido.ToUpperInvariant()}, {cliente.Nombre.ToUpperInvariant()}";
+        return new(nombre, cliente.Domicilio ?? "", localidad, cliente.Telefono ?? "",
+            cliente.CondicionIva?.ToString() ?? "CONSUMIDOR FINAL", cliente.NumeroDocumento ?? "");
+    }
+}
 
 // ── PDF Generator ────────────────────────────────────────────────────────────────
 
@@ -444,9 +452,13 @@ internal static class CuotaReciboPdf
                 });
 
                 LabelRow("TELEFONOS:", d.Cliente.Telefono);
-                LabelRow("CONCEPTO:", $"PAGO A CUENTA {d.Cuota.Producto.ToUpper()}");
-                LabelRow("OBSERVACIONES:",
+                LabelRow("CONCEPTO:", d.Concepto ?? $"PAGO A CUENTA {d.Cuota.Producto.ToUpper()}");
+                LabelRow("OBSERVACIONES:", d.Observaciones ??
                     $"COBRO DE CUOTA {d.Cuota.Numero} DE {d.Cuota.TotalCuotas?.ToString() ?? "?"}");
+
+                if (d.Anulado)
+                    main.Item().BorderBottom(1).BorderColor(Colors.Red.Darken2).Background(Colors.Red.Lighten4)
+                        .Padding(7).AlignCenter().Text("ANULADO").FontColor(Colors.Red.Darken2).FontSize(18).Bold();
 
                 main.Item().BorderBottom(1).BorderColor(Colors.Grey.Darken4).Height(6);
 
@@ -467,6 +479,10 @@ internal static class CuotaReciboPdf
                 main.Item().BorderBottom(1).BorderColor(Colors.Grey.Lighten1)
                     .Padding(5).Text(exchangeText).FontSize(8);
 
+                if (d.SaldoRestante.HasValue)
+                    main.Item().BorderBottom(1).BorderColor(Colors.Grey.Lighten1)
+                        .Padding(5).AlignRight().Text($"SALDO RESTANTE: {M(d.SaldoRestante.Value)}").Bold();
+
                 for (var i = 0; i < 3; i++)
                     main.Item().BorderBottom(1).BorderColor(Colors.Grey.Lighten1).Height(14);
 
@@ -481,6 +497,11 @@ internal static class CuotaReciboPdf
                         rr.ConstantItem(115).Padding(4).AlignRight().Text(M(d.Pago.Importe)).Bold();
                     });
                 });
+
+                if (d.Anulado)
+                    main.Item().BorderTop(1).BorderColor(Colors.Red.Darken2).Padding(6)
+                        .Text($"ANULADO el {d.FechaAnulacion:dd/MM/yyyy}. Motivo: {d.MotivoAnulacion}")
+                        .FontColor(Colors.Red.Darken2).Bold();
 
                 // ── AMOUNT IN WORDS ──────────────────────────────────────────────
                 main.Item().BorderTop(1).BorderColor(Colors.Grey.Darken4).Padding(8)

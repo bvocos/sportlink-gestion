@@ -15,7 +15,7 @@ import { faPen, faTrash } from '@/shared/icons'
 import { http, apiErrorMessage } from '@/shared/api/httpClient'
 import { formatCurrency as money, pluralize } from '@/shared/formatters'
 import { confirmAction, notify } from '@/shared/uiFeedback'
-import { formatDateRangeLabel, monthRange } from '@/shared/dateFilters'
+import { formatDateRangeLabel, isoDate, monthRange } from '@/shared/dateFilters'
 import { isSearchFilterActive, searchQuery, useDebouncedSearch, useImmediateFilters } from '@/shared/composables/useFilterTriggers'
 import { TABLE_ROWS, TABLE_ROWS_OPTIONS, tableFirst, type DataTablePageEvent } from '@/shared/tablePagination'
 
@@ -34,7 +34,7 @@ const editingId = ref<string | null>(null)
 const saving = ref(false)
 const error = ref('')
 
-const blank = () => ({ fecha: new Date().toISOString().slice(0, 10), categoria: '', descripcion: '', importe: 0, observaciones: '' })
+const blank = () => ({ fecha: isoDate(), categoria: '', descripcion: '', importe: 0, observaciones: '' })
 const form = ref(blank())
 
 async function load(reset = false) {

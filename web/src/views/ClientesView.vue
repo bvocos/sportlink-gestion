@@ -21,6 +21,7 @@ import { useRoute } from 'vue-router'
 import { isSearchFilterActive, searchQuery, useDebouncedSearch } from '@/shared/composables/useFilterTriggers'
 import { TABLE_ROWS, TABLE_ROWS_OPTIONS, tableFirst, type DataTablePageEvent } from '@/shared/tablePagination'
 import { condicionIvaOptions, esCuitValido, esDniValido, normalizarDocumento, tipoDocumentoOptions } from '@/shared/fiscal'
+import { isoDate } from '@/shared/dateFilters'
 
 interface GeoOption { id: string; nombre: string }
 
@@ -53,7 +54,7 @@ const cuentaError = ref('')
 const blank = () => ({
   nombre: '', apellido: '', telefono: '', correo: '', localidad: '', provincia: '',
   localidadId: '', provinciaId: '', tipo: 'Particular',
-  fechaPrimerContacto: new Date().toISOString().slice(0, 10), observaciones: '',
+  fechaPrimerContacto: isoDate(), observaciones: '',
   razonSocial: '', tipoDocumento: null as string | null, numeroDocumento: '',
   condicionIva: null as string | null, domicilio: '', codigoPostal: '',
 })

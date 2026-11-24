@@ -11,6 +11,7 @@ import Textarea from 'primevue/textarea'
 import { http, apiErrorMessage } from '@/shared/api/httpClient'
 import { notify } from '@/shared/uiFeedback'
 import { addMissingColors, receptionLineErrors, receptionLineTotal, receptionTotal, type ReceptionRoll, type ReceptionVariant } from '@/presupuesto/recepcionImportacion'
+import { isoDate } from '@/shared/dateFilters'
 
 type Product = { tipoCespedId: string; nombre: string; controlPorLotes: boolean; esImportado: boolean; colores: string[] }
 type Deposit = { id: string; nombre: string; productos: Product[]; permiteRegistrarIngreso: boolean }
@@ -21,7 +22,7 @@ const existingId = computed(() => route.params.id as string | undefined)
 const deposits = ref<Deposit[]>([]), loading = ref(true), saving = ref(false), error = ref('')
 const existing = ref<any>(null)
 const attempted = ref(false)
-const form = ref({ codigo: '', numeroDespacho: '', fecha: new Date().toISOString().slice(0, 10), depositoId: '', observaciones: '', lineas: [] as Line[] })
+const form = ref({ codigo: '', numeroDespacho: '', fecha: isoDate(), depositoId: '', observaciones: '', lineas: [] as Line[] })
 const selectedDeposit = computed(() => deposits.value.find(x => x.id === form.value.depositoId))
 const products = computed(() => (selectedDeposit.value?.productos ?? []).filter(x => x.esImportado))
 const total = computed(() => receptionTotal(form.value.lineas.map(line => ({ ...line, controlPorLotes: product(line)?.controlPorLotes ?? false }))))

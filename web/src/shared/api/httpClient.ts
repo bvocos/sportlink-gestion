@@ -7,8 +7,12 @@ http.interceptors.request.use(config=>{
 })
 export function apiErrorMessage(error:any,fallback='No se pudo completar la operación.'){
   if(!error?.response)return 'No se pudo conectar con el sistema. Verificá tu conexión y que el backend esté iniciado.'
-  if(error.response.status>=500)return 'El servidor encontró un error. Intentá nuevamente o revisá la terminal del backend.'
-  return error.response.data?.detail??error.response.data?.message??error.response.data?.title??fallback
+  const data=error.response.data
+  if(data?.errors&&typeof data.errors==='object'){
+    const messages=Object.values(data.errors).flatMap(value=>Array.isArray(value)?value:[value]).filter(Boolean).map(String)
+    if(messages.length)return messages.join(' · ')
+  }
+  return data?.detail??data?.message??data?.title??(error.response.status>=500?'El servidor encontró un error. Intentá nuevamente o revisá la terminal del backend.':fallback)
 }
 let redirecting=false
 http.interceptors.response.use(response=>response,error=>{

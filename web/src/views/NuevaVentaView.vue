@@ -19,6 +19,7 @@ import ClienteAutocomplete from '@/shared/components/ClienteAutocomplete.vue'
 import NuevoClienteForm from '@/shared/components/NuevoClienteForm.vue'
 import { auth } from '@/auth'
 import { importeEnPesos, validarCotizacion, type MonedaCaja } from '@/monedaCaja'
+import { isoDate } from '@/shared/dateFilters'
 import { entregaAutomatica, equivalenteArs, saldoVenta } from '@/ventaSaldo'
 
 const router = useRouter()
@@ -45,7 +46,7 @@ const formasPago = ['Contado', 'Transferencia', 'Cheque', 'Cuotas', 'Otros']
 const line = () => ({ tipoCespedId: '', importacionId: null as string | null, color: '', cantidadM2: 1, precioCompraM2: 0, precioVentaM2: 0, total: 0 })
 const draft = ref(line())
 const form = ref({
-  clienteId: '', fechaVenta: new Date().toISOString().slice(0, 10), lineas: [] as ReturnType<typeof line>[],
+  clienteId: '', fechaVenta: isoDate(), lineas: [] as ReturnType<typeof line>[],
   sucursalId: '', depositoId: '',
   montoEntrega: 0, formaPago: 'Contado', cantidadCuotas: null as number | null, estado: 'Confirmada',
   monedaEntrega: 'USD' as MonedaCaja, cotizacionEntrega: null as number | null,
@@ -131,6 +132,9 @@ async function load() {
     form.value.cotizacionEntrega = blueVenta.value
     if (editingId.value) {
       const v = (await http.get(`/ventas/${editingId.value}`)).data
+      // Una entrega ya guardada, incluso cero, siempre es una decisión manual:
+      // el cálculo automático no debe pisarla mientras se hidrata el formulario.
+      entregaModificada.value = true
       form.value = {
         clienteId: v.clienteId, fechaVenta: v.fechaVenta,
         sucursalId: v.sucursalId, depositoId: v.depositoId,
@@ -144,7 +148,6 @@ async function load() {
         estado: v.estado, fechaEntregaEstimada: v.fechaEntregaEstimada, costoEnvio: v.costoEnvio,
         otrosCostos: v.otrosCostos, alicuotaIvaId: v.alicuotaIvaId, observaciones: v.observaciones ?? '',
       }
-      entregaModificada.value = true
       await Promise.all(form.value.lineas.filter(row => product(row)?.esImportado)
         .map(row => loadImportOptions(row.tipoCespedId, row.color)))
       showProductEntry.value = false

@@ -19,12 +19,13 @@ import { http, apiErrorMessage } from "@/shared/api/httpClient";
 import ClienteAutocomplete from "@/shared/components/ClienteAutocomplete.vue";
 import { formatCurrency as money } from "@/shared/formatters";
 import { confirmAction, notify } from "@/shared/uiFeedback";
-import { formatDateRangeLabel, monthRange, sixMonthsRange, weekRange } from "@/shared/dateFilters";
+import { formatDateRangeLabel, isoDate, monthRange, sixMonthsRange, weekRange } from "@/shared/dateFilters";
 import { useImmediateFilters } from "@/shared/composables/useFilterTriggers";
 import { TABLE_ROWS, TABLE_ROWS_OPTIONS, tableFirst, type DataTablePageEvent } from "@/shared/tablePagination";
 import { auth } from "@/auth";
 import { condicionIvaLabels } from "@/shared/fiscal";
 import { importeEnPesos, validarCotizacion, type MonedaCaja } from "@/monedaCaja";
+import { equivalenteArs, saldoVenta } from '@/ventaSaldo';
 
 const items = ref<any[]>([]),
   clientes = ref<any[]>([]),
@@ -58,7 +59,7 @@ const cobrosSaving = ref(false);
 const cobrosError = ref('');
 const cobrosData = ref<any | null>(null);
 const cobroSale = ref<any | null>(null);
-const cobroForm = ref({ importeUsd: 0, fechaCobro: new Date().toISOString().slice(0, 10), monedaCobro: 'USD' as MonedaCaja, cotizacion: null as number | null, medioPago: 'Efectivo', observaciones: '' });
+const cobroForm = ref({ importeUsd: 0, fechaCobro: isoDate(), monedaCobro: 'USD' as MonedaCaja, cotizacion: null as number | null, medioPago: 'Efectivo', observaciones: '' });
 const anularId = ref<string | null>(null);
 const motivoAnulacion = ref('');
 const medioPagoOptions = ['Efectivo', 'Transferencia', 'Cheque', 'Tarjeta', 'Otros'];
@@ -88,7 +89,7 @@ const filters = reactive({ periodo: "month", ...monthRange(), clienteId: "", tip
 const filterPeriodLabel = computed(() => formatDateRangeLabel(filters.desde, filters.hasta));
 const blank = () => ({
   clienteId: "",
-  fechaVenta: new Date().toISOString().slice(0, 10),
+  fechaVenta: isoDate(),
   tipoCespedId: "",
   color: "",
   cantidadM2: 1,
@@ -97,6 +98,7 @@ const blank = () => ({
   montoEntrega: 0,
   monedaEntrega: "USD" as MonedaCaja,
   cotizacionEntrega: null as number | null,
+  cotizacionVenta: null as number | null,
   formaPago: "Contado",
   cantidadCuotas: null as number | null,
   estado: "Confirmada",
@@ -108,7 +110,13 @@ const blank = () => ({
   alicuotaIvaId: "",
 });
 const form = ref(blank());
+const editingOriginal = ref<any | null>(null);
 const entregaPesos = computed(() => importeEnPesos(form.value.montoEntrega, form.value.cotizacionEntrega));
+const saldoEdicion = computed(() => form.value.formaPago === 'Cuotas' ? 0 : saldoVenta(form.value.precioTotal, form.value.montoEntrega));
+const totalPesosEdicion = computed(() => equivalenteArs(form.value.precioTotal, form.value.cotizacionVenta));
+const saldoPesosEdicion = computed(() => equivalenteArs(saldoEdicion.value, form.value.cotizacionVenta));
+const pesosACobrar = computed(() => cobroForm.value.monedaCobro === 'ARS'
+  ? equivalenteArs(cobroForm.value.importeUsd, cobroForm.value.cotizacion) : null);
 
 function saleStatusSeverity(status: string) {
   return ({
@@ -210,6 +218,7 @@ watch(() => form.value.tipoCespedId, (id) => { const t = maestros.value.tiposCes
 
 function openNew() {
   editingId.value = null;
+  editingOriginal.value = null;
   form.value = blank();
   totalEdited.value = false;
   error.value = "";
@@ -218,6 +227,7 @@ function openNew() {
 
 function edit(v: any) {
   editingId.value = v.id;
+  editingOriginal.value = v;
   form.value = {
     clienteId: v.clienteId,
     fechaVenta: v.fechaVenta,
@@ -229,6 +239,7 @@ function edit(v: any) {
     montoEntrega: v.montoEntrega ?? 0,
     monedaEntrega: v.monedaEntrega ?? "USD",
     cotizacionEntrega: v.cotizacionEntrega ?? null,
+    cotizacionVenta: v.cotizacionVenta ?? null,
     formaPago: v.formaPago,
     cantidadCuotas: v.cantidadCuotas,
     estado: v.estado,
@@ -247,23 +258,26 @@ function edit(v: any) {
 async function save() {
   const currencyError = validarCotizacion(form.value.monedaEntrega, form.value.cotizacionEntrega);
   if (currencyError) { error.value = currencyError; return; }
+  const activeCharges = Math.max(0, Number(editingOriginal.value?.cobradoUsd ?? 0) - Number(editingOriginal.value?.montoEntrega ?? 0));
+  if (editingId.value && editingOriginal.value?.estado !== 'Cancelada' && form.value.estado === 'Cancelada' && activeCharges > 0) {
+    const confirmed = await confirmAction({
+      title: 'Cancelar venta con cobros',
+      message: `Esta venta tiene cobros por ${money(activeCharges)} que se van a anular y quitar de la caja.`,
+      confirmText: 'Cancelar venta',
+      danger: true,
+    });
+    if (!confirmed) return;
+  }
   try {
     editingId.value
       ? await http.put(`/ventas/${editingId.value}`, form.value)
       : await http.post("/ventas", form.value);
     show.value = false;
     await loadSales();
-  } catch (e: any) {
-    error.value =
-      e.response?.data?.message ??
-      e.response?.data?.detail ??
-      e.response?.data?.title ??
-      "Revisá los datos ingresados.";
-  }
+  } catch (e) { error.value = apiErrorMessage(e, "Revisá los datos ingresados."); }
 }
 watch(() => form.value.monedaEntrega, moneda => {
-  if (moneda === 'USD') form.value.cotizacionEntrega = null;
-  else if (!form.value.cotizacionEntrega) form.value.cotizacionEntrega = blueVenta.value;
+  if (!form.value.cotizacionEntrega) form.value.cotizacionEntrega = form.value.cotizacionVenta ?? blueVenta.value;
 });
 
 async function remove(v: any) {
@@ -272,7 +286,7 @@ async function remove(v: any) {
     await http.delete(`/ventas/${v.id}`);
     await loadSales();
   } catch (e: any) {
-    notify(e.response?.data?.message ?? "No se pudo eliminar la venta.");
+    notify(apiErrorMessage(e, "No se pudo eliminar la venta."));
   }
 }
 
@@ -283,7 +297,7 @@ async function deliver(id: string) {
     if (delivered?.saldoUsd > 0) notify(`Se entregó con saldo pendiente de ${money(delivered.saldoUsd)}.`);
     await loadSales();
   } catch (e: any) {
-    notify(e.response?.data?.message ?? "No se pudo actualizar.");
+    notify(apiErrorMessage(e, "No se pudo actualizar."));
   }
 }
 
@@ -297,14 +311,18 @@ async function loadCobros() {
 async function openCobros(v: any) {
   cobroSale.value = v; cobrosVisible.value = true; anularId.value = null;
   await loadCobros();
-  cobroForm.value = { importeUsd: cobrosData.value?.saldoUsd ?? 0, fechaCobro: new Date().toISOString().slice(0, 10), monedaCobro: 'USD', cotizacion: cobrosData.value?.cotizacionReferencia ?? blueVenta.value, medioPago: 'Efectivo', observaciones: '' };
+  cobroForm.value = { importeUsd: cobrosData.value?.saldoUsd ?? 0, fechaCobro: isoDate(), monedaCobro: 'USD', cotizacion: cobrosData.value?.cotizacionReferencia ?? blueVenta.value, medioPago: 'Efectivo', observaciones: '' };
 }
 async function registrarCobro() {
   if (!cobroSale.value || cobrosSaving.value) return;
+  if (cobroForm.value.fechaCobro < cobroSale.value.fechaVenta || cobroForm.value.fechaCobro > isoDate()) {
+    cobrosError.value = 'La fecha del cobro no puede ser anterior a la venta ni futura.'; return;
+  }
   cobrosSaving.value = true; cobrosError.value = '';
   try {
     const created = (await http.post(`/ventas/${cobroSale.value.id}/cobros`, cobroForm.value)).data;
     await Promise.all([loadCobros(), loadSales()]);
+    cobroForm.value = { ...cobroForm.value, importeUsd: cobrosData.value?.saldoUsd ?? 0, fechaCobro: isoDate(), observaciones: '' };
     notify(`Cobro registrado. Recibo N° ${String(created.numeroRecibo).padStart(8, '0')}.`, 'success');
   } catch (e) { cobrosError.value = apiErrorMessage(e, 'No se pudo registrar el cobro.'); }
   finally { cobrosSaving.value = false; }
@@ -649,14 +667,13 @@ onMounted(load);
             <label>Monto de entrega inicial</label>
             <InputNumber
               v-model="form.montoEntrega"
-              :min="0.01"
+              :min="0"
               :max="form.precioTotal"
               :min-fraction-digits="2"
               :max-fraction-digits="2"
               mode="currency"
               currency="ARS"
               locale="es-AR"
-              required
             />
             <small class="text-color-secondary">Se registra automáticamente como ingreso en Caja.</small>
           </div>
@@ -668,6 +685,14 @@ onMounted(load);
             <label>Cotización (ARS por USD)</label>
             <InputNumber v-model="form.cotizacionEntrega" :min="0.0001" :min-fraction-digits="2" :max-fraction-digits="4" required />
             <small v-if="entregaPesos !== null" class="text-color-secondary">Equivale a ARS {{ entregaPesos.toLocaleString('es-AR', { minimumFractionDigits: 2 }) }}</small>
+          </div>
+          <div class="field col-12 md:col-6">
+            <label>Dólar del día (referencia)</label>
+            <InputNumber v-model="form.cotizacionVenta" :min="0.0001" :min-fraction-digits="2" :max-fraction-digits="4" locale="es-AR" />
+            <small v-if="totalPesosEdicion !== null" class="text-color-secondary">Total en pesos ≈ ARS {{ totalPesosEdicion.toLocaleString('es-AR', { minimumFractionDigits: 2 }) }}</small>
+          </div>
+          <div v-if="saldoEdicion > 0" class="field col-12">
+            <Message severity="warn" :closable="false">Saldo pendiente: USD {{ saldoEdicion.toLocaleString('es-AR', { minimumFractionDigits: 2 }) }}<template v-if="saldoPesosEdicion !== null"> (ARS {{ saldoPesosEdicion.toLocaleString('es-AR', { minimumFractionDigits: 2 }) }})</template>.</Message>
           </div>
           <div class="field col-12 md:col-6">
             <label>Costo compra por m²</label>
@@ -808,14 +833,14 @@ onMounted(load);
           <div class="col-12 md:col-3"><small>Cliente</small><b class="block">{{ cobrosData.cliente }}</b></div>
           <div class="col-6 md:col-3"><small>Total</small><b class="block">{{ money(cobrosData.precioTotalUsd) }}</b></div>
           <div class="col-6 md:col-3"><small>Cobrado</small><b class="block">{{ money(cobrosData.cobradoUsd) }}</b></div>
-          <div class="col-12 md:col-3"><small>Saldo</small><b class="block text-orange-600">{{ money(cobrosData.saldoUsd) }}</b></div>
+          <div class="col-12 md:col-3"><small>Saldo</small><b class="block text-orange-600">{{ money(cobrosData.saldoUsd) }}</b><small v-if="cobrosData.saldoArs !== null">≈ ARS {{ Number(cobrosData.saldoArs).toLocaleString('es-AR', { minimumFractionDigits: 2 }) }}</small></div>
         </div>
         <div class="surface-200 border-round overflow-hidden" style="height:.65rem"><div class="bg-green-500 h-full" :style="{ width: `${Math.min(100, cobrosData.precioTotalUsd ? cobrosData.cobradoUsd / cobrosData.precioTotalUsd * 100 : 0)}%` }" /></div>
         <Message v-if="!cobrosData.seguimientoSaldo" severity="warn" :closable="false">Esta venta no tiene seguimiento de saldo.<AppButton v-if="auth.can('ventas', 'editar')" label="Controlar saldo de esta venta" size="small" class="ml-2" @click="activarSeguimiento" /></Message>
         <div class="table-panel">
-          <DataTable :value="[{ id:'entrega', fechaCobro:cobrosData.entrega.fecha, importeUsd:cobrosData.entrega.montoUsd, importeMonedaCobro:cobrosData.entrega.importeMoneda, monedaCobro:cobrosData.entrega.moneda, cotizacion:cobrosData.entrega.cotizacion, medioPago:'Entrega inicial', inicial:true }, ...cobrosData.cobros]" striped-rows>
+          <DataTable :value="[...(cobrosData.entrega.montoUsd > 0 ? [{ id:'entrega', fechaCobro:cobrosData.entrega.fecha, importeUsd:cobrosData.entrega.montoUsd, importeMonedaCobro:cobrosData.entrega.importeMoneda, monedaCobro:cobrosData.entrega.moneda, cotizacion:cobrosData.entrega.cotizacion, medioPago:'Entrega inicial', inicial:true }] : []), ...cobrosData.cobros]" striped-rows>
             <Column field="fechaCobro" header="Fecha" /><Column field="medioPago" header="Concepto / medio" />
-            <Column header="Recibido"><template #body="{ data:c }">{{ c.monedaCobro }} {{ Number(c.importeMonedaCobro).toLocaleString('es-AR', { minimumFractionDigits:2 }) }}</template></Column>
+            <Column header="Recibido"><template #body="{ data:c }">{{ c.monedaCobro }} {{ Number(c.importeMonedaCobro).toLocaleString('es-AR', { minimumFractionDigits:2, maximumFractionDigits:2 }) }}</template></Column>
             <Column header="USD aplicado"><template #body="{ data:c }"><span :class="{ 'line-through text-color-secondary':c.anulado }">{{ money(c.importeUsd) }}</span></template></Column>
             <Column header="Cotización"><template #body="{ data:c }">{{ c.cotizacion ? Number(c.cotizacion).toLocaleString('es-AR') : '—' }}</template></Column>
             <Column header="Recibo"><template #body="{ data:c }">{{ c.numeroRecibo ? String(c.numeroRecibo).padStart(8, '0') : '—' }}</template></Column>
@@ -826,10 +851,10 @@ onMounted(load);
         <form v-if="cobrosData.seguimientoSaldo && cobrosData.saldoUsd > 0" class="card p-3" @submit.prevent="registrarCobro">
           <h4 class="mt-0">Registrar cobro</h4>
           <div class="grid formgrid p-fluid">
-            <div class="field col-12 md:col-3"><label>Importe USD</label><InputNumber v-model="cobroForm.importeUsd" :min="0.01" :max="cobrosData.saldoUsd" :min-fraction-digits="2" required /></div>
-            <div class="field col-12 md:col-3"><label>Fecha</label><AppDatePicker v-model="cobroForm.fechaCobro" required /></div>
+            <div class="field col-12 md:col-3"><label>Importe USD</label><InputNumber v-model="cobroForm.importeUsd" :min="0.01" :max="cobrosData.saldoUsd" :min-fraction-digits="2" :max-fraction-digits="2" locale="es-AR" required /></div>
+            <div class="field col-12 md:col-3"><label>Fecha</label><AppDatePicker v-model="cobroForm.fechaCobro" :min-date="cobroSale?.fechaVenta" :max-date="isoDate()" required /></div>
             <div class="field col-12 md:col-3"><label>Cobrado en</label><Select v-model="cobroForm.monedaCobro" :options="currencyOptions" option-label="label" option-value="value" /></div>
-            <div class="field col-12 md:col-3"><label>Cotización</label><InputNumber v-model="cobroForm.cotizacion" :min="0.01" :min-fraction-digits="2" /></div>
+            <div class="field col-12 md:col-3"><label>Cotización</label><InputNumber v-model="cobroForm.cotizacion" :min="0.01" :min-fraction-digits="2" :max-fraction-digits="4" locale="es-AR" /><small v-if="pesosACobrar !== null">Pesos a cobrar: ARS {{ pesosACobrar.toLocaleString('es-AR', { minimumFractionDigits:2, maximumFractionDigits:2 }) }}</small></div>
             <div class="field col-12 md:col-4"><label>Medio de pago</label><Select v-model="cobroForm.medioPago" :options="medioPagoOptions" /></div>
             <div class="field col-12 md:col-8"><label>Observación</label><InputText v-model="cobroForm.observaciones" maxlength="500" /></div>
           </div>

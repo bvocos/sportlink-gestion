@@ -526,15 +526,16 @@ public static class VentaEndpoints
         var activeCharges = await db.CobrosVenta.Where(x => x.VentaId == id && !x.Anulado).SumAsync(x => (decimal?)x.ImporteUsd, ct) ?? 0m;
         if (request.FormaPago == FormaPago.Cuotas && activeCharges > 0)
             return Results.Conflict(new { message = "Anulá los cobros antes de pasar la venta a cuotas." });
-        if (request.PrecioTotal < request.MontoEntrega + activeCharges)
-            return Results.Conflict(new { message = $"La venta ya tiene cobros por USD {activeCharges:N2}; el total no puede ser menor." });
-
         var validation = await validator.ValidateAsync(request, ct);
         if (!validation.IsValid) return Results.ValidationProblem(validation.Errors.GroupBy(x => x.PropertyName)
             .ToDictionary(x => x.Key, x => x.Select(e => e.ErrorMessage).ToArray()));
 
         var (cliente, tipo, alicuota) = await VentaService.GetReferences(db, request, ct);
         request = VentaService.NormalizeColor(request, tipo);
+        var preview = new Venta { Id = id };
+        VentaService.Apply(preview, request, alicuota.Porcentaje);
+        if (preview.PrecioTotal < preview.MontoEntrega + activeCharges)
+            return Results.Conflict(new { message = $"La venta ya tiene cobros por USD {activeCharges:N2}; el total no puede ser menor." });
         try
         {
             await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
@@ -611,7 +612,10 @@ public static class VentaEndpoints
             if (updated.Cuotas.Count > 0)
                 db.Cuotas.AddRange(updated.Cuotas);
 
-            if (request.MontoEntrega > 0)
+            if (updated.Estado == EstadoVenta.Cancelada)
+                await CancelSaleData(id, user, db, ct);
+
+            if (request.MontoEntrega > 0 && updated.Estado != EstadoVenta.Cancelada)
                 db.MovimientosCaja.Add(VentaService.CreateCashMovement(updated));
 
             if (VentaService.ShouldConsumeStock(request.Estado))
@@ -737,23 +741,30 @@ public static class VentaEndpoints
             current.Estado = status;
             if (status == EstadoVenta.Cancelada)
             {
-                await db.LotesStock.Where(x => x.VentaId == id).ExecuteUpdateAsync(setters => setters
-                    .SetProperty(x => x.Estado, EstadoLoteStock.Disponible)
-                    .SetProperty(x => x.VentaId, (Guid?)null), ct);
-                await db.MovimientosStock.Where(x => x.VentaId == id && x.Tipo == TipoMovimientoStock.SalidaPorVenta)
-                    .ExecuteDeleteAsync(ct);
-                var charges = await db.CobrosVenta.Where(x => x.VentaId == id && !x.Anulado).ToListAsync(ct);
-                foreach (var charge in charges)
-                {
-                    charge.Anulado = true; charge.AnuladoPor = user.Identity?.Name ?? user.FindFirstValue("usuario") ?? "sistema"; charge.AnuladoAt = DateTimeOffset.UtcNow;
-                    charge.MotivoAnulacion = "Venta cancelada";
-                }
-                await db.MovimientosCaja.Where(x => x.VentaId == id && x.CobroVentaId != null).ExecuteDeleteAsync(ct);
+                await CancelSaleData(id, user, db, ct);
             }
             await db.SaveChangesAsync(ct);
             await transaction.CommitAsync(ct);
         });
         return Results.NoContent();
+    }
+
+    private static async Task CancelSaleData(Guid id, ClaimsPrincipal user, AppDbContext db, CancellationToken ct)
+    {
+        await db.LotesStock.Where(x => x.VentaId == id).ExecuteUpdateAsync(setters => setters
+            .SetProperty(x => x.Estado, EstadoLoteStock.Disponible)
+            .SetProperty(x => x.VentaId, (Guid?)null), ct);
+        await db.MovimientosStock.Where(x => x.VentaId == id && x.Tipo == TipoMovimientoStock.SalidaPorVenta)
+            .ExecuteDeleteAsync(ct);
+        var charges = await db.CobrosVenta.Where(x => x.VentaId == id && !x.Anulado).ToListAsync(ct);
+        foreach (var charge in charges)
+        {
+            charge.Anulado = true;
+            charge.AnuladoPor = user.Identity?.Name ?? user.FindFirstValue("usuario") ?? "sistema";
+            charge.AnuladoAt = DateTimeOffset.UtcNow;
+            charge.MotivoAnulacion = "Venta cancelada";
+        }
+        await db.MovimientosCaja.Where(x => x.VentaId == id && x.CobroVentaId != null).ExecuteDeleteAsync(ct);
     }
 
     private static async Task<IResult> ResetDelivery(Guid id, ClaimsPrincipal user, AppDbContext db, CancellationToken ct)

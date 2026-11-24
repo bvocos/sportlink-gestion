@@ -10,6 +10,8 @@ const props = defineProps<{
   disabled?: boolean
   required?: boolean
   invalid?: boolean
+  minDate?: string | null
+  maxDate?: string | null
 }>()
 
 const emit = defineEmits<{
@@ -41,6 +43,8 @@ function onDateSelect() {
     :disabled="disabled"
     :required="required"
     :invalid="invalid"
+    :min-date="parseIsoDate(minDate) ?? undefined"
+    :max-date="parseIsoDate(maxDate) ?? undefined"
     fluid
     @date-select="onDateSelect"
   />

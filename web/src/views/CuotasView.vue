@@ -13,6 +13,7 @@ import Panel from "primevue/panel";
 import Select from "primevue/select";
 import Tag from "primevue/tag";
 import { http, apiErrorMessage } from "@/shared/api/httpClient";
+import { isoDate } from "@/shared/dateFilters";
 import { auth } from "@/auth";
 import { formatCurrency as money } from "@/shared/formatters";
 import { downloadCsv } from "@/shared/csv";
@@ -63,7 +64,7 @@ const payment = ref({
   importe: 0,
   medioPago: "Transferencia",
   otroMedio: "",
-  fechaPago: new Date().toISOString().slice(0, 10),
+  fechaPago: isoDate(),
   monedaCobro: "USD" as MonedaCaja,
   cotizacion: null as number | null,
 });
@@ -127,7 +128,7 @@ function openPayment(c: any) {
     importe: c.importePactado - c.importePagado,
     medioPago: "Transferencia",
     otroMedio: "",
-    fechaPago: new Date().toISOString().slice(0, 10),
+    fechaPago: isoDate(),
     monedaCobro: "USD",
     cotizacion: null,
   };
@@ -365,16 +366,12 @@ async function cancelPayment(c: any) {
     await http.post(`/cuotas/${c.id}/anular-pago`);
     await load();
   } catch (e: any) {
-    notify(
-      e.response?.data?.message ??
-        e.response?.data?.detail ??
-        "No se pudo anular el cobro.",
-    );
+    notify(apiErrorMessage(e, "No se pudo anular el cobro."));
   }
 }
 
 function exportCsv() {
-  const date = new Date().toISOString().slice(0, 10);
+  const date = isoDate();
   if (tab.value === "pendientes") {
     downloadCsv(
       `cuotas-pendientes-${date}.csv`,

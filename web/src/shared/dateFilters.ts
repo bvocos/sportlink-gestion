@@ -1,5 +1,7 @@
 export function isoDate(date: Date = new Date()) {
-  return date.toISOString().slice(0, 10)
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Argentina/Buenos_Aires', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(date)
 }
 
 export function parseIsoDate(value?: string | null) {

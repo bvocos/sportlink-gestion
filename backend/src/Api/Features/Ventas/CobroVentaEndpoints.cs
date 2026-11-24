@@ -5,9 +5,7 @@ using Api.Features.Cuotas;
 using Api.Shared.Common;
 using Api.Shared.Database;
 using Microsoft.EntityFrameworkCore;
-using QuestPDF.Fluent;
-using QuestPDF.Helpers;
-using QuestPDF.Infrastructure;
+using System.Text.Json;
 
 namespace Api.Features.Ventas;
 
@@ -44,7 +42,8 @@ public static class CobroVentaEndpoints
 
     private static async Task<IResult> List(Guid id, ClaimsPrincipal user, AppDbContext db, CancellationToken ct)
     {
-        var sale = await db.Ventas.AsNoTracking().Include(x => x.Cliente).Include(x => x.TipoCesped)
+        var sale = await VentaEndpoints.VisibleQuery(db.Ventas.AsNoTracking(), user)
+            .Include(x => x.Cliente).Include(x => x.TipoCesped)
             .SingleOrDefaultAsync(x => x.Id == id, ct);
         if (sale is null) return Results.NotFound();
         var charges = await db.CobrosVenta.AsNoTracking().Where(x => x.VentaId == id)
@@ -86,7 +85,7 @@ public static class CobroVentaEndpoints
         {
             if (attempt++ > 0) db.ChangeTracker.Clear();
             await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
-            var sale = await db.Ventas.SingleOrDefaultAsync(x => x.Id == id, ct);
+            var sale = await VentaEndpoints.VisibleQuery(db.Ventas, user).SingleOrDefaultAsync(x => x.Id == id, ct);
             if (sale is null) return (IResult)Results.NotFound();
             await db.Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM \"Ventas\" WHERE \"Id\" = {id} FOR UPDATE", ct);
             if (sale.FormaPago == FormaPago.Cuotas) return Results.Conflict(new { message = "Las ventas en cuotas se cobran desde el módulo Cuotas." });
@@ -98,6 +97,8 @@ public static class CobroVentaEndpoints
             var balance = VentaSaldo.Calcular(sale.PrecioTotal, sale.MontoEntrega, collected);
             if (request.ImporteUsd > balance)
                 return Results.Conflict(new { message = $"El cobro supera el saldo pendiente de USD {balance:N2}." });
+            // La caja es la fuente única de numeración porque cuotas y cobros de ventas comparten
+            // la secuencia por sucursal. Serializable + el índice único resuelven la concurrencia.
             var lastNumber = await db.MovimientosCaja.Where(x => x.SucursalId == sale.SucursalId && x.NumeroRecibo != null)
                 .MaxAsync(x => (int?)x.NumeroRecibo, ct) ?? 0;
             var received = request.MonedaCobro == MonedaCaja.ARS
@@ -113,7 +114,7 @@ public static class CobroVentaEndpoints
             var movement = new MovimientoCaja { SucursalId = sale.SucursalId, VentaId = sale.Id, CobroVentaId = charge.Id,
                 Tipo = TipoMovimiento.Ingreso, Fecha = DateTimeOffset.UtcNow, Monto = request.ImporteUsd,
                 MonedaCobro = request.MonedaCobro, ImporteMonedaCobro = received,
-                CotizacionAplicada = request.MonedaCobro == MonedaCaja.ARS ? request.Cotizacion : null,
+                CotizacionAplicada = request.Cotizacion,
                 NumeroRecibo = charge.NumeroRecibo, Concepto = $"Cobro venta {sale.Id.ToString()[..8]} — saldo", Usuario = UserName(user) };
             db.MovimientosCaja.Add(movement);
             await db.SaveChangesAsync(ct);
@@ -128,6 +129,8 @@ public static class CobroVentaEndpoints
     private static async Task<IResult> Annul(Guid id, Guid cobroId, AnularCobroVentaRequest request,
         ClaimsPrincipal user, AppDbContext db, CancellationToken ct)
     {
+        if (!await VentaEndpoints.VisibleQuery(db.Ventas.AsNoTracking(), user).AnyAsync(x => x.Id == id, ct))
+            return Results.NotFound();
         var reason = Clean(request.Motivo);
         if (reason is null || reason.Length > 500)
             return Results.ValidationProblem(new Dictionary<string, string[]> { ["motivo"] = ["Ingresá un motivo de hasta 500 caracteres."] });
@@ -152,7 +155,7 @@ public static class CobroVentaEndpoints
 
     private static async Task<IResult> EnableTracking(Guid id, ClaimsPrincipal user, AppDbContext db, CancellationToken ct)
     {
-        var sale = await db.Ventas.SingleOrDefaultAsync(x => x.Id == id, ct);
+        var sale = await VentaEndpoints.VisibleQuery(db.Ventas, user).SingleOrDefaultAsync(x => x.Id == id, ct);
         if (sale is null) return Results.NotFound();
         if (sale.FormaPago == FormaPago.Cuotas || sale.Estado == EstadoVenta.Cancelada)
             return Results.Conflict(new { message = "El seguimiento solo puede activarse en ventas no canceladas y que no sean en cuotas." });
@@ -166,17 +169,40 @@ public static class CobroVentaEndpoints
         SucursalBrandingService brandingService, CancellationToken ct)
     {
         if (!CanSeeAmounts(user)) return Results.Forbid();
-        var charge = await db.CobrosVenta.AsNoTracking().Include(x => x.Venta).ThenInclude(x => x.Cliente)
-            .Include(x => x.Venta).ThenInclude(x => x.TipoCesped)
+        var sale = await VentaEndpoints.VisibleQuery(db.Ventas.AsNoTracking(), user)
+            .Include(x => x.Cliente).Include(x => x.TipoCesped)
+            .SingleOrDefaultAsync(x => x.Id == id, ct);
+        if (sale is null) return Results.NotFound();
+        var charge = await db.CobrosVenta.AsNoTracking()
             .SingleOrDefaultAsync(x => x.Id == cobroId && x.VentaId == id, ct);
         if (charge is null) return Results.NotFound();
+        charge.Venta = sale;
         var branding = await brandingService.GetAsync(charge.SucursalId, ct);
         if (branding is null) return Results.NotFound();
+        var branch = await db.Sucursales.AsNoTracking().SingleAsync(x => x.Id == charge.SucursalId, ct);
         var previous = await db.CobrosVenta.AsNoTracking().Where(x => x.VentaId == id && !x.Anulado &&
             (x.FechaCobro < charge.FechaCobro || x.FechaCobro == charge.FechaCobro && x.CreatedAt <= charge.CreatedAt))
             .SumAsync(x => (decimal?)x.ImporteUsd, ct) ?? 0m;
         var remaining = VentaSaldo.Calcular(charge.Venta.PrecioTotal, charge.Venta.MontoEntrega, previous);
-        var bytes = CobroVentaReceiptPdf.Generate(charge, branding, remaining);
+        var lineas = JsonSerializer.Deserialize<List<VentaLineaCommand>>(sale.LineasJson ?? "[]") ?? [];
+        var productIds = lineas.Select(x => x.TipoCespedId).Append(sale.TipoCespedId).Distinct().ToArray();
+        var productNames = await db.TiposCesped.AsNoTracking().Where(x => productIds.Contains(x.Id))
+            .Select(x => x.Nombre).ToListAsync(ct);
+        var products = string.Join(", ", productNames.DefaultIfEmpty(sale.TipoCesped.Nombre));
+        var data = new ReciboData(
+            charge.SucursalId, branding.Logo is not null, branding.Logo, charge.NumeroRecibo,
+            branch.PuntoVentaAfip, charge.FechaCobro, ReciboDataFactory.Emisor(branch, branding),
+            ReciboDataFactory.Cliente(sale.Cliente), new ReciboCuotaDto(0, null, products),
+            new ReciboPagoDto(charge.ImporteUsd, charge.MedioPago,
+                NumerosEnLetras.ConvertirDolares(charge.ImporteUsd),
+                charge.MonedaCobro == MonedaCaja.USD ? charge.Cotizacion : null,
+                charge.MonedaCobro, charge.ImporteMonedaCobro, charge.Cotizacion),
+            Concepto: $"PAGO A CUENTA {products.ToUpperInvariant()}",
+            Observaciones: $"COBRO DE SALDO DE LA VENTA DEL {sale.FechaVenta:dd/MM/yyyy}",
+            SaldoRestante: remaining, Anulado: charge.Anulado,
+            MotivoAnulacion: charge.MotivoAnulacion,
+            FechaAnulacion: charge.AnuladoAt.HasValue ? FechaArgentina.Hoy(charge.AnuladoAt.Value) : null);
+        var bytes = CuotaReciboPdf.Generate(data);
         return Results.File(bytes, "application/pdf", $"Recibo-{charge.NumeroRecibo:00000000}.pdf");
     }
 
@@ -184,8 +210,12 @@ public static class CobroVentaEndpoints
     {
         var errors = new Dictionary<string, string[]>();
         if (request.ImporteUsd <= 0) errors["importeUsd"] = ["El importe debe ser mayor que cero."];
+        else if (decimal.Round(request.ImporteUsd, 2) != request.ImporteUsd)
+            errors["importeUsd"] = ["El importe admite hasta 2 decimales."];
         var currency = MonedaCajaService.Validate(request.MonedaCobro, request.Cotizacion);
         if (currency is not null) errors["cotizacion"] = [currency];
+        else if (request.Cotizacion.HasValue && request.Cotizacion <= 0)
+            errors["cotizacion"] = ["La cotización debe ser mayor que cero."];
         if (string.IsNullOrWhiteSpace(request.MedioPago) || request.MedioPago.Trim().Length > 100)
             errors["medioPago"] = ["Seleccioná un medio de pago válido."];
         if (request.Observaciones?.Trim().Length > 500) errors["observaciones"] = ["Las observaciones admiten hasta 500 caracteres."];
@@ -193,38 +223,4 @@ public static class CobroVentaEndpoints
     }
     private static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     private static string UserName(ClaimsPrincipal user) => user.Identity?.Name ?? user.FindFirstValue("usuario") ?? "sistema";
-}
-
-internal static class CobroVentaReceiptPdf
-{
-    public static byte[] Generate(CobroVenta charge, SucursalBranding branding, decimal remaining)
-    {
-        QuestPDF.Settings.License = LicenseType.Evaluation;
-        return Document.Create(document => document.Page(page =>
-        {
-            page.Size(PageSizes.A4); page.Margin(32); page.DefaultTextStyle(x => x.FontFamily("Arial").FontSize(10));
-            page.Header().Row(row =>
-            {
-                if (branding.Logo is not null) row.ConstantItem(150).Height(48).Image(branding.Logo).FitArea();
-                else row.RelativeItem().Text(branding.RazonSocial).Bold().FontSize(16);
-                row.RelativeItem().AlignRight().Column(c => { c.Item().Text("RECIBO").Bold().FontSize(22); c.Item().Text($"N° {charge.NumeroRecibo:00000000}"); });
-            });
-            page.Content().PaddingTop(24).Column(c =>
-            {
-                c.Spacing(10);
-                c.Item().Text($"Cliente: {charge.Venta.Cliente.RazonSocial ?? $"{charge.Venta.Cliente.Nombre} {charge.Venta.Cliente.Apellido}"}").Bold();
-                c.Item().Text($"Fecha: {charge.FechaCobro:dd/MM/yyyy}");
-                c.Item().Text($"Concepto: Cobro de saldo de la venta {charge.Venta.FechaVenta:dd/MM/yyyy}/{charge.VentaId.ToString()[..8]}");
-                c.Item().Text($"Producto: {charge.Venta.TipoCesped.Nombre}");
-                c.Item().Text($"USD aplicado: USD {charge.ImporteUsd:N2}").Bold().FontSize(15);
-                c.Item().Text($"Son {NumerosEnLetras.ConvertirDolares(charge.ImporteUsd)}.");
-                c.Item().Text(charge.MonedaCobro == MonedaCaja.ARS
-                    ? $"Cobrado en pesos: ARS {charge.ImporteMonedaCobro:N2} (cotización {charge.Cotizacion:N4})"
-                    : $"Cobrado en dólares: USD {charge.ImporteMonedaCobro:N2}");
-                c.Item().Text($"Medio de pago: {charge.MedioPago}");
-                c.Item().Text($"Saldo restante: USD {remaining:N2}").Bold();
-                c.Item().Text("Importes expresados en dólares estadounidenses (USD).").FontColor(Colors.Grey.Darken1);
-            });
-        })).GeneratePdf();
-    }
 }

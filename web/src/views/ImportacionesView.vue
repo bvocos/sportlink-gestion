@@ -12,13 +12,14 @@ import Message from 'primevue/message'
 import { http, apiErrorMessage } from '@/shared/api/httpClient'
 import { auth } from '@/auth'
 import { confirmAction, notify } from '@/shared/uiFeedback'
+import { isoDate } from '@/shared/dateFilters'
 
 const items = ref<any[]>([]), total = ref(0), page = ref(1), pageSize = ref(20), buscar = ref('')
 const route = useRoute(), router = useRouter()
 const loading = ref(false), error = ref(''), visible = ref(false), saving = ref(false)
 const editingId = ref<string | null>(null), detail = ref<any | null>(null)
 const importSales = ref<any[]>([]), importSalesLoading = ref(false), importSalesLoaded = ref(false), importSalesError = ref('')
-const blank = () => ({ codigo: '', numeroDespacho: '', fecha: new Date().toISOString().slice(0, 10), observaciones: '' })
+const blank = () => ({ codigo: '', numeroDespacho: '', fecha: isoDate(), observaciones: '' })
 const form = ref(blank())
 const dateFormat = new Intl.DateTimeFormat('es-AR', { timeZone: 'UTC' })
 const number = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 2 })
