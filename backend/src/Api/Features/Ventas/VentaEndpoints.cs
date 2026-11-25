@@ -134,9 +134,10 @@ internal static class VentaService
 {
     internal static bool ShouldConsumeStock(EstadoVenta estado) => estado != EstadoVenta.Cancelada;
     internal static bool ShouldTrackBalance(FormaPago paymentMethod, decimal total, decimal delivery,
-        decimal activeCharges, bool wasTracked, FormaPago previousPaymentMethod) =>
+        decimal activeCharges, bool wasTracked, FormaPago previousPaymentMethod, decimal previousDelivery) =>
         paymentMethod != FormaPago.Cuotas &&
-        (total > delivery + activeCharges || wasTracked || previousPaymentMethod == FormaPago.Cuotas);
+        (wasTracked || previousPaymentMethod == FormaPago.Cuotas ||
+            delivery < previousDelivery && total > delivery + activeCharges);
     public static async Task ValidateProductsScope(AppDbContext db, Guid depositoId,
         IReadOnlyCollection<VentaLineaCommand> lines, CancellationToken ct)
     {
@@ -579,7 +580,7 @@ public static class VentaEndpoints
             var updated = new Venta { Id = id };
             VentaService.Apply(updated, request, alicuota.Porcentaje);
             updated.SeguimientoSaldo = VentaService.ShouldTrackBalance(request.FormaPago, updated.PrecioTotal,
-                updated.MontoEntrega, activeCharges, venta.SeguimientoSaldo, venta.FormaPago);
+                updated.MontoEntrega, activeCharges, venta.SeguimientoSaldo, venta.FormaPago, venta.MontoEntrega);
 
             var affected = await VisibleQuery(db.Ventas.Where(x => x.Id == id), user).ExecuteUpdateAsync(setters => setters
                 .SetProperty(x => x.ClienteId, updated.ClienteId)

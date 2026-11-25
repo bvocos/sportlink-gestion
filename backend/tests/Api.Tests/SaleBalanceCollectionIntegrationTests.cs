@@ -52,6 +52,18 @@ public sealed class SaleBalanceCollectionIntegrationTests
                 Assert.Single(deliveryMovements);
                 Assert.Equal(50m, deliveryMovements[0].Monto);
             }
+            var observationOnly = await adminA.PutAsJsonAsync($"/api/ventas/{seeded.LegacySale}", new
+            {
+                clienteId = seeded.ClientA, fechaVenta = DateOnly.FromDateTime(DateTime.Today),
+                tipoCespedId = seeded.ProductA, cantidadM2 = 10m, precioUnitario = 10m,
+                precioTotal = 100m, montoEntrega = 0m, formaPago = "Contado", cantidadCuotas = (int?)null,
+                estado = "Confirmada", fechaEntregaEstimada = (DateOnly?)null, observaciones = "Sólo observación",
+                costoCompraUnitario = 5m, costoEnvio = 0m, otrosCostos = 0m, alicuotaIvaId = seeded.TaxId,
+                depositoId = seeded.DepositA, monedaEntrega = "USD"
+            });
+            Assert.Equal(HttpStatusCode.OK, observationOnly.StatusCode);
+            var legacy = await adminA.GetFromJsonAsync<JsonElement>($"/api/ventas/{seeded.LegacySale}");
+            Assert.False(legacy.GetProperty("seguimientoSaldo").GetBoolean());
 
             var first = await adminA.PostAsJsonAsync($"/api/ventas/{seeded.SaleA}/cobros", new
             {
@@ -108,7 +120,7 @@ public sealed class SaleBalanceCollectionIntegrationTests
     }
 
     private static async Task<(Guid BranchA, Guid BranchB, Guid ClientA, Guid SaleA, Guid SaleB, Guid SmallSale,
-        Guid FullSale, Guid ProductA, Guid DepositA, Guid TaxId)> Seed(IServiceProvider services)
+        Guid FullSale, Guid LegacySale, Guid ProductA, Guid DepositA, Guid TaxId)> Seed(IServiceProvider services)
     {
         using var scope = services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
@@ -129,12 +141,13 @@ public sealed class SaleBalanceCollectionIntegrationTests
         var saleB = NewSale(b.Id, dbb.Id, cb.Id, pb.Id, tax.Id); saleB.PrecioTotal = 100; saleB.MontoEntrega = 20; saleB.SeguimientoSaldo = true;
         var small = NewSale(a.Id, da.Id, ca.Id, pa.Id, tax.Id); small.PrecioTotal = 4; small.MontoEntrega = 0; small.SeguimientoSaldo = true;
         var full = NewSale(a.Id, da.Id, ca.Id, pa.Id, tax.Id); full.PrecioTotal = 100; full.MontoEntrega = 100; full.SeguimientoSaldo = false;
-        db.AddRange(saleA, saleB, small, full); await db.SaveChangesAsync();
+        var legacy = NewSale(a.Id, da.Id, ca.Id, pa.Id, tax.Id); legacy.PrecioTotal = 100; legacy.MontoEntrega = 0; legacy.SeguimientoSaldo = false;
+        db.AddRange(saleA, saleB, small, full, legacy); await db.SaveChangesAsync();
         db.MovimientosStock.Add(new MovimientoStock { DepositoId = da.Id, TipoCespedId = pa.Id,
             Tipo = TipoMovimientoStock.Ingreso, CantidadM2 = 1_000m, Fecha = DateTime.UtcNow, Usuario = "test" });
         db.MovimientosCaja.Add(new MovimientoCaja { SucursalId = a.Id, VentaId = full.Id, Tipo = TipoMovimiento.Ingreso,
             Monto = 100m, Fecha = DateTimeOffset.UtcNow, Concepto = $"Entrega inicial venta {full.Id}", Usuario = "test" });
         await db.SaveChangesAsync();
-        return (a.Id, b.Id, ca.Id, saleA.Id, saleB.Id, small.Id, full.Id, pa.Id, da.Id, tax.Id);
+        return (a.Id, b.Id, ca.Id, saleA.Id, saleB.Id, small.Id, full.Id, legacy.Id, pa.Id, da.Id, tax.Id);
     }
 }
