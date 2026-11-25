@@ -178,7 +178,7 @@ async function save() {
     editingId.value ? await http.put(`/ventas/${editingId.value}`, payload) : await http.post('/ventas', payload)
     await router.push('/ventas')
   } catch (e: any) {
-    error.value = e.response?.data?.detail ?? Object.values(e.response?.data?.errors ?? {}).flat()[0] ?? 'Revisá los datos ingresados.'
+    error.value = apiErrorMessage(e, 'Revisá los datos ingresados.')
   } finally {
     saving.value = false
   }

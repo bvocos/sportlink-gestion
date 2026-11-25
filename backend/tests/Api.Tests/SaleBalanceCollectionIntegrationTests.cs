@@ -29,6 +29,30 @@ public sealed class SaleBalanceCollectionIntegrationTests
             using var adminA = await LoginAdmin(factory, seeded.BranchA);
             using var adminB = await LoginAdmin(factory, seeded.BranchB);
 
+            var lowerDelivery = await adminA.PutAsJsonAsync($"/api/ventas/{seeded.FullSale}", new
+            {
+                clienteId = seeded.ClientA, fechaVenta = DateOnly.FromDateTime(DateTime.Today),
+                tipoCespedId = seeded.ProductA, cantidadM2 = 10m, precioUnitario = 10m,
+                precioTotal = 100m, montoEntrega = 50m, formaPago = "Contado", cantidadCuotas = (int?)null,
+                estado = "Confirmada", fechaEntregaEstimada = (DateOnly?)null, observaciones = "Entrega corregida",
+                costoCompraUnitario = 5m, costoEnvio = 0m, otrosCostos = 0m, alicuotaIvaId = seeded.TaxId,
+                depositoId = seeded.DepositA, monedaEntrega = "USD"
+            });
+            Assert.True(lowerDelivery.StatusCode == HttpStatusCode.OK,
+                $"Expected 200, got {(int)lowerDelivery.StatusCode}: {await lowerDelivery.Content.ReadAsStringAsync()}");
+            var lowered = await adminA.GetFromJsonAsync<JsonElement>($"/api/ventas/{seeded.FullSale}");
+            Assert.Equal(50m, lowered.GetProperty("montoEntrega").GetDecimal());
+            Assert.True(lowered.GetProperty("seguimientoSaldo").GetBoolean());
+            Assert.Equal(50m, lowered.GetProperty("saldoUsd").GetDecimal());
+            using (var scope = factory.Services.CreateScope())
+            {
+                var scopedDb = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                var deliveryMovements = await scopedDb.MovimientosCaja.IgnoreQueryFilters()
+                    .Where(x => x.VentaId == seeded.FullSale && x.CuotaId == null && x.CobroVentaId == null).ToListAsync();
+                Assert.Single(deliveryMovements);
+                Assert.Equal(50m, deliveryMovements[0].Monto);
+            }
+
             var first = await adminA.PostAsJsonAsync($"/api/ventas/{seeded.SaleA}/cobros", new
             {
                 importeUsd = 30m, fechaCobro = DateOnly.FromDateTime(DateTime.Today), monedaCobro = "USD",
@@ -65,7 +89,7 @@ public sealed class SaleBalanceCollectionIntegrationTests
             detail = await adminA.GetFromJsonAsync<JsonElement>($"/api/ventas/{seeded.SaleA}/cobros");
             Assert.Equal(70m, detail.GetProperty("saldoUsd").GetDecimal());
             var account = await adminA.GetFromJsonAsync<JsonElement>($"/api/clientes/{seeded.ClientA}/cuenta-corriente");
-            Assert.Equal(74m, account.GetProperty("resumen").GetProperty("deudaTotalUsd").GetDecimal());
+            Assert.Equal(124m, account.GetProperty("resumen").GetProperty("deudaTotalUsd").GetDecimal());
             Assert.NotEmpty(account.GetProperty("movimientos").EnumerateArray());
 
             var parallel = Enumerable.Range(0, 8).Select(_ => adminA.PostAsJsonAsync(
@@ -83,7 +107,8 @@ public sealed class SaleBalanceCollectionIntegrationTests
         }
     }
 
-    private static async Task<(Guid BranchA, Guid BranchB, Guid ClientA, Guid SaleA, Guid SaleB, Guid SmallSale)> Seed(IServiceProvider services)
+    private static async Task<(Guid BranchA, Guid BranchB, Guid ClientA, Guid SaleA, Guid SaleB, Guid SmallSale,
+        Guid FullSale, Guid ProductA, Guid DepositA, Guid TaxId)> Seed(IServiceProvider services)
     {
         using var scope = services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
@@ -97,12 +122,19 @@ public sealed class SaleBalanceCollectionIntegrationTests
         db.AddRange(da, dbb, a, b); await db.SaveChangesAsync();
         da.SucursalId = a.Id; dbb.SucursalId = b.Id; await db.SaveChangesAsync();
         var ca = NewClient(a.Id, "Cobros A"); var cb = NewClient(b.Id, "Cobros B");
-        var pa = NewProduct(da.Id, "Cobros A"); var pb = NewProduct(dbb.Id, "Cobros B");
+        var pa = NewProduct(da.Id, "Cobros A"); pa.ControlPorLotes = false;
+        var pb = NewProduct(dbb.Id, "Cobros B");
         db.AddRange(ca, cb, pa, pb); await db.SaveChangesAsync();
         var saleA = NewSale(a.Id, da.Id, ca.Id, pa.Id, tax.Id); saleA.PrecioTotal = 100; saleA.MontoEntrega = 20; saleA.SeguimientoSaldo = true;
         var saleB = NewSale(b.Id, dbb.Id, cb.Id, pb.Id, tax.Id); saleB.PrecioTotal = 100; saleB.MontoEntrega = 20; saleB.SeguimientoSaldo = true;
         var small = NewSale(a.Id, da.Id, ca.Id, pa.Id, tax.Id); small.PrecioTotal = 4; small.MontoEntrega = 0; small.SeguimientoSaldo = true;
-        db.AddRange(saleA, saleB, small); await db.SaveChangesAsync();
-        return (a.Id, b.Id, ca.Id, saleA.Id, saleB.Id, small.Id);
+        var full = NewSale(a.Id, da.Id, ca.Id, pa.Id, tax.Id); full.PrecioTotal = 100; full.MontoEntrega = 100; full.SeguimientoSaldo = false;
+        db.AddRange(saleA, saleB, small, full); await db.SaveChangesAsync();
+        db.MovimientosStock.Add(new MovimientoStock { DepositoId = da.Id, TipoCespedId = pa.Id,
+            Tipo = TipoMovimientoStock.Ingreso, CantidadM2 = 1_000m, Fecha = DateTime.UtcNow, Usuario = "test" });
+        db.MovimientosCaja.Add(new MovimientoCaja { SucursalId = a.Id, VentaId = full.Id, Tipo = TipoMovimiento.Ingreso,
+            Monto = 100m, Fecha = DateTimeOffset.UtcNow, Concepto = $"Entrega inicial venta {full.Id}", Usuario = "test" });
+        await db.SaveChangesAsync();
+        return (a.Id, b.Id, ca.Id, saleA.Id, saleB.Id, small.Id, full.Id, pa.Id, da.Id, tax.Id);
     }
 }

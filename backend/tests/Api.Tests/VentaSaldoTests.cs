@@ -18,4 +18,12 @@ public class VentaSaldoTests
         Assert.Equal(0m, VentaSaldo.Calcular(100m, 80m, 50m));
         Assert.Equal(0m, VentaSaldo.Calcular(1_000m, 0m, cobros, false));
     }
+
+    [Fact]
+    public void Al_bajar_una_entrega_completa_activa_el_seguimiento_del_saldo()
+    {
+        Assert.True(VentaService.ShouldTrackBalance(FormaPago.Contado, 2_100m, 1_050m, 0m, false, FormaPago.Contado));
+        Assert.True(VentaService.ShouldTrackBalance(FormaPago.Transferencia, 2_100m, 1_000m, 100m, false, FormaPago.Transferencia));
+        Assert.False(VentaService.ShouldTrackBalance(FormaPago.Cuotas, 2_100m, 1_050m, 0m, true, FormaPago.Contado));
+    }
 }

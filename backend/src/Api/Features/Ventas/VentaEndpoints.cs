@@ -133,6 +133,10 @@ public sealed class RegistrarVentaHandler(AppDbContext db, IHttpContextAccessor 
 internal static class VentaService
 {
     internal static bool ShouldConsumeStock(EstadoVenta estado) => estado != EstadoVenta.Cancelada;
+    internal static bool ShouldTrackBalance(FormaPago paymentMethod, decimal total, decimal delivery,
+        decimal activeCharges, bool wasTracked, FormaPago previousPaymentMethod) =>
+        paymentMethod != FormaPago.Cuotas &&
+        (total > delivery + activeCharges || wasTracked || previousPaymentMethod == FormaPago.Cuotas);
     public static async Task ValidateProductsScope(AppDbContext db, Guid depositoId,
         IReadOnlyCollection<VentaLineaCommand> lines, CancellationToken ct)
     {
@@ -508,12 +512,12 @@ public static class VentaEndpoints
         {
             return Results.ValidationProblem(new Dictionary<string, string[]> { ["Lineas"] = [exception.Message] });
         }
-        try { await VentaService.ValidateProductsScope(db, venta.DepositoId, request.Lineas!, ct); }
+        try { await VentaService.ValidateProductsScope(db, venta.DepositoId, VentaService.StockLines(request), ct); }
         catch (VentaScopeException exception)
         {
             return Results.ValidationProblem(new Dictionary<string, string[]> { ["Lineas"] = [exception.Message] });
         }
-        try { await VentaService.ValidateImportations(db, request.Lineas!, ct); }
+        try { await VentaService.ValidateImportations(db, VentaService.StockLines(request), ct); }
         catch (KeyNotFoundException exception)
         {
             return Results.ValidationProblem(new Dictionary<string, string[]> { ["Lineas"] = [exception.Message] });
@@ -535,10 +539,15 @@ public static class VentaEndpoints
         var preview = new Venta { Id = id };
         VentaService.Apply(preview, request, alicuota.Porcentaje);
         if (preview.PrecioTotal < preview.MontoEntrega + activeCharges)
-            return Results.Conflict(new { message = $"La venta ya tiene cobros por USD {activeCharges:N2}; el total no puede ser menor." });
+            return Results.Conflict(new { message = "La entrega más los cobros registrados no puede superar el total de la venta." });
         try
         {
-            await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
+            var strategy = db.Database.CreateExecutionStrategy();
+            var attempt = 0;
+            return await strategy.ExecuteAsync(async () =>
+            {
+                if (attempt++ > 0) db.ChangeTracker.Clear();
+                await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
 
             await db.LotesStock.Where(x => x.VentaId == id).ExecuteUpdateAsync(setters => setters
                 .SetProperty(x => x.Estado, EstadoLoteStock.Disponible)
@@ -569,8 +578,8 @@ public static class VentaEndpoints
 
             var updated = new Venta { Id = id };
             VentaService.Apply(updated, request, alicuota.Porcentaje);
-            updated.SeguimientoSaldo = request.FormaPago == FormaPago.Cuotas ? false :
-                venta.FormaPago == FormaPago.Cuotas ? true : venta.SeguimientoSaldo;
+            updated.SeguimientoSaldo = VentaService.ShouldTrackBalance(request.FormaPago, updated.PrecioTotal,
+                updated.MontoEntrega, activeCharges, venta.SeguimientoSaldo, venta.FormaPago);
 
             var affected = await VisibleQuery(db.Ventas.Where(x => x.Id == id), user).ExecuteUpdateAsync(setters => setters
                 .SetProperty(x => x.ClienteId, updated.ClienteId)
@@ -626,6 +635,7 @@ public static class VentaEndpoints
 
             await transaction.CommitAsync(ct);
             return Results.Ok(VentaService.ToDto(updated, cliente, tipo));
+            });
         }
         catch (LoteNoDisponibleException exception)
         {
@@ -673,7 +683,7 @@ public static class VentaEndpoints
         if (!HasOnlySaleDateOrColorChanged(venta, request))
             return Results.Conflict(new
             {
-                message = "Esta venta tiene cuotas cobradas. Sólo se pueden modificar la fecha de venta y el color; los importes y demás datos deben mantenerse sin cambios."
+                message = "Esta venta tiene cuotas cobradas. Anulá los cobros de las cuotas para poder modificar importes, productos o la forma de pago."
             });
 
         var product = await db.TiposCesped.AsNoTracking().SingleAsync(x => x.Id == venta.TipoCespedId, ct);

@@ -17,4 +17,8 @@ describe('ventaSaldo', () => {
     expect(equivalenteArs(10, 1200)).toBe(12000)
     expect(equivalenteArs(10, null)).toBeNull()
   })
+
+  it('permite bajar una entrega completa al editar sin que el automático la reponga', () => {
+    expect(entregaAutomatica(2100, 'Contado', true, 1050)).toBe(1050)
+  })
 })
