@@ -92,8 +92,8 @@ public sealed class RegistrarVentaHandler(AppDbContext db, IHttpContextAccessor 
             throw new VentaScopeException("El depósito seleccionado no pertenece a la sucursal activa.");
         request = request with { SucursalId = sucursalId };
         request = await VentaService.NormalizeLines(db, request, ct);
-        await VentaService.ValidateProductsScope(db, request.DepositoId, request.Lineas!, ct);
-        await VentaService.ValidateImportations(db, request.Lineas!, ct);
+        await VentaService.ValidateProductsScope(db, request.DepositoId, VentaService.StockLines(request), ct);
+        await VentaService.ValidateImportations(db, VentaService.StockLines(request), ct);
         var (cliente, tipo, alicuota) = await VentaService.GetReferences(db, request, ct);
         request = VentaService.NormalizeColor(request, tipo);
         var strategy = db.Database.CreateExecutionStrategy();
@@ -491,12 +491,12 @@ public static class VentaEndpoints
         {
             return Results.ValidationProblem(new Dictionary<string, string[]> { ["Lineas"] = [exception.Message] });
         }
-        try { await VentaService.ValidateProductsScope(db, venta.DepositoId, request.Lineas!, ct); }
+        try { await VentaService.ValidateProductsScope(db, venta.DepositoId, VentaService.StockLines(request), ct); }
         catch (VentaScopeException exception)
         {
             return Results.ValidationProblem(new Dictionary<string, string[]> { ["Lineas"] = [exception.Message] });
         }
-        try { await VentaService.ValidateImportations(db, request.Lineas!, ct); }
+        try { await VentaService.ValidateImportations(db, VentaService.StockLines(request), ct); }
         catch (KeyNotFoundException exception)
         {
             return Results.ValidationProblem(new Dictionary<string, string[]> { ["Lineas"] = [exception.Message] });

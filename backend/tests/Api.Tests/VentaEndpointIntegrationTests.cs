@@ -16,6 +16,81 @@ namespace Api.Tests;
 public sealed class VentaEndpointIntegrationTests
 {
     [Fact]
+    public async Task Simple_sale_without_line_list_can_be_created_and_edited()
+    {
+        var masterConnection = SqlIntegrationEnvironment.ConnectionOrSkip();
+        if (masterConnection is null) return;
+        var databaseName = $"SportlinkSimpleSale_{Guid.NewGuid():N}";
+        var databaseConnection = new NpgsqlConnectionStringBuilder(masterConnection) { Database = databaseName }.ConnectionString;
+        await WaitForDatabase(masterConnection);
+        await using (var master = new NpgsqlConnection(masterConnection))
+        {
+            await master.OpenAsync();
+            await using var create = master.CreateCommand();
+            create.CommandText = $"CREATE DATABASE \"{databaseName}\"";
+            await create.ExecuteNonQueryAsync();
+        }
+        try
+        {
+            await using (var schema = new AppDbContext(new DbContextOptionsBuilder<AppDbContext>()
+                .UseNpgsql(databaseConnection).Options)) await schema.Database.EnsureCreatedAsync();
+            await using var factory = new VentaApiFactory(databaseConnection, enableRetry: false);
+            using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+            Guid branchId, depositId, customerId, productId, taxId;
+            using (var scope = factory.Services.CreateScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                var branch = await db.Sucursales.SingleAsync(x => x.Nombre == "San Francisco");
+                var admin = await db.Usuarios.SingleAsync(x => x.NombreUsuario == "admin");
+                admin.DebeCambiarPassword = false;
+                var customer = new Cliente { SucursalId = branch.Id, Nombre = "Venta", Apellido = "Simple",
+                    Localidad = "Córdoba", Provincia = "Córdoba", Tipo = TipoCliente.Particular };
+                var product = new TipoCesped { DepositoId = branch.DepositoPropioId, Nombre = "Producto simple",
+                    PrecioVentaM2 = 20, PrecioContadoM2 = 20, PrecioFinanciadoM2 = 20, CostoM2 = 10, Activo = true };
+                var tax = await db.AlicuotasIva.FirstAsync();
+                db.AddRange(customer, product); await db.SaveChangesAsync();
+                db.MovimientosStock.Add(new MovimientoStock { DepositoId = branch.DepositoPropioId,
+                    TipoCespedId = product.Id, Tipo = TipoMovimientoStock.Ingreso, CantidadM2 = 100,
+                    Fecha = DateTime.UtcNow, Usuario = "test" });
+                await db.SaveChangesAsync();
+                branchId = branch.Id; depositId = branch.DepositoPropioId; customerId = customer.Id;
+                productId = product.Id; taxId = tax.Id;
+            }
+            Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync("/api/auth/login",
+                new { usuario = "admin", password = "Admin123!" })).StatusCode);
+            client.DefaultRequestHeaders.Add("X-Sucursal-Id", branchId.ToString());
+            object Body(string observations, decimal delivery) => new
+            {
+                clienteId = customerId, fechaVenta = DateOnly.FromDateTime(DateTime.Today), tipoCespedId = productId,
+                cantidadM2 = 2m, precioUnitario = 20m, precioTotal = 40m, montoEntrega = delivery,
+                formaPago = "Contado", cantidadCuotas = (int?)null, estado = "Confirmada",
+                fechaEntregaEstimada = (DateOnly?)null, observaciones = observations, costoCompraUnitario = 10m,
+                costoEnvio = 0m, otrosCostos = 0m, alicuotaIvaId = taxId, depositoId = depositId,
+                monedaEntrega = "USD"
+            };
+            var created = await client.PostAsJsonAsync("/api/ventas", Body("Creada sin líneas", 40m));
+            Assert.True(created.StatusCode == HttpStatusCode.Created,
+                $"POST returned {(int)created.StatusCode}: {await created.Content.ReadAsStringAsync()}");
+            var sale = await created.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>();
+            var saleId = sale.GetProperty("id").GetGuid();
+            var updated = await client.PutAsJsonAsync($"/api/ventas/{saleId}", Body("Editada sin líneas", 20m));
+            Assert.True(updated.StatusCode == HttpStatusCode.OK,
+                $"PUT returned {(int)updated.StatusCode}: {await updated.Content.ReadAsStringAsync()}");
+            var detail = await client.GetFromJsonAsync<System.Text.Json.JsonElement>($"/api/ventas/{saleId}");
+            Assert.Equal("Editada sin líneas", detail.GetProperty("observaciones").GetString());
+            Assert.Equal(20m, detail.GetProperty("montoEntrega").GetDecimal());
+        }
+        finally
+        {
+            NpgsqlConnection.ClearAllPools();
+            await using var master = new NpgsqlConnection(masterConnection); await master.OpenAsync();
+            await using var drop = master.CreateCommand();
+            drop.CommandText = $"DROP DATABASE IF EXISTS \"{databaseName}\" WITH (FORCE)";
+            await drop.ExecuteNonQueryAsync();
+        }
+    }
+
+    [Fact]
     public async Task SucursalAdministration_CreatesOwnDeposit_ProtectsData_AndDrivesReceiptFiscalData()
     {
         var masterConnection = SqlIntegrationEnvironment.ConnectionOrSkip();
@@ -355,7 +430,7 @@ public sealed class VentaEndpointIntegrationTests
         return await client.PutAsync($"/api/sucursales/{branchId}/logo", form);
     }
 
-    private sealed class VentaApiFactory(string connectionString) : WebApplicationFactory<Program>
+    private sealed class VentaApiFactory(string connectionString, bool enableRetry = true) : WebApplicationFactory<Program>
     {
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
@@ -370,10 +445,15 @@ public sealed class VentaEndpointIntegrationTests
             builder.ConfigureServices(services =>
             {
                 services.RemoveAll<DbContextOptions<AppDbContext>>();
+                services.RemoveAll<Microsoft.EntityFrameworkCore.Infrastructure.IDbContextOptionsConfiguration<AppDbContext>>();
                 services.RemoveAll<AppDbContext>();
-                services.AddDbContext<AppDbContext>(options => options.UseNpgsql(
-                    connectionString,
-                    sql => sql.EnableRetryOnFailure(maxRetryCount: 5, maxRetryDelay: TimeSpan.FromSeconds(5), errorCodesToAdd: null)));
+                services.AddDbContext<AppDbContext>(options =>
+                {
+                    if (enableRetry)
+                        options.UseNpgsql(connectionString, sql => sql.EnableRetryOnFailure(
+                            maxRetryCount: 5, maxRetryDelay: TimeSpan.FromSeconds(5), errorCodesToAdd: null));
+                    else options.UseNpgsql(connectionString);
+                });
             });
         }
     }
